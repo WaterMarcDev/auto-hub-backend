@@ -16,50 +16,17 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 // Handle CORS properly for production
-const getAllowedOrigins = () => {
-  const defaultOrigins = [
-    "https://www.wmshostings.us",
-    "https://wmshostings.us",
-    // "http://localhost:5173",
-    // "http://localhost:3000",
-  ];
-
-  // Allow additional origins from environment variable
-  const envOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
-    : [];
-
-  return [...defaultOrigins, ...envOrigins];
-};
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-
-    const allowedOrigins = getAllowedOrigins();
-    console.log("CORS check - Request origin:", origin);
-    console.log("CORS check - Allowed origins:", allowedOrigins);
-
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log("CORS blocked origin:", origin);
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Requested-With",
-    "Accept",
-    "Origin",
-  ],
-  exposedHeaders: ["Set-Cookie"],
-  optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
-};
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://wmshostings.us/",
+      "https://www.wmshostings.us/",
+    ],
+    credentials: true,
+    optionsSuccessStatus: 200,
+  })
+);
 
 app.use(
   helmet({
