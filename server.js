@@ -14,17 +14,61 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(helmet());
+// Handle CORS properly for production
+const getAllowedOrigins = () => {
+  const defaultOrigins = [
+    "https://www.wmshostings.us",
+    "https://wmshostings.us",
+    "http://localhost:5173",
+    "http://localhost:3000",
+  ];
+
+  // Allow additional origins from environment variable
+  const envOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
+    : [];
+
+  return [...defaultOrigins, ...envOrigins];
+};
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    const allowedOrigins = getAllowedOrigins();
+    console.log("CORS check - Request origin:", origin);
+    console.log("CORS check - Allowed origins:", allowedOrigins);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log("CORS blocked origin:", origin);
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+    "Origin",
+  ],
+  exposedHeaders: ["Set-Cookie"],
+  optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
+};
+
 app.use(
-  cors({
-    origin: [
-      "https://www.wmshostings.us",
-      "https://wmshostings.us",
-      "http://localhost:5173",
-    ],
-    credentials: true,
+  helmet({
+    crossOriginEmbedderPolicy: false,
   })
 );
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+// app.options("*", cors(corsOptions));
 
 // Logging middleware
 if (process.env.NODE_ENV === "production") {
@@ -42,11 +86,21 @@ app.use(addUserContext);
 
 // Routes
 app.get("/", (req, res) => {
-  res.json({ message: "AutoHub API is running!" });
+  res.json({
+    message: "AutoHub API is running!",
+    corsEnabled: true,
+    allowedOrigins: getAllowedOrigins(),
+    environment: process.env.NODE_ENV || "development",
+  });
 });
 
 app.get("/api/health", (req, res) => {
-  res.json({ status: "OK", timestamp: new Date().toISOString() });
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    corsEnabled: true,
+    allowedOrigins: getAllowedOrigins(),
+  });
 });
 
 // Auth routes
