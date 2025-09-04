@@ -17,7 +17,11 @@ const PORT = process.env.PORT || 5000;
 app.use(helmet());
 app.use(
   cors({
-    origin: "*",
+    origin: [
+      "https://www.wmshostings.us",
+      "https://wmshostings.us",
+      "http://localhost:5173",
+    ],
     credentials: true,
   })
 );
