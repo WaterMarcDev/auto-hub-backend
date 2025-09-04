@@ -18,8 +18,8 @@ app.use(helmet());
 app.use(
   cors({
     origin: [
-      "https://www.wmshostings.us/",
-      "https://wmshostings.us/",
+      "https://www.wmshostings.us",
+      "https://wmshostings.us",
       "http://localhost:5173",
     ],
     credentials: true,
