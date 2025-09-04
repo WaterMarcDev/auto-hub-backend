@@ -5,6 +5,7 @@ const cookieParser = require("cookie-parser");
 const connectDB = require("./config/database");
 const loggerConfig = require("./config/logger");
 const addUserContext = require("./middleware/logging");
+const morgan = require("morgan");
 require("dotenv").config();
 
 // Connect to MongoDB
@@ -71,13 +72,15 @@ app.use(cors(corsOptions));
 // app.options("*", cors(corsOptions));
 
 // Logging middleware
-if (process.env.NODE_ENV === "production") {
-  app.use(loggerConfig.production);
-  app.use(loggerConfig.error);
-} else {
-  app.use(loggerConfig.development);
-  app.use(loggerConfig.error);
-}
+// if (process.env.NODE_ENV === "production") {
+//   app.use(loggerConfig.production);
+//   app.use(loggerConfig.error);
+// } else {
+//   app.use(loggerConfig.development);
+//   app.use(loggerConfig.error);
+// }
+
+app.use(morgan("dev"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
