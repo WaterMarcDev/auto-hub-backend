@@ -14,17 +14,28 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(helmet());
+// app.use(helmet());
+// app.use(
+//   cors({
+//     origin: [
+//       "https://www.wmshostings.us",
+//       "https://wmshostings.us",
+//       "http://localhost:5173",
+//     ],
+//     credentials: true,
+//   })
+// );
+
 app.use(
   cors({
-    origin: [
-      "https://www.wmshostings.us",
-      "https://wmshostings.us",
-      "http://localhost:5173",
-    ],
-    credentials: true,
+    origin: true, // Reflects request origin
+    credentials: true, // Allow cookies/headers
+    // methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   })
 );
+
+// Handle preflight requests
+app.options("*", cors());
 
 // Logging middleware
 if (process.env.NODE_ENV === "production") {
