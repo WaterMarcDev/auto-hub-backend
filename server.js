@@ -20,8 +20,8 @@ const getAllowedOrigins = () => {
   const defaultOrigins = [
     "https://www.wmshostings.us",
     "https://wmshostings.us",
-    "http://localhost:5173",
-    "http://localhost:3000",
+    // "http://localhost:5173",
+    // "http://localhost:3000",
   ];
 
   // Allow additional origins from environment variable
