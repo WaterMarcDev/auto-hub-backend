@@ -19,22 +19,13 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
-      "https://specialolympicsbharat.net",
-      "https://www.specialolympicsbharat.net",
+      "https://wmshostings.us",
+      "https://www.wmshostings.us",
     ],
     credentials: true,
     optionsSuccessStatus: 200,
   })
 );
-
-// Logging middleware
-// if (process.env.NODE_ENV === "production") {
-//   app.use(loggerConfig.production);
-//   app.use(loggerConfig.error);
-// } else {
-//   app.use(loggerConfig.development);
-//   app.use(loggerConfig.error);
-// }
 
 app.use(morgan("dev"));
 
