@@ -55,7 +55,7 @@ app.use(addUserContext);
 // Routes
 app.get("/", (req, res) => {
   res.json({
-    message: "AutoHub API is running!",
+    message: "AutoHub API is running! fine",
     corsEnabled: true,
     allowedOrigins: [
       "http://localhost:5173",
