@@ -39,11 +39,11 @@ app.use(
   })
 );
 
-app.use(
-  helmet({
-    crossOriginEmbedderPolicy: false,
-  })
-);
+// app.use(
+//   helmet({
+//     crossOriginEmbedderPolicy: false,
+//   })
+// );
 // app.use(cors(corsOptions));
 
 // Handle preflight requests
