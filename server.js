@@ -44,7 +44,7 @@ app.use(
     crossOriginEmbedderPolicy: false,
   })
 );
-app.use(cors(corsOptions));
+// app.use(cors(corsOptions));
 
 // Handle preflight requests
 // app.options("*", cors(corsOptions));
