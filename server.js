@@ -15,39 +15,17 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-// Handle CORS properly for production
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://wmshostings.us",
-  "https://www.wmshostings.us",
-];
-
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // allow requests with no origin (like mobile apps, curl, Postman)
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("CORS not allowed for this origin: " + origin));
-      }
-    },
+    origin: [
+      "http://localhost:5173",
+      "https://specialolympicsbharat.net",
+      "https://www.specialolympicsbharat.net",
+    ],
     credentials: true,
     optionsSuccessStatus: 200,
   })
 );
-
-// app.use(
-//   helmet({
-//     crossOriginEmbedderPolicy: false,
-//   })
-// );
-// app.use(cors(corsOptions));
-
-// Handle preflight requests
-// app.options("*", cors(corsOptions));
 
 // Logging middleware
 // if (process.env.NODE_ENV === "production") {
@@ -70,7 +48,11 @@ app.get("/", (req, res) => {
   res.json({
     message: "AutoHub API is running!",
     corsEnabled: true,
-    allowedOrigins: getAllowedOrigins(),
+    allowedOrigins: [
+      "http://localhost:5173",
+      "https://specialolympicsbharat.net",
+      "https://www.specialolympicsbharat.net",
+    ],
     environment: process.env.NODE_ENV || "development",
   });
 });
@@ -80,7 +62,11 @@ app.get("/api/health", (req, res) => {
     status: "OK",
     timestamp: new Date().toISOString(),
     corsEnabled: true,
-    allowedOrigins: getAllowedOrigins(),
+    allowedOrigins: [
+      "http://localhost:5173",
+      "https://specialolympicsbharat.net",
+      "https://www.specialolympicsbharat.net",
+    ],
   });
 });
 
