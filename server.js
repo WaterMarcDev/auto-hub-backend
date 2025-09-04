@@ -28,7 +28,7 @@ const PORT = process.env.PORT || 5000;
 // );
 
 const allowlist = [
-  "http://localhost:5173",
+  // "http://localhost:5173",
   "https://wmshostings.us",
   "https://www.wmshostings.us",
 ];
@@ -39,8 +39,6 @@ const corsOptionsDelegate = (req, callback) => {
   callback(null, {
     origin: isAllowed ? origin : false, // exact echo or disallow
     credentials: true, // only useful if origin is not false
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
   });
 };
 
