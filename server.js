@@ -14,21 +14,9 @@ connectDB();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-// app.use(
-//   cors({
-//     origin: [
-// "http://localhost:5173",
-// "https://wmshostings.us",
-// "https://www.wmshostings.us",
-//     ],
-//     credentials: true,
-//     optionsSuccessStatus: 200,
-//   })
-// );
 
 const allowlist = [
-  // "http://localhost:5173",
+  "http://localhost:5173",
   "https://wmshostings.us",
   "https://www.wmshostings.us",
 ];
