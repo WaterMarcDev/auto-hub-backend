@@ -16,13 +16,24 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 // Handle CORS properly for production
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://wmshostings.us",
+  "https://www.wmshostings.us",
+];
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://wmshostings.us/",
-      "https://www.wmshostings.us/",
-    ],
+    origin: function (origin, callback) {
+      // allow requests with no origin (like mobile apps, curl, Postman)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("CORS not allowed for this origin: " + origin));
+      }
+    },
     credentials: true,
     optionsSuccessStatus: 200,
   })
