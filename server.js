@@ -32,13 +32,20 @@ const allowlist = [
   "https://wmshostings.us",
   "https://www.wmshostings.us",
 ];
-app.use(
-  cors({
-    origin: (origin, cb) =>
-      cb(null, allowlist.includes(origin) ? origin : false),
-    credentials: true,
-  })
-);
+
+const corsOptionsDelegate = (req, callback) => {
+  const origin = req.header("Origin");
+  const isAllowed = origin && allowlist.includes(origin);
+  callback(null, {
+    origin: isAllowed ? origin : false, // exact echo or disallow
+    credentials: true, // only useful if origin is not false
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  });
+};
+
+app.options("/{*path}", cors(corsOptionsDelegate)); // preflight
+app.use(cors(corsOptionsDelegate));
 
 app.use(morgan("dev"));
 
