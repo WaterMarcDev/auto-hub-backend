@@ -108,10 +108,6 @@ const createCarIntake = async (req, res) => {
         formData.sellingDate || new Date().toISOString().split("T")[0],
       pickupType: formData.pickupType || "You Pull",
       paymentMethod: formData.paymentMethod || "Cash",
-      paidAmount:
-        parseFloat(formData.paidAmount) ||
-        parseFloat(formData.paymentAmount) ||
-        0,
 
       // Images and documents
       imageDescription: formData.imageDescription || "",
@@ -162,7 +158,7 @@ const createCarIntake = async (req, res) => {
       // Step 3: Create Transaction with references to both
       const transaction = new Transaction({
         type: "credit", // Payment to seller
-        amount: carIntake.paidAmount,
+        amount: carIntake.finalPrice,
         paymentMethod: carIntake.paymentMethod,
         description:
           carIntake.paymentDescription ||
