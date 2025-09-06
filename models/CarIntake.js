@@ -378,13 +378,13 @@ const carIntakeSchema = new mongoose.Schema(
     // Step 6: Payment
     paymentMethod: {
       type: String,
-      enum: ["Cash", "Bank Transfer", "Zelle"],
-      required: [true, "Payment method is required"],
+      // enum: ["Cash", "Bank Transfer", "Zelle"],
+      // required: [true, "Payment method is required"],
     },
     paidAmount: {
       type: Number,
-      required: [true, "Paid amount is required"],
-      min: [0, "Paid amount cannot be negative"],
+      // required: [true, "Paid amount is required"],
+      // min: [0, "Paid amount cannot be negative"],
     },
     paymentDescription: {
       type: String,
