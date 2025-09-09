@@ -114,7 +114,7 @@ const carIntakeSchema = new mongoose.Schema(
     parts: {
       frontBumper: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -124,7 +124,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       rearBumper: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -134,7 +134,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       fender: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -144,7 +144,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       headlights: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -154,7 +154,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       hood: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -164,7 +164,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       doors: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -174,7 +174,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       sideMirrors: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -184,7 +184,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       seats: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -194,7 +194,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       odometer: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -204,7 +204,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       rimsTireSet: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -214,7 +214,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       acCompressor: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -224,7 +224,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       airIntakeManifold: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -234,7 +234,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       battery: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -244,7 +244,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       fuseBox: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -254,7 +254,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       windowSwitches: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -264,7 +264,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       engineControlModule: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -274,7 +274,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       engine: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -284,7 +284,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       transmissionPart: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -294,7 +294,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       trunkGate: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],
@@ -304,7 +304,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       latches: {
         selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 1 },
+        unit: { type: Number, default: 0 },
         quality: {
           type: String,
           enum: ["Good", "Average", "OK", "Broken", "Scratches"],

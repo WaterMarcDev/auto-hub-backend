@@ -8,23 +8,21 @@ const Transaction = require("../models/Transaction");
 const createCarIntake = async (req, res) => {
   try {
     console.log("Received car intake data:", req.body);
-    console.log("Received files:", req.files);
-    console.log("Form data keys:", Object.keys(req.body));
-    console.log("Seller fields:", {
-      "sellerData.firstName": req.body["sellerData.firstName"],
-      "sellerData.lastName": req.body["sellerData.lastName"],
-      "sellerData.email": req.body["sellerData.email"],
-      "sellerData.mobileNo": req.body["sellerData.mobileNo"],
-    });
 
     // Extract and parse form data
     const formData = req.body;
 
-    // Map KYC data to seller data - handle both JSON and FormData formats
-    let sellerData;
+    // Map KYC data to seller data (expect nested JSON `sellerData`)
+    let sellerData = {
+      firstName: "",
+      lastName: "",
+      email: "",
+      mobileNo: "",
+      description: "",
+      driversLicense: "",
+    };
 
     if (formData.sellerData && typeof formData.sellerData === "object") {
-      // JSON format - nested object
       sellerData = {
         firstName: formData.sellerData.firstName || "",
         lastName: formData.sellerData.lastName || "",
@@ -32,18 +30,8 @@ const createCarIntake = async (req, res) => {
         mobileNo: formData.sellerData.mobileNo || "",
         description:
           formData.sellerData.description || formData.kycDescription || "",
-        driversLicense: formData.driversLicense || "",
-      };
-    } else {
-      // FormData format - flattened with dot notation
-      sellerData = {
-        firstName: formData["sellerData.firstName"] || "",
-        lastName: formData["sellerData.lastName"] || "",
-        email: formData["sellerData.email"] || "",
-        mobileNo: formData["sellerData.mobileNo"] || "",
-        description:
-          formData["sellerData.description"] || formData.kycDescription || "",
-        driversLicense: formData.driversLicense || "",
+        driversLicense:
+          formData.documents.driversLicense || formData.driversLicense || "",
       };
     }
 
@@ -109,27 +97,12 @@ const createCarIntake = async (req, res) => {
       pickupType: formData.pickupType || "You Pull",
       paymentMethod: formData.paymentMethod || "Cash",
 
-      // Images and documents
       imageDescription: formData.imageDescription || "",
       partsDescription: formData.partsDescription || "",
       kycDescription: formData.kycDescription || "",
+      carImages: formData.carImages || {},
+      documents: formData.documents || {},
     };
-
-    // Handle file uploads
-    if (req.files && req.files.length > 0) {
-      carIntakeData.carImages = {};
-      carIntakeData.documents = {};
-
-      req.files.forEach((file) => {
-        if (file.fieldname.startsWith("carImages.")) {
-          const imageKey = file.fieldname.split(".")[1];
-          carIntakeData.carImages[imageKey] = file.path;
-        } else if (file.fieldname.startsWith("documents.")) {
-          const docKey = file.fieldname.split(".")[1];
-          carIntakeData.documents[docKey] = file.path;
-        }
-      });
-    }
 
     // Transaction data
     const transactionData = {
