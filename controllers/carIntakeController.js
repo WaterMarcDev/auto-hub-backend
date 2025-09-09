@@ -72,7 +72,19 @@ const createCarIntake = async (req, res) => {
       scrapYardName: formData.scrapYardName || "",
       scrapYardLocation: formData.scrapYardLocation || "",
       fuelType: formData.fuelType || "",
-      keys: formData.keys === "true" || false,
+      // Coerce keys to boolean. Accept frontend sending either `keys` or `hasKeys`.
+      keys: (() => {
+        const raw =
+          formData.keys !== undefined ? formData.keys : formData.hasKeys;
+        const v = raw;
+        if (typeof v === "boolean") return v;
+        if (typeof v === "number") return v === 1;
+        if (typeof v === "string") {
+          const s = v.trim().toLowerCase();
+          return s === "true" || s === "1" || s === "on";
+        }
+        return false;
+      })(),
       weight: parseFloat(formData.weight) || 0,
       dimensions: formData.dimensions || "",
       description: formData.description || "",
@@ -99,6 +111,8 @@ const createCarIntake = async (req, res) => {
 
       imageDescription: formData.imageDescription || "",
       partsDescription: formData.partsDescription || "",
+      // Accept parts data sent as `parts` or `diagnosis` from frontend
+      parts: formData.parts || formData.diagnosis || {},
       kycDescription: formData.kycDescription || "",
       carImages: formData.carImages || {},
       documents: formData.documents || {},
