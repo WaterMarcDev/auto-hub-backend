@@ -14,7 +14,6 @@ connectDB();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-
 const allowlist = [
   "http://localhost:5173",
   "https://wmshostings.us",
@@ -87,6 +86,9 @@ app.use("/api/upload", require("./routes/upload"));
 
 // VIN routes
 app.use("/api/vin", require("./routes/vin"));
+
+// Make routes
+app.use("/api/make", require("./routes/make.routes"));
 
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
