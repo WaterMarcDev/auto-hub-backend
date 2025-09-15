@@ -44,11 +44,7 @@ app.get("/", (req, res) => {
   res.json({
     message: "AutoHub API is running! fine",
     corsEnabled: true,
-    allowedOrigins: [
-      "http://localhost:5173",
-      "https://specialolympicsbharat.net",
-      "https://www.specialolympicsbharat.net",
-    ],
+    allowedOrigins: allowlist,
     environment: process.env.NODE_ENV || "development",
   });
 });
@@ -58,11 +54,7 @@ app.get("/api/health", (req, res) => {
     status: "OK",
     timestamp: new Date().toISOString(),
     corsEnabled: true,
-    allowedOrigins: [
-      "http://localhost:5173",
-      "https://specialolympicsbharat.net",
-      "https://www.specialolympicsbharat.net",
-    ],
+    allowedOrigins: allowlist,
   });
 });
 
@@ -89,6 +81,9 @@ app.use("/api/vin", require("./routes/vin"));
 
 // Make routes
 app.use("/api/make", require("./routes/make.routes"));
+
+// Model routes
+app.use("/api/model", require("./routes/model.routes"));
 
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
