@@ -89,7 +89,7 @@ app.use("/api/model", require("./routes/model.routes"));
 app.use("/api/trim", require("./routes/trim.routes"));
 
 // Part routes
-app.use("/api/parts", require("./routes/part.routes"));
+app.use("/api/part", require("./routes/part.routes"));
 
 // Elements routes
 app.use("/api/elements", require("./routes/element.routes"));
