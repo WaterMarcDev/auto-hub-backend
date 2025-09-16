@@ -92,7 +92,7 @@ app.use("/api/trim", require("./routes/trim.routes"));
 app.use("/api/part", require("./routes/part.routes"));
 
 // Elements routes
-app.use("/api/elements", require("./routes/element.routes"));
+app.use("/api/element", require("./routes/element.routes"));
 
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
