@@ -1,6 +1,23 @@
-const CarIntake = require("../models/CarIntake");
+const CarIntake = require("../models/carInTake.model");
 const Seller = require("../models/Seller");
 const Transaction = require("../models/Transaction");
+
+// Helper to normalize image values: accept string or object, return string (prefer url then filename)
+const normalizeImageValue = (val) => {
+  if (!val && val !== 0) return undefined;
+  if (typeof val === "string") return val;
+  if (typeof val === "object") {
+    if (val.url) return val.url;
+    if (val.filename) return val.filename;
+    if (val.name) return val.name;
+    try {
+      return JSON.stringify(val);
+    } catch (e) {
+      return undefined;
+    }
+  }
+  return String(val);
+};
 
 // @desc    Create new car intake (with seller and transaction)
 // @route   POST /api/car-intake
@@ -37,85 +54,167 @@ const createCarIntake = async (req, res) => {
 
     console.log("Mapped seller data:", sellerData);
 
-    // Validate seller data
-    if (
-      !sellerData.firstName ||
-      !sellerData.lastName ||
-      !sellerData.email ||
-      !sellerData.mobileNo
-    ) {
-      return res.status(400).json({
-        error: "Missing required seller data",
-        details: {
-          firstName: sellerData.firstName || "missing",
-          lastName: sellerData.lastName || "missing",
-          email: sellerData.email || "missing",
-          mobileNo: sellerData.mobileNo || "missing",
-        },
-      });
+    // If sellerData provided, validate required fields; otherwise allow draft creation
+    const hasSellerPayload = !!(
+      formData.sellerData ||
+      formData.firstName ||
+      formData.lastName ||
+      formData.mobileNo ||
+      formData.email
+    );
+
+    if (hasSellerPayload) {
+      if (
+        !sellerData.firstName ||
+        !sellerData.lastName ||
+        !sellerData.email ||
+        !sellerData.mobileNo
+      ) {
+        return res.status(400).json({
+          error: "Missing required seller data",
+          details: {
+            firstName: sellerData.firstName || "missing",
+            lastName: sellerData.lastName || "missing",
+            email: sellerData.email || "missing",
+            mobileNo: sellerData.mobileNo || "missing",
+          },
+        });
+      }
     }
 
-    // Prepare car intake data (excluding seller fields)
+    // Prepare car intake data (map flat form fields into nested step objects expected by model)
     const carIntakeData = {
       vin: formData.vin || "",
-      year: parseInt(formData.year) || new Date().getFullYear(),
-      make: formData.make || "",
-      model: formData.model || "",
-      trim: formData.trim || "",
-      color: formData.color || "",
-      bodyClass: formData.bodyClass || "",
-      chassisNo: formData.chassisNo || "",
-      engineNo: formData.engineNo || "",
-      engineVariant: formData.engineVariant || "",
-      drive: formData.drive || "",
-      transmission: formData.transmission || "",
-      scrapYardName: formData.scrapYardName || "",
-      scrapYardLocation: formData.scrapYardLocation || "",
-      fuelType: formData.fuelType || "",
-      // Coerce keys to boolean. Accept frontend sending either `keys` or `hasKeys`.
-      keys: (() => {
-        const raw =
-          formData.keys !== undefined ? formData.keys : formData.hasKeys;
-        const v = raw;
-        if (typeof v === "boolean") return v;
-        if (typeof v === "number") return v === 1;
-        if (typeof v === "string") {
-          const s = v.trim().toLowerCase();
-          return s === "true" || s === "1" || s === "on";
-        }
-        return false;
+      vinDetails: formData.vinDetails || {},
+      carDetails: {
+        year: parseInt(formData.year) || undefined,
+        make: formData.make || undefined,
+        model: formData.model || undefined,
+        trim: formData.trim || undefined,
+        color: formData.color || undefined,
+        bodyClass: formData.bodyClass || undefined,
+        chassisNo: formData.chassisNo || undefined,
+        engineNo: formData.engineNo || undefined,
+        engineVariant: formData.engineVariant || undefined,
+        drive: formData.drive || undefined,
+        transmission: formData.transmission || undefined,
+        scrapYardName: formData.scrapYardName || undefined,
+        scrapYardLocation: formData.scrapYardLocation || undefined,
+        fuelType: formData.fuelType || undefined,
+        keys: (() => {
+          const raw =
+            formData.keys !== undefined ? formData.keys : formData.hasKeys;
+          const v = raw;
+          if (typeof v === "boolean") return v;
+          if (typeof v === "number") return v === 1;
+          if (typeof v === "string") {
+            const s = v.trim().toLowerCase();
+            return s === "true" || s === "1" || s === "on";
+          }
+          return undefined;
+        })(),
+        weight:
+          formData.weight !== undefined ? String(formData.weight) : undefined,
+        dimensions: formData.dimensions || undefined,
+        description: formData.description || undefined,
+        carDetailsUploadedBy: req.user?._id,
+      },
+
+      imagesStep: (() => {
+        const defaults = {
+          image1: undefined,
+          image2: undefined,
+          image3: undefined,
+          image4: undefined,
+          image5: undefined,
+          image6: undefined,
+          image7: undefined,
+          image8: undefined,
+          engineImage: undefined,
+          bootImage: undefined,
+          belowVehicleImage: undefined,
+          fullVehicleImage: undefined,
+          imageDescription: formData.imageDescription || undefined,
+        };
+        const incoming = formData.carImages || {};
+        // Map known frontend keys to schema image keys
+        const keyMap = {
+          carImage1: "image1",
+          carImage2: "image2",
+          carImage3: "image3",
+          carImage4: "image4",
+          carImage5: "image5",
+          carImage6: "image6",
+          carImage7: "image7",
+          carImage8: "image8",
+          carEngineImage: "engineImage",
+          carBootImage: "bootImage",
+          belowVehicleImage: "belowVehicleImage",
+          fullVehicleImage: "fullVehicleImage",
+          imageDescription: "imageDescription",
+        };
+        Object.keys(keyMap).forEach((inKey) => {
+          if (incoming[inKey] !== undefined) {
+            defaults[keyMap[inKey]] = normalizeImageValue(incoming[inKey]);
+          }
+        });
+        return defaults;
       })(),
-      weight: parseFloat(formData.weight) || 0,
-      dimensions: formData.dimensions || "",
-      description: formData.description || "",
+      // mark who uploaded images
+      // We'll set imagesUploadedBy after creating the seller
 
-      // Price information
-      weightInPounds:
-        parseFloat(formData.weightInPounds) ||
-        parseFloat(formData.carWeight) ||
-        0,
-      ratePerPound:
-        parseFloat(formData.ratePerPound) || parseFloat(formData.rate) || 6,
-      actualPrice: parseFloat(formData.actualPrice) || 0,
-      ourPrice: parseFloat(formData.ourPrice) || 0,
-      customerPrice: parseFloat(formData.customerPrice) || 0,
-      negotiateTo: formData.negotiateTo || "",
-      finalPrice: parseFloat(formData.finalPrice) || 0,
-      priceDescription: formData.priceDescription || "",
+      parts: Object.assign({}, formData.parts || formData.diagnosis || {}, {
+        partsUploadedBy: req.user?._id,
+      }),
 
-      // Dates and other info
-      sellingDate:
-        formData.sellingDate || new Date().toISOString().split("T")[0],
-      pickupType: formData.pickupType || "You Pull",
-      paymentMethod: formData.paymentMethod || "Cash",
+      price: {
+        weightInPounds:
+          formData.weightInPounds !== undefined
+            ? parseFloat(formData.weightInPounds)
+            : undefined,
+        ratePerPound:
+          formData.ratePerPound !== undefined
+            ? parseFloat(formData.ratePerPound)
+            : undefined,
+        actualPrice:
+          formData.actualPrice !== undefined
+            ? parseFloat(formData.actualPrice)
+            : undefined,
+        ourPrice:
+          formData.ourPrice !== undefined
+            ? parseFloat(formData.ourPrice)
+            : undefined,
+        customerPrice:
+          formData.customerPrice !== undefined
+            ? parseFloat(formData.customerPrice)
+            : undefined,
+        negotiateTo: formData.negotiateTo || undefined,
+        finalPrice:
+          formData.finalPrice !== undefined
+            ? parseFloat(formData.finalPrice)
+            : undefined,
+        priceDescription: formData.priceDescription || undefined,
+        priceUploadedBy: req.user?._id,
+      },
 
-      imageDescription: formData.imageDescription || "",
-      partsDescription: formData.partsDescription || "",
-      // Accept parts data sent as `parts` or `diagnosis` from frontend
-      parts: formData.parts || formData.diagnosis || {},
-      kycDescription: formData.kycDescription || "",
-      carImages: formData.carImages || {},
-      documents: formData.documents || {},
+      kyc: {
+        // seller set after creating Seller
+        sellingDate: formData.sellingDate || undefined,
+        pickupType: formData.pickupType || undefined,
+        documents: formData.documents || {},
+        kycDescription: formData.kycDescription || undefined,
+        kycUploadedBy: req.user?._id,
+      },
+
+      payment: {
+        paymentMethod: formData.paymentMethod || undefined,
+        paidAmount:
+          formData.paidAmount !== undefined
+            ? parseFloat(formData.paidAmount)
+            : undefined,
+        paymentDescription: formData.paymentDescription || undefined,
+        paymentBy: req.user?._id,
+      },
     };
 
     // Transaction data
@@ -127,48 +226,90 @@ const createCarIntake = async (req, res) => {
 
     // Start creating records (without MongoDB transactions for single node setup)
     try {
-      // Step 1: Create Seller first
-      const seller = new Seller({
-        ...sellerData,
-        createdBy: req.user._id,
-      });
-      await seller.save();
+      // If we have seller payload, create Seller + CarIntake + Transaction (full flow)
+      if (hasSellerPayload) {
+        const seller = new Seller({
+          ...sellerData,
+          createdBy: req.user._id,
+        });
+        await seller.save();
 
-      // Step 2: Create Car Intake with seller reference
-      const carIntake = new CarIntake({
-        ...carIntakeData,
-        seller: seller._id,
-        createdBy: req.user._id,
-      });
-      await carIntake.save();
+        // After creating seller, set kyc.seller and images uploadedBy
+        carIntakeData.kyc.seller = seller._id;
+        carIntakeData.imagesStep.imagesUploadedBy = req.user?._id;
 
-      // Step 3: Create Transaction with references to both
-      const transaction = new Transaction({
-        type: "credit", // Payment to seller
-        amount: carIntake.finalPrice,
-        paymentMethod: carIntake.paymentMethod,
-        description:
-          carIntake.paymentDescription ||
-          `Payment for ${carIntake.year} ${carIntake.make} ${carIntake.model}`,
-        carIntake: carIntake._id,
-        seller: seller._id,
-        status: "completed",
-        createdBy: req.user._id,
-        ...transactionData,
-      });
-      await transaction.save();
+        const carIntake = new CarIntake({
+          ...carIntakeData,
+          seller: seller._id,
+          createdBy: req.user._id,
+        });
+        await carIntake.save();
 
-      // Populate references for response
-      const populatedCarIntake = await CarIntake.findById(carIntake._id)
-        .populate("seller", "firstName lastName email mobileNo")
-        .populate("createdBy", "first_name last_name email");
+        // Create Transaction with references to both if payment info present
+        let transaction = null;
+        if (carIntake.payment?.paidAmount || carIntake.payment?.paymentMethod) {
+          transaction = new Transaction({
+            type: "credit",
+            amount: carIntake.price?.finalPrice || carIntake.finalPrice || 0,
+            paymentMethod:
+              carIntake.payment?.paymentMethod || carIntake.paymentMethod,
+            description:
+              carIntake.payment?.paymentDescription ||
+              `Payment for ${carIntake.carDetails?.year || ""} ${
+                carIntake.carDetails?.make || ""
+              } ${carIntake.carDetails?.model || ""}`,
+            carIntake: carIntake._id,
+            seller: seller._id,
+            status: "completed",
+            createdBy: req.user._id,
+            ...transactionData,
+          });
+          await transaction.save();
+        }
 
-      res.status(201).json({
-        message: "Car intake created successfully",
-        carIntake: populatedCarIntake,
-        seller: seller,
-        transaction: transaction,
-      });
+        // Populate references for response
+        const populatedCarIntake = await CarIntake.findById(carIntake._id)
+          .populate("seller", "firstName lastName email mobileNo")
+          .populate("createdBy", "first_name last_name email");
+
+        res.status(201).json({
+          message: "Car intake created successfully",
+          carIntake: populatedCarIntake,
+          seller: seller,
+          transaction: transaction,
+        });
+      } else {
+        // No seller payload: create or return existing draft CarIntake (no Seller/Transaction yet)
+        carIntakeData.imagesStep.imagesUploadedBy = req.user?._id;
+
+        // If a CarIntake with same VIN already exists, return it instead of creating duplicate
+        if (carIntakeData.vin) {
+          const existing = await CarIntake.findOne({
+            vin: carIntakeData.vin,
+          }).populate("createdBy", "first_name last_name email");
+          if (existing) {
+            return res.status(200).json({
+              message: "Draft car intake already exists",
+              carIntake: existing,
+            });
+          }
+        }
+
+        const carIntake = new CarIntake({
+          ...carIntakeData,
+          createdBy: req.user._id,
+        });
+        await carIntake.save();
+
+        const populatedCarIntake = await CarIntake.findById(
+          carIntake._id
+        ).populate("createdBy", "first_name last_name email");
+
+        res.status(201).json({
+          message: "Draft car intake created",
+          carIntake: populatedCarIntake,
+        });
+      }
     } catch (error) {
       // Handle errors without transaction rollback
       console.error("Error creating car intake:", error);
@@ -272,30 +413,233 @@ const updateCarIntake = async (req, res) => {
     // Update without transactions for single node setup
     try {
       // Update seller if seller data provided
-      if (sellerData && carIntake.seller) {
-        await Seller.findByIdAndUpdate(carIntake.seller, {
-          ...sellerData,
-          updatedBy: req.user._id,
-        });
+      if (sellerData) {
+        if (carIntake.seller) {
+          await Seller.findByIdAndUpdate(carIntake.seller, {
+            ...sellerData,
+            updatedBy: req.user._id,
+          });
+        } else {
+          // create seller and attach to carIntake
+          const newSeller = new Seller({
+            ...sellerData,
+            createdBy: req.user._id,
+          });
+          await newSeller.save();
+          carIntake.seller = newSeller._id;
+          carIntake.kyc = carIntake.kyc || {};
+          carIntake.kyc.seller = newSeller._id;
+        }
       }
 
-      // Update car intake
-      Object.assign(carIntake, carIntakeData);
+      // Update car intake: map flat incoming fields into nested model fields and set uploadedBy user
+      // Car details
+      const cdFields = [
+        "year",
+        "make",
+        "model",
+        "trim",
+        "color",
+        "bodyClass",
+        "chassisNo",
+        "engineNo",
+        "engineVariant",
+        "drive",
+        "transmission",
+        "scrapYardName",
+        "scrapYardLocation",
+        "fuelType",
+        "keys",
+        "weight",
+        "dimensions",
+        "description",
+      ];
+      let anyCd = false;
+      cdFields.forEach((f) => {
+        if (carIntakeData[f] !== undefined) {
+          carIntake.carDetails = carIntake.carDetails || {};
+          carIntake.carDetails[f] = carIntakeData[f];
+          anyCd = true;
+        }
+      });
+      if (anyCd) {
+        carIntake.carDetails = carIntake.carDetails || {};
+        carIntake.carDetails.carDetailsUploadedBy = req.user._id;
+      }
+
+      // Images
+      if (carIntakeData.carImages) {
+        carIntake.imagesStep = carIntake.imagesStep || {};
+        const incomingImgs = carIntakeData.carImages || {};
+        const keyMap = {
+          carImage1: "image1",
+          carImage2: "image2",
+          carImage3: "image3",
+          carImage4: "image4",
+          carImage5: "image5",
+          carImage6: "image6",
+          carImage7: "image7",
+          carImage8: "image8",
+          carEngineImage: "engineImage",
+          carBootImage: "bootImage",
+          belowVehicleImage: "belowVehicleImage",
+          fullVehicleImage: "fullVehicleImage",
+          imageDescription: "imageDescription",
+        };
+        Object.keys(keyMap).forEach((inKey) => {
+          if (incomingImgs[inKey] !== undefined) {
+            carIntake.imagesStep[keyMap[inKey]] = normalizeImageValue(
+              incomingImgs[inKey]
+            );
+          }
+        });
+        carIntake.imagesStep.imagesUploadedBy = req.user._id;
+      }
+
+      // Parts
+      if (carIntakeData.parts) {
+        carIntake.parts = Object.assign(
+          carIntake.parts || {},
+          carIntakeData.parts
+        );
+        carIntake.parts.partsUploadedBy = req.user._id;
+      }
+
+      // Price
+      const priceFields = [
+        "weightInPounds",
+        "ratePerPound",
+        "actualPrice",
+        "ourPrice",
+        "customerPrice",
+        "negotiateTo",
+        "finalPrice",
+        "priceDescription",
+      ];
+      let anyPrice = false;
+      carIntake.price = carIntake.price || {};
+      priceFields.forEach((f) => {
+        if (carIntakeData[f] !== undefined) {
+          carIntake.price[f] = carIntakeData[f];
+          anyPrice = true;
+        }
+      });
+      if (anyPrice) {
+        carIntake.price = carIntake.price || {};
+        carIntake.price.priceUploadedBy = req.user._id;
+      }
+
+      // KYC
+      const kycFields = [
+        "sellingDate",
+        "pickupType",
+        "documents",
+        "kycDescription",
+      ];
+      let anyKyc = false;
+      carIntake.kyc = carIntake.kyc || {};
+      kycFields.forEach((f) => {
+        if (carIntakeData[f] !== undefined) {
+          if (f === "documents")
+            carIntake.kyc.documents = carIntakeData.documents;
+          else carIntake.kyc[f] = carIntakeData[f];
+          anyKyc = true;
+        }
+      });
+      if (anyKyc) {
+        carIntake.kyc = carIntake.kyc || {};
+        carIntake.kyc.kycUploadedBy = req.user._id;
+      }
+
+      // Payment
+      const payFields = ["paymentMethod", "paidAmount", "paymentDescription"];
+      let anyPay = false;
+      carIntake.payment = carIntake.payment || {};
+      payFields.forEach((f) => {
+        if (carIntakeData[f] !== undefined) {
+          if (f === "paidAmount")
+            carIntake.payment.paidAmount = carIntakeData.paidAmount;
+          else if (f === "paymentDescription")
+            carIntake.payment.paymentDescription =
+              carIntakeData.paymentDescription;
+          else carIntake.payment.paymentMethod = carIntakeData.paymentMethod;
+          anyPay = true;
+        }
+      });
+      if (anyPay) {
+        carIntake.payment = carIntake.payment || {};
+        carIntake.payment.paymentBy = req.user._id;
+      }
+
+      // Merge any remaining allowed top-level
+      const allowedTopLevel = [
+        "vin",
+        "vinDetails",
+        "status",
+        "isActive",
+        "createdBy",
+      ];
+      Object.keys(carIntakeData).forEach((k) => {
+        if (allowedTopLevel.includes(k)) carIntake[k] = carIntakeData[k];
+      });
+
       await carIntake.save();
+
+      // Determine incoming payment values from flat payload (if any)
+      const incomingPaid =
+        carIntakeData.paidAmount !== undefined
+          ? carIntakeData.paidAmount
+          : carIntakeData.payment && carIntakeData.payment.paidAmount;
+      const incomingMethod =
+        carIntakeData.paymentMethod !== undefined
+          ? carIntakeData.paymentMethod
+          : carIntakeData.payment && carIntakeData.payment.paymentMethod;
+      const incomingDesc =
+        carIntakeData.paymentDescription !== undefined
+          ? carIntakeData.paymentDescription
+          : carIntakeData.payment && carIntakeData.payment.paymentDescription;
+
+      // If payment details provided and transaction not exists, create one
+      if (
+        (transactionData ||
+          incomingPaid !== undefined ||
+          incomingMethod !== undefined) &&
+        !(await Transaction.findOne({ carIntake: carIntake._id }))
+      ) {
+        await new Transaction({
+          type: "credit",
+          amount:
+            incomingPaid ??
+            carIntake.payment?.paidAmount ??
+            carIntake.price?.finalPrice ??
+            0,
+          paymentMethod: incomingMethod ?? carIntake.payment?.paymentMethod,
+          description: incomingDesc ?? carIntake.payment?.paymentDescription,
+          carIntake: carIntake._id,
+          seller: carIntake.seller,
+          status: "completed",
+          createdBy: req.user._id,
+          ...transactionData,
+        }).save();
+      }
 
       // Update transaction if payment details changed
       if (
         transactionData ||
-        carIntake.paidAmount !== carIntakeData.paidAmount
+        incomingPaid !== undefined ||
+        incomingMethod !== undefined ||
+        incomingDesc !== undefined
       ) {
         await Transaction.findOneAndUpdate(
           { carIntake: carIntake._id },
           {
-            amount: carIntakeData.paidAmount || carIntake.paidAmount,
-            paymentMethod:
-              carIntakeData.paymentMethod || carIntake.paymentMethod,
-            description:
-              carIntakeData.paymentDescription || carIntake.paymentDescription,
+            amount:
+              incomingPaid ??
+              carIntake.payment?.paidAmount ??
+              carIntake.price?.finalPrice ??
+              0,
+            paymentMethod: incomingMethod ?? carIntake.payment?.paymentMethod,
+            description: incomingDesc ?? carIntake.payment?.paymentDescription,
             ...transactionData,
           }
         );

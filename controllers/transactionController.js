@@ -1,5 +1,5 @@
 const Transaction = require("../models/Transaction");
-const CarIntake = require("../models/CarIntake");
+const CarIntake = require("../models/carInTake.model");
 const Seller = require("../models/Seller");
 const { validationResult } = require("express-validator");
 

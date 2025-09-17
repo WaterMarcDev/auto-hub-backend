@@ -1,4 +1,5 @@
 const axios = require("axios");
+const CarIntake = require("../models/carInTake.model");
 
 // @desc    Get VIN details from external API
 // @route   GET /api/vin/:vinNumber
@@ -13,6 +14,25 @@ const getVinDetails = async (req, res) => {
       return res.status(400).json({
         error:
           "Invalid VIN format. VIN must be 17 characters long and contain only valid characters.",
+      });
+    }
+
+    // First check if we already have this VIN stored
+    const existing = await CarIntake.findOne({ vin: vinNumber })
+      .populate("seller", "firstName lastName email mobileNo")
+      .populate("createdBy", "first_name last_name email");
+
+    if (existing) {
+      // If we already stored raw VIN details, return them; otherwise map our carDetails
+      const vinData = existing.vinDetails;
+
+      return res.json({
+        success: true,
+        vinNumber,
+        data: vinData,
+        carIntake: existing,
+        source: "database",
+        timestamp: new Date().toISOString(),
       });
     }
 
@@ -32,11 +52,22 @@ const getVinDetails = async (req, res) => {
       });
     }
 
-    // Return raw response data without any transformation
+    // Persist VIN details into CarIntake (create draft or update existing by VIN)
+    const vinDetails = response.data;
+
+    // Upsert CarIntake by VIN: create if not exists, otherwise update vinDetails
+    const carIntake = await CarIntake.findOneAndUpdate(
+      { vin: vinNumber },
+      { vin: vinNumber, vinDetails: vinDetails },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).populate("createdBy", "first_name last_name email");
+
+    // Return VIN data + persisted CarIntake
     res.json({
       success: true,
       vinNumber: vinNumber,
-      data: response.data,
+      data: vinDetails,
+      carIntake,
       source: "MarketCheck API",
       timestamp: new Date().toISOString(),
     });
