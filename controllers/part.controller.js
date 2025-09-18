@@ -4,7 +4,8 @@ const Part = require("../models/Part.model");
 // @route   POST /api/parts
 const createPart = async (req, res) => {
   try {
-    const { name, shortName, unit, weight, dimensions, description } = req.body;
+    const { name, shortName, unit, weight, dimensions, image, description } =
+      req.body;
 
     // Check if part with the same name already exists
     const existingPart = await Part.findOne({ name });
@@ -20,6 +21,7 @@ const createPart = async (req, res) => {
       unit,
       weight,
       dimensions,
+      image,
       description,
     });
 
@@ -88,7 +90,8 @@ const getPartById = async (req, res) => {
 // @route   PUT /api/parts/:id
 const updatePart = async (req, res) => {
   try {
-    const { name, shortName, unit, weight, dimensions, description } = req.body;
+    const { name, shortName, unit, weight, dimensions, image, description } =
+      req.body;
 
     const part = await Part.findByIdAndUpdate(
       req.params.id,
@@ -98,6 +101,7 @@ const updatePart = async (req, res) => {
         unit,
         weight,
         dimensions,
+        image,
         description,
       },
       { new: true }
