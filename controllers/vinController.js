@@ -1,5 +1,23 @@
 const axios = require("axios");
 const CarIntake = require("../models/carInTake.model");
+// Normalize DriveType strings to allowed enum values: ["2WD","4WD","AWD","FWD"]
+const normalizeDriveType = (input) => {
+  if (input === undefined || input === null) return undefined;
+  const s = String(input).toLowerCase().trim();
+  // 4WD variants
+  if (/(^|[^a-z0-9])(4x4|4wd|4-?wheel|four[ -]?wheel)/i.test(s)) return "4WD";
+  // AWD / All-Wheel Drive
+  if (/(all[ -]?wheel|awd|all[ -]?wheel[ -]?drive)/i.test(s)) return "AWD";
+  // Front Wheel Drive
+  if (/(^|[^a-z0-9])(fwd|front[ -]?wheel|front[ -]?wheel[ -]?drive)/i.test(s))
+    return "FWD";
+  // Rear / RWD treat as 2WD (enum doesn't include RWD)
+  if (/(^|[^a-z0-9])(rwd|rear[ -]?wheel|rear[ -]?wheel[ -]?drive)/i.test(s))
+    return "2WD";
+  // Explicit 2WD
+  if (/(^|[^a-z0-9])(2wd|2-?wheel)/i.test(s)) return "2WD";
+  return undefined;
+};
 
 // @desc    Get VIN details from external API
 // @route   GET /api/vin/:vinNumber
@@ -37,7 +55,8 @@ const getVinDetails = async (req, res) => {
     }
 
     // Using MarketCheck API
-    const apiUrl = `https://mc-api.marketcheck.com/v2/decode/car/${vinNumber}/specs?api_key=FDVpZkQJjTxtsbKBND3bMOaEbivASsxD`;
+    // const apiUrl = `https://mc-api.marketcheck.com/v2/decode/car/${vinNumber}/specs?api_key=FDVpZkQJjTxtsbKBND3bMOaEbivASsxD`;
+    const apiUrl = `https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvaluesextended/${vinNumber}?format=json`;
 
     const response = await axios.get(apiUrl, {
       timeout: 10000, // 10 second timeout
@@ -53,26 +72,32 @@ const getVinDetails = async (req, res) => {
     }
 
     // Persist VIN details into CarIntake (create draft or update existing by VIN)
-    const vinDetails = response.data;
+    const vinDetails = response.data.Results[0];
 
     // Map VIN API fields to our carDetails shape (used as fallbacks)
     const mappedFromVin = {
       vin: vinNumber,
-      year: vinDetails?.year || vinDetails?.model_year || undefined,
-      make: vinDetails?.make || vinDetails?.manufacturer || undefined,
-      model: vinDetails?.model || vinDetails?.model_name || undefined,
-      trim: vinDetails?.trim || undefined,
+      year: vinDetails?.ModelYear || vinDetails?.model_year || undefined,
+      make: vinDetails?.Make || vinDetails?.manufacturer || undefined,
+      model: vinDetails?.Model || vinDetails?.model_name || undefined,
+      trim: vinDetails?.Trim || undefined,
       color: vinDetails?.exterior_color || undefined,
-      bodyClass: vinDetails?.body_type || undefined,
-      drive: vinDetails?.drivetrain || undefined,
-      transmission: vinDetails?.transmission || undefined,
-      fuelType: vinDetails?.fuel_type || undefined,
-      engineVariant: vinDetails?.engine || vinDetails?.engine_code || undefined,
+      bodyClass: vinDetails?.BodyClass || undefined,
+      drive:
+        normalizeDriveType(
+          vinDetails?.DriveType ||
+            vinDetails?.Drive ||
+            vinDetails?.drive ||
+            vinDetails?.drive_type
+        ) ||
+        vinDetails?.DriveType ||
+        undefined,
+      transmission: vinDetails?.Transmission || undefined,
+      fuelType: vinDetails?.FuelTypePrimary || undefined,
+      engineVariant:
+        vinDetails?.EngineModel || vinDetails?.engine_code || undefined,
       chassisNo: vinNumber,
-      dimensions:
-        `${vinDetails?.overall_length || ""} x ${
-          vinDetails?.overall_width || ""
-        } x ${vinDetails?.overall_height || ""}`.trim() || "",
+      weight: vinDetails?.GVWR || "",
     };
     // If a CarIntake exists, merge mapped VIN values into carDetails (without
     // overwriting non-empty existing fields), persist vinDetails and merged

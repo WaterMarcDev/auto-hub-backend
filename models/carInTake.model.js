@@ -322,7 +322,7 @@ const carIntakeSchema = new mongoose.Schema(
 
     // Step 4: Car Price (grouped)
     price: {
-      weightInPounds: {
+      actualWeight: {
         type: Number,
         min: [0, "Weight cannot be negative"],
       },

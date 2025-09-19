@@ -264,9 +264,9 @@ const createCarIntake = async (req, res) => {
       }),
 
       price: {
-        weightInPounds:
-          formData.weightInPounds !== undefined
-            ? parseFloat(formData.weightInPounds)
+        actualWeight:
+          formData.actualWeight !== undefined
+            ? parseFloat(formData.actualWeight)
             : undefined,
         ratePerPound:
           formData.ratePerPound !== undefined
@@ -626,7 +626,7 @@ const updateCarIntake = async (req, res) => {
 
       // Price
       const priceFields = [
-        "weightInPounds",
+        "actualWeight",
         "ratePerPound",
         "actualPrice",
         "ourPrice",
