@@ -360,7 +360,10 @@ const carIntakeSchema = new mongoose.Schema(
     kyc: {
       seller: { type: mongoose.Schema.Types.ObjectId, ref: "Seller" },
       sellingDate: { type: Date },
-      pickupType: { type: String, enum: ["You Pull", "We Pull"] },
+      pickupType: {
+        type: String,
+        enum: ["You Pull", "We Pull", "Bulk", "Location"],
+      },
       documents: {
         driversLicense: String,
         carRegistration: String,

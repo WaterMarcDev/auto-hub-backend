@@ -55,12 +55,75 @@ const getVinDetails = async (req, res) => {
     // Persist VIN details into CarIntake (create draft or update existing by VIN)
     const vinDetails = response.data;
 
-    // Upsert CarIntake by VIN: create if not exists, otherwise update vinDetails
-    const carIntake = await CarIntake.findOneAndUpdate(
-      { vin: vinNumber },
-      { vin: vinNumber, vinDetails: vinDetails },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
-    ).populate("createdBy", "first_name last_name email");
+    // Map VIN API fields to our carDetails shape (used as fallbacks)
+    const mappedFromVin = {
+      vin: vinNumber,
+      year: vinDetails?.year || vinDetails?.model_year || undefined,
+      make: vinDetails?.make || vinDetails?.manufacturer || undefined,
+      model: vinDetails?.model || vinDetails?.model_name || undefined,
+      trim: vinDetails?.trim || undefined,
+      color: vinDetails?.exterior_color || undefined,
+      bodyClass: vinDetails?.body_type || undefined,
+      drive: vinDetails?.drivetrain || undefined,
+      transmission: vinDetails?.transmission || undefined,
+      fuelType: vinDetails?.fuel_type || undefined,
+      engineVariant: vinDetails?.engine || vinDetails?.engine_code || undefined,
+      chassisNo: vinNumber,
+      dimensions:
+        `${vinDetails?.overall_length || ""} x ${
+          vinDetails?.overall_width || ""
+        } x ${vinDetails?.overall_height || ""}`.trim() || "",
+    };
+    // If a CarIntake exists, merge mapped VIN values into carDetails (without
+    // overwriting non-empty existing fields), persist vinDetails and merged
+    // carDetails, and return the populated document. If none exists, create
+    // a new CarIntake using the mapped VIN data.
+    let carIntake = await CarIntake.findOne({ vin: vinNumber });
+
+    if (carIntake) {
+      // Merge mapped VIN data into carIntake.carDetails without overwriting existing non-empty values
+      const existingDetails = carIntake.carDetails || {};
+      const merged = { ...mappedFromVin };
+      Object.keys(mappedFromVin).forEach((key) => {
+        if (
+          existingDetails[key] !== undefined &&
+          existingDetails[key] !== null &&
+          existingDetails[key] !== ""
+        ) {
+          merged[key] = existingDetails[key];
+        }
+      });
+
+      carIntake.carDetails = merged;
+      carIntake.vinDetails = vinDetails;
+      // Ensure top-level vin is set on the document as well
+      carIntake.vin = vinNumber;
+      // If this record is still in intake state, move to vin-fetched and save
+      try {
+        if (!carIntake.status || carIntake.status === "intake") {
+          carIntake.status = "vin-fetched";
+        }
+      } catch (e) {
+        // ignore
+      }
+      await carIntake.save();
+
+      carIntake = await CarIntake.findById(carIntake._id)
+        .populate("seller", "firstName lastName email mobileNo")
+        .populate("createdBy", "first_name last_name email");
+    } else {
+      // Create a new CarIntake document using mapped VIN data and mark status
+      carIntake = await CarIntake.create({
+        vin: vinNumber,
+        vinDetails,
+        carDetails: mappedFromVin,
+        status: "vin-fetched",
+      });
+
+      carIntake = await CarIntake.findById(carIntake._id)
+        .populate("seller", "firstName lastName email mobileNo")
+        .populate("createdBy", "first_name last_name email");
+    }
 
     // Return VIN data + persisted CarIntake
     res.json({

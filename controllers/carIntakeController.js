@@ -19,6 +19,102 @@ const normalizeImageValue = (val) => {
   return String(val);
 };
 
+// Helper to detect payment presence (treat 0 and '0' as valid paid amounts)
+const hasPaymentIn = (data) => {
+  if (!data) return false;
+  const pa = data.payment && data.payment.paidAmount;
+  const topPa = data.paidAmount;
+  const val = pa !== undefined ? pa : topPa;
+  const hasPaid =
+    val !== undefined &&
+    val !== null &&
+    val !== "" &&
+    !Number.isNaN(Number(val));
+
+  const pm = data.payment && data.payment.paymentMethod;
+  const topPm = data.paymentMethod;
+  const method = pm !== undefined ? pm : topPm;
+  const hasMethod =
+    method !== undefined && method !== null && String(method).trim() !== "";
+
+  return hasPaid || hasMethod;
+};
+
+// Determine status based on which step data is present
+const computeStatusFrom = (data) => {
+  // prefer explicit status if provided and valid
+  try {
+    const enumValues = CarIntake.schema.path("status").enumValues || [];
+    if (data && data.status && enumValues.includes(data.status))
+      return data.status;
+  } catch (e) {
+    // ignore and compute
+  }
+
+  const has = (obj) => obj && Object.keys(obj).length > 0;
+
+  // Payment done (highest priority)
+  if (hasPaymentIn(data)) return "payment-done";
+
+  // KYC provided
+  if (data && data.kyc && data.kyc.seller) return "kyc-uploaded";
+
+  // Price provided
+  if (
+    data &&
+    data.price &&
+    (data.price.finalPrice || data.price.ourPrice || data.price.actualPrice)
+  )
+    return "price-uploaded";
+
+  // Parts/diagnosis provided
+  if (data && data.parts) {
+    const p = data.parts;
+    const partKeys = Object.keys(p || {}).filter(
+      (k) => k !== "partsUploadedBy" && k !== "partsDescription"
+    );
+    for (const k of partKeys) {
+      const v = p[k];
+      if (
+        v &&
+        (v.selected === true || (v.unit && v.unit > 0) || typeof v === "string")
+      )
+        return "parts-uploaded";
+    }
+  }
+
+  // Images provided
+  if (data && data.imagesStep) {
+    const imgs = data.imagesStep;
+    const imgKeys = [
+      "image1",
+      "image2",
+      "image3",
+      "image4",
+      "image5",
+      "image6",
+      "image7",
+      "image8",
+      "engineImage",
+      "bootImage",
+      "belowVehicleImage",
+      "fullVehicleImage",
+    ];
+    for (const k of imgKeys) if (imgs[k]) return "images-uploaded";
+  }
+
+  // Car details provided
+  if (data && data.carDetails) {
+    const cd = data.carDetails;
+    if (cd.make || cd.model || cd.year) return "details-uploaded";
+  }
+
+  // VIN fetched
+  if (data && data.vin) return "vin-fetched";
+
+  return "intake";
+};
+
 // @desc    Create new car intake (with seller and transaction)
 // @route   POST /api/car-intake
 // @access  Private
@@ -238,6 +334,18 @@ const createCarIntake = async (req, res) => {
         carIntakeData.kyc.seller = seller._id;
         carIntakeData.imagesStep.imagesUploadedBy = req.user?._id;
 
+        // honor frontend-provided status if valid, otherwise compute
+        try {
+          const enumValues = CarIntake.schema.path("status").enumValues || [];
+          if (formData.status && enumValues.includes(formData.status)) {
+            carIntakeData.status = formData.status;
+          } else {
+            carIntakeData.status = computeStatusFrom(carIntakeData);
+          }
+        } catch (e) {
+          carIntakeData.status = computeStatusFrom(carIntakeData);
+        }
+
         const carIntake = new CarIntake({
           ...carIntakeData,
           seller: seller._id,
@@ -247,7 +355,7 @@ const createCarIntake = async (req, res) => {
 
         // Create Transaction with references to both if payment info present
         let transaction = null;
-        if (carIntake.payment?.paidAmount || carIntake.payment?.paymentMethod) {
+        if (hasPaymentIn(carIntake)) {
           transaction = new Transaction({
             type: "credit",
             amount: carIntake.price?.finalPrice || carIntake.finalPrice || 0,
@@ -293,6 +401,17 @@ const createCarIntake = async (req, res) => {
               carIntake: existing,
             });
           }
+        }
+
+        try {
+          const enumValues = CarIntake.schema.path("status").enumValues || [];
+          if (formData.status && enumValues.includes(formData.status)) {
+            carIntakeData.status = formData.status;
+          } else {
+            carIntakeData.status = computeStatusFrom(carIntakeData);
+          }
+        } catch (e) {
+          carIntakeData.status = computeStatusFrom(carIntakeData);
         }
 
         const carIntake = new CarIntake({
@@ -580,8 +699,45 @@ const updateCarIntake = async (req, res) => {
         "createdBy",
       ];
       Object.keys(carIntakeData).forEach((k) => {
-        if (allowedTopLevel.includes(k)) carIntake[k] = carIntakeData[k];
+        if (allowedTopLevel.includes(k)) {
+          // If status provided from frontend, only accept if it's in enum
+          if (k === "status") {
+            try {
+              const enumValues =
+                CarIntake.schema.path("status").enumValues || [];
+              if (enumValues.includes(carIntakeData.status))
+                carIntake.status = carIntakeData.status;
+            } catch (e) {
+              // ignore
+            }
+          } else {
+            carIntake[k] = carIntakeData[k];
+          }
+        }
       });
+
+      // Recompute status based on new data and existing record, but do not
+      // overwrite a valid status sent by the frontend in this update request.
+      try {
+        const enumValues = CarIntake.schema.path("status").enumValues || [];
+        const merged = Object.assign({}, carIntake.toObject(), {});
+        const computed = computeStatusFrom(merged);
+
+        // If frontend provided a valid status in this payload, prefer it.
+        if (carIntakeData.status && enumValues.includes(carIntakeData.status)) {
+          carIntake.status = carIntakeData.status;
+          console.log(
+            `CarIntake ${carIntake._id} status set from frontend: ${carIntake.status}`
+          );
+        } else {
+          carIntake.status = computed;
+          console.log(
+            `CarIntake ${carIntake._id} status computed: ${carIntake.status}`
+          );
+        }
+      } catch (e) {
+        // ignore and keep existing status
+      }
 
       await carIntake.save();
 
@@ -700,7 +856,9 @@ const updateCarIntakeStatus = async (req, res) => {
   try {
     const { status } = req.body;
 
-    if (!["intake", "in-progress", "completed", "cancelled"].includes(status)) {
+    // validate against model enum values
+    const enumValues = CarIntake.schema.path("status").enumValues || [];
+    if (!enumValues.includes(status)) {
       return res.status(400).json({ error: "Invalid status" });
     }
 
