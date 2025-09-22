@@ -135,7 +135,45 @@ const getInventoryByVIN = async (req, res) => {
   }
 };
 
+// @desc    Get all inventory items
+// @route   GET /api/inventory
+// @access  Private
+const getAllInventories = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (req.query.make) filter.make = req.query.make;
+    if (req.query.model) filter.model = req.query.model;
+    if (req.query.trim) filter.trim = req.query.trim;
+    if (req.query.search) {
+      filter.partName = { $regex: req.query.search, $options: "i" };
+    }
+
+    const total = await Inventory.countDocuments(filter);
+
+    const inventories = await Inventory.find(filter)
+      .populate("make")
+      .populate("model")
+      .populate("trim")
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      inventories,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    console.error("Get inventories error:", error);
+    res.status(500).json({ message: "Server error while fetching inventory" });
+  }
+};
+
 module.exports = {
   createInventory,
   getInventoryByVIN,
+  getAllInventories,
 };

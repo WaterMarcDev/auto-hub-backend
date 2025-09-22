@@ -463,6 +463,43 @@ const getCarIntakes = async (req, res) => {
     if (req.query.year) {
       filter.year = req.query.year;
     }
+    // Support free-text search across vin, make, model, trim and seller fields
+    if (req.query.search) {
+      const searchTerm = String(req.query.search).trim();
+      if (searchTerm.length) {
+        const re = new RegExp(
+          searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          "i"
+        );
+
+        // find sellers that match search (email/name/phone)
+        let sellerIds = [];
+        try {
+          const sellers = await Seller.find({
+            $or: [
+              { email: re },
+              { firstName: re },
+              { lastName: re },
+              { mobileNo: re },
+            ],
+          }).select("_id");
+          sellerIds = (sellers || []).map((s) => s._id);
+        } catch (e) {
+          // ignore seller lookup errors and continue with other fields
+          sellerIds = [];
+        }
+
+        const orArray = [
+          { vin: re },
+          { "carDetails.make": re },
+          { "carDetails.model": re },
+          { "carDetails.trim": re },
+        ];
+        if (sellerIds.length) orArray.push({ seller: { $in: sellerIds } });
+
+        filter.$or = orArray;
+      }
+    }
 
     const carIntakes = await CarIntake.find(filter)
       .populate("seller", "firstName lastName email mobileNo")
