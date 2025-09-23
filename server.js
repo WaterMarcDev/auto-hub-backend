@@ -94,6 +94,9 @@ app.use("/api/part", require("./routes/part.routes"));
 // Elements routes
 app.use("/api/element", require("./routes/element.routes"));
 
+// Scrap Element routes
+app.use("/api/scrap-element", require("./routes/scrapElement.routes"));
+
 // Inventory routes
 app.use("/api/inventory", require("./routes/inventory.routes"));
 

@@ -396,6 +396,7 @@ const carIntakeSchema = new mongoose.Schema(
         "payment-done",
         "part-added-to-inventory",
         "car-added-to-inventory",
+        "elements-scraped",
         "scraped",
         "intake",
         "in-progress",
