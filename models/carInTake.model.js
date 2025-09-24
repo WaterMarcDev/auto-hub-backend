@@ -41,7 +41,7 @@ const carIntakeSchema = new mongoose.Schema(
         type: String,
         trim: true,
       },
-      engineNo: {
+      displacementCC: {
         type: String,
         trim: true,
       },

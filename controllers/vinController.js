@@ -37,7 +37,10 @@ const getVinDetails = async (req, res) => {
 
     // First check if we already have this VIN stored
     const existing = await CarIntake.findOne({ vin: vinNumber })
-      .populate("seller", "firstName lastName email mobileNo")
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
       .populate("createdBy", "first_name last_name email");
 
     if (existing) {
@@ -98,6 +101,7 @@ const getVinDetails = async (req, res) => {
         vinDetails?.EngineModel || vinDetails?.engine_code || undefined,
       chassisNo: vinNumber,
       weight: vinDetails?.GVWR || "",
+      displacementCC: vinDetails?.DisplacementCC || undefined,
     };
     // If a CarIntake exists, merge mapped VIN values into carDetails (without
     // overwriting non-empty existing fields), persist vinDetails and merged
@@ -134,7 +138,10 @@ const getVinDetails = async (req, res) => {
       await carIntake.save();
 
       carIntake = await CarIntake.findById(carIntake._id)
-        .populate("seller", "firstName lastName email mobileNo")
+        .populate(
+          "seller",
+          "firstName lastName email mobileNo driversLicense description"
+        )
         .populate("createdBy", "first_name last_name email");
     } else {
       // Create a new CarIntake document using mapped VIN data and mark status
@@ -146,7 +153,10 @@ const getVinDetails = async (req, res) => {
       });
 
       carIntake = await CarIntake.findById(carIntake._id)
-        .populate("seller", "firstName lastName email mobileNo")
+        .populate(
+          "seller",
+          "firstName lastName email mobileNo driversLicense description"
+        )
         .populate("createdBy", "first_name last_name email");
     }
 

@@ -26,7 +26,10 @@ const createTransaction = async (req, res) => {
 
     const populatedTransaction = await Transaction.findById(transaction._id)
       .populate("carIntake", "vin make model year")
-      .populate("seller", "firstName lastName email")
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
       .populate("createdBy", "first_name last_name email");
 
     res.status(201).json({
@@ -74,7 +77,10 @@ const getTransactions = async (req, res) => {
 
     const transactions = await Transaction.find(filter)
       .populate("carIntake", "vin make model year finalPrice")
-      .populate("seller", "firstName lastName email mobileNo")
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
       .populate("createdBy", "first_name last_name email")
       .sort({ transactionDate: -1 })
       .skip(skip)
@@ -104,7 +110,10 @@ const getTransaction = async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id)
       .populate("carIntake", "vin make model year finalPrice status")
-      .populate("seller", "firstName lastName email mobileNo")
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
       .populate("createdBy", "first_name last_name email");
 
     if (!transaction || !transaction.isActive) {
@@ -143,7 +152,10 @@ const updateTransaction = async (req, res) => {
 
     const updatedTransaction = await Transaction.findById(transaction._id)
       .populate("carIntake", "vin make model year finalPrice")
-      .populate("seller", "firstName lastName email")
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
       .populate("createdBy", "first_name last_name email");
 
     res.json({
@@ -176,7 +188,10 @@ const updateTransactionStatus = async (req, res) => {
       { new: true }
     )
       .populate("carIntake", "vin make model year")
-      .populate("seller", "firstName lastName email");
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      );
 
     if (!transaction) {
       return res.status(404).json({ error: "Transaction not found" });
@@ -229,7 +244,10 @@ const getTransactionsByCarIntake = async (req, res) => {
       carIntake: carIntakeId,
       isActive: true,
     })
-      .populate("seller", "firstName lastName email")
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
       .populate("createdBy", "first_name last_name email")
       .sort({ transactionDate: -1 });
 

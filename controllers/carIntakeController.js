@@ -132,7 +132,9 @@ const createCarIntake = async (req, res) => {
       email: "",
       mobileNo: "",
       description: "",
-      driversLicense: "",
+      driversLicense: normalizeImageValue(
+        formData?.documents?.driversLicense ?? formData?.driversLicense ?? ""
+      ),
     };
 
     if (formData.sellerData && typeof formData.sellerData === "object") {
@@ -143,8 +145,16 @@ const createCarIntake = async (req, res) => {
         mobileNo: formData.sellerData.mobileNo || "",
         description:
           formData.sellerData.description || formData.kycDescription || "",
-        driversLicense:
-          formData.documents.driversLicense || formData.driversLicense || "",
+        // Accept drivers license from several possible locations the frontend
+        // might send it: nested sellerData.documents, top-level documents,
+        // or direct driversLicense field. Normalize to a string/file path.
+        driversLicense: normalizeImageValue(
+          formData.sellerData?.documents?.driversLicense ??
+            formData.sellerData?.driversLicense ??
+            formData.documents?.driversLicense ??
+            formData.driversLicense ??
+            ""
+        ),
       };
     }
 
@@ -190,7 +200,8 @@ const createCarIntake = async (req, res) => {
         color: formData.color || undefined,
         bodyClass: formData.bodyClass || undefined,
         chassisNo: formData.chassisNo || undefined,
-        engineNo: formData.engineNo || undefined,
+        displacementCC:
+          formData.displacementCC || formData.engineNo || undefined,
         engineVariant: formData.engineVariant || undefined,
         drive: formData.drive || undefined,
         transmission: formData.transmission || undefined,
@@ -352,7 +363,10 @@ const createCarIntake = async (req, res) => {
         await carIntake.save();
 
         const populatedCarIntake = await CarIntake.findById(carIntake._id)
-          .populate("seller", "firstName lastName email mobileNo")
+          .populate(
+            "seller",
+            "firstName lastName email mobileNo driversLicense description"
+          )
           .populate("createdBy", "first_name last_name email");
 
         return res.status(201).json({
@@ -417,7 +431,10 @@ const createCarIntake = async (req, res) => {
 
         // Populate references for response
         const populatedCarIntake = await CarIntake.findById(carIntake._id)
-          .populate("seller", "firstName lastName email mobileNo")
+          .populate(
+            "seller",
+            "firstName lastName email mobileNo driversLicense description"
+          )
           .populate("createdBy", "first_name last_name email");
 
         res.status(201).json({
@@ -542,7 +559,10 @@ const getCarIntakes = async (req, res) => {
     }
 
     const carIntakes = await CarIntake.find(filter)
-      .populate("seller", "firstName lastName email mobileNo")
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
       .populate("createdBy", "first_name last_name email")
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -571,10 +591,10 @@ const getCarIntakes = async (req, res) => {
 const getCarIntake = async (req, res) => {
   try {
     const carIntake = await CarIntake.findById(req.params.id)
-      .populate(
-        "seller",
-        "firstName lastName email mobileNo driversLicense description"
-      )
+        .populate(
+          "seller",
+          "firstName lastName email mobileNo driversLicense description"
+        )
       .populate("createdBy", "first_name last_name email");
 
     if (!carIntake) {
@@ -604,6 +624,21 @@ const updateCarIntake = async (req, res) => {
     const carIntake = await CarIntake.findById(req.params.id);
     if (!carIntake) {
       return res.status(404).json({ error: "Car intake not found" });
+    }
+
+    // Normalize driversLicense if provided in various places so seller updates
+    // receive the correct file/path string.
+    if (sellerData) {
+      const dlCandidate =
+        sellerData?.documents?.driversLicense ??
+        sellerData?.driversLicense ??
+        req.body?.documents?.driversLicense ??
+        req.body?.driversLicense ??
+        carIntake?.kyc?.documents?.driversLicense ??
+        null;
+      if (dlCandidate) {
+        sellerData.driversLicense = normalizeImageValue(dlCandidate);
+      }
     }
 
     // Update without transactions for single node setup
@@ -650,7 +685,7 @@ const updateCarIntake = async (req, res) => {
         "color",
         "bodyClass",
         "chassisNo",
-        "engineNo",
+        "displacementCC",
         "engineVariant",
         "drive",
         "transmission",
@@ -907,7 +942,10 @@ const updateCarIntake = async (req, res) => {
       }
 
       const updatedCarIntake = await CarIntake.findById(carIntake._id)
-        .populate("seller", "firstName lastName email mobileNo")
+        .populate(
+          "seller",
+          "firstName lastName email mobileNo driversLicense description"
+        )
         .populate("createdBy", "first_name last_name email");
 
       res.json({
@@ -971,7 +1009,10 @@ const updateCarIntakeStatus = async (req, res) => {
       req.params.id,
       { status },
       { new: true }
-    ).populate("seller", "firstName lastName email mobileNo");
+    ).populate(
+      "seller",
+      "firstName lastName email mobileNo driversLicense description"
+    );
 
     if (!carIntake) {
       return res.status(404).json({ error: "Car intake not found" });
