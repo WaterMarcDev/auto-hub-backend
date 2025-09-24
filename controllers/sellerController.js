@@ -71,6 +71,10 @@ const getSellers = async (req, res) => {
     const sellers = await Seller.find(filter)
       .populate("createdBy", "first_name last_name email")
       .populate("updatedBy", "first_name last_name email")
+      .populate({
+        path: "carIntakes",
+        options: { sort: { createdAt: -1 } },
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -99,7 +103,12 @@ const getSeller = async (req, res) => {
   try {
     const seller = await Seller.findById(req.params.id)
       .populate("createdBy", "first_name last_name email")
-      .populate("updatedBy", "first_name last_name email");
+      .populate("updatedBy", "first_name last_name email")
+      .populate({
+        path: "carIntakes",
+        select: "vin carDetails price.finalPrice status createdAt",
+        options: { sort: { createdAt: -1 } },
+      });
 
     if (!seller || !seller.isActive) {
       return res.status(404).json({ error: "Seller not found" });

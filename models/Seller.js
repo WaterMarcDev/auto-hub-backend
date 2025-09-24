@@ -72,4 +72,16 @@ sellerSchema.virtual("fullName").get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
+// Virtual to list car intakes sold by this seller
+sellerSchema.virtual("carIntakes", {
+  ref: "CarIntake",
+  localField: "_id",
+  foreignField: "seller",
+  justOne: false,
+});
+
+// Ensure virtuals are included when converting to JSON / Objects
+sellerSchema.set("toObject", { virtuals: true });
+sellerSchema.set("toJSON", { virtuals: true });
+
 module.exports = mongoose.model("Seller", sellerSchema);
