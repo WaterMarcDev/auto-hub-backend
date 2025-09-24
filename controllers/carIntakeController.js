@@ -512,7 +512,27 @@ const getCarIntakes = async (req, res) => {
     // Build filter object
     const filter = { isActive: true };
     if (req.query.status) {
-      filter.status = req.query.status;
+      // Support multiple status values. Accept formats:
+      // - ?status=kyc-uploaded
+      // - ?status=kyc-uploaded,payment-done
+      // - ?status=kyc-uploaded&status=payment-done
+      const raw = req.query.status;
+      let statuses = [];
+      if (Array.isArray(raw)) {
+        statuses = raw
+          .map((s) => String(s || ""))
+          .flatMap((s) => s.split(","))
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        statuses = String(raw)
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+
+      if (statuses.length === 1) filter.status = statuses[0];
+      else if (statuses.length > 1) filter.status = { $in: statuses };
     }
     if (req.query.make) {
       filter.make = new RegExp(req.query.make, "i");
@@ -591,10 +611,10 @@ const getCarIntakes = async (req, res) => {
 const getCarIntake = async (req, res) => {
   try {
     const carIntake = await CarIntake.findById(req.params.id)
-        .populate(
-          "seller",
-          "firstName lastName email mobileNo driversLicense description"
-        )
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
       .populate("createdBy", "first_name last_name email");
 
     if (!carIntake) {
