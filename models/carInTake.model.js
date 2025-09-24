@@ -112,206 +112,9 @@ const carIntakeSchema = new mongoose.Schema(
     },
 
     // Step 3: Car Diagnosis (Parts breakdown)
-    parts: {
-      frontBumper: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      rearBumper: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      fender: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      headlights: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      hood: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      doors: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      sideMirrors: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      seats: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      odometer: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      rimsTireSet: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      acCompressor: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      airIntakeManifold: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      battery: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      fuseBox: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      windowSwitches: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      engineControlModule: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      engine: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      transmissionPart: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      trunkGate: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
-      },
-      latches: {
-        selected: { type: Boolean, default: false },
-        unit: { type: Number, default: 0 },
-        quality: {
-          type: String,
-          enum: ["Good", "Average", "OK", "Broken", "Scratches"],
-        },
-        weight: String,
-        dimensions: String,
+    partDetails: {
+      parts: {
+        type: Object,
       },
       partsDescription: {
         type: String,
@@ -319,6 +122,213 @@ const carIntakeSchema = new mongoose.Schema(
       },
       partsUploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     },
+    // parts: {
+    //   frontBumper: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   rearBumper: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   fender: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   headlights: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   hood: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   doors: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   sideMirrors: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   seats: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   odometer: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   rimsTireSet: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   acCompressor: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   airIntakeManifold: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   battery: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   fuseBox: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   windowSwitches: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   engineControlModule: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   engine: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   transmissionPart: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   trunkGate: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   latches: {
+    //     selected: { type: Boolean, default: false },
+    //     unit: { type: Number, default: 0 },
+    //     quality: {
+    //       type: String,
+    //       enum: ["Good", "Average", "OK", "Broken", "Scratches"],
+    //     },
+    //     weight: String,
+    //     dimensions: String,
+    //   },
+    //   partsDescription: {
+    //     type: String,
+    //     trim: true,
+    //   },
+    //   partsUploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    // },
 
     // Step 4: Car Price (grouped)
     price: {

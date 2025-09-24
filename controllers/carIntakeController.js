@@ -256,12 +256,22 @@ const createCarIntake = async (req, res) => {
         });
         return defaults;
       })(),
-      // mark who uploaded images
-      // We'll set imagesUploadedBy after creating the seller
 
-      parts: Object.assign({}, formData.parts || formData.diagnosis || {}, {
+      // `partDetails` is a grouped object expected by the model. Populate it
+      // from incoming `parts`/`diagnosis` and any price/description fields so
+      // older frontend payloads and the new grouped schema are both satisfied.
+      partDetails: {
+        parts:
+          formData.partDetails?.parts ||
+          formData.parts ||
+          formData.diagnosis ||
+          {},
+        partsDescription:
+          formData.partDetails?.partsDescription ||
+          formData.partsDescription ||
+          undefined,
         partsUploadedBy: req.user?._id,
-      }),
+      },
 
       price: {
         actualWeight:
@@ -322,6 +332,36 @@ const createCarIntake = async (req, res) => {
 
     // Start creating records (without MongoDB transactions for single node setup)
     try {
+      // If frontend provided explicit sellerId, attach existing seller
+      if (req.body.sellerId) {
+        const existing = await Seller.findById(req.body.sellerId);
+        if (!existing || !existing.isActive) {
+          return res
+            .status(400)
+            .json({ error: "Provided sellerId is invalid" });
+        }
+        carIntakeData.kyc.seller = existing._id;
+        carIntakeData.imagesStep.imagesUploadedBy = req.user?._id;
+
+        // create CarIntake with existing seller
+        const carIntake = new CarIntake({
+          ...carIntakeData,
+          seller: existing._id,
+          createdBy: req.user._id,
+        });
+        await carIntake.save();
+
+        const populatedCarIntake = await CarIntake.findById(carIntake._id)
+          .populate("seller", "firstName lastName email mobileNo")
+          .populate("createdBy", "first_name last_name email");
+
+        return res.status(201).json({
+          message: "Car intake created with existing seller",
+          carIntake: populatedCarIntake,
+          seller: existing,
+        });
+      }
+
       // If we have seller payload, create Seller + CarIntake + Transaction (full flow)
       if (hasSellerPayload) {
         const seller = new Seller({
@@ -568,7 +608,19 @@ const updateCarIntake = async (req, res) => {
 
     // Update without transactions for single node setup
     try {
-      // Update seller if seller data provided
+      // Update seller if seller data provided or attach existing sellerId
+      if (req.body.sellerId) {
+        const existing = await Seller.findById(req.body.sellerId);
+        if (!existing || !existing.isActive) {
+          return res
+            .status(400)
+            .json({ error: "Provided sellerId is invalid" });
+        }
+        carIntake.seller = existing._id;
+        carIntake.kyc = carIntake.kyc || {};
+        carIntake.kyc.seller = existing._id;
+      }
+
       if (sellerData) {
         if (carIntake.seller) {
           await Seller.findByIdAndUpdate(carIntake.seller, {
@@ -659,6 +711,22 @@ const updateCarIntake = async (req, res) => {
           carIntakeData.parts
         );
         carIntake.parts.partsUploadedBy = req.user._id;
+      }
+
+      // Ensure grouped `partDetails` is also kept in sync with incoming parts
+      if (carIntakeData.parts || carIntakeData.partsDescription) {
+        carIntake.partDetails = carIntake.partDetails || {};
+        carIntake.partDetails.parts =
+          carIntakeData.partDetails?.parts ||
+          carIntakeData.parts ||
+          carIntakeData.diagnosis ||
+          carIntake.partDetails.parts ||
+          {};
+        carIntake.partDetails.partsDescription =
+          carIntakeData.partDetails?.partsDescription ||
+          carIntakeData.partsDescription ||
+          carIntake.partDetails.partsDescription;
+        carIntake.partDetails.partsUploadedBy = req.user._id;
       }
 
       // Price
