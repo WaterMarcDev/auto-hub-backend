@@ -18,6 +18,8 @@ const allowlist = [
   "http://localhost:5173",
   "https://wmshostings.us",
   "https://www.wmshostings.us",
+  "https://autohubexpress.us",
+  "https://www.autohubexpress.us",
 ];
 
 const corsOptionsDelegate = (req, callback) => {
