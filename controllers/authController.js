@@ -16,13 +16,13 @@ const generateToken = (userId) => {
 const register = async (req, res) => {
   try {
     // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: "Validation failed",
-        details: errors.array(),
-      });
-    }
+    // const errors = validationResult(req);
+    // if (!errors.isEmpty()) {
+    //   return res.status(400).json({
+    //     error: "Validation failed",
+    //     details: errors.array(),
+    //   });
+    // }
 
     const { first_name, last_name, email, password, role } = req.body;
 
