@@ -92,9 +92,7 @@ const getVinDetails = async (req, res) => {
             vinDetails?.Drive ||
             vinDetails?.drive ||
             vinDetails?.drive_type
-        ) ||
-        vinDetails?.DriveType ||
-        undefined,
+        ) || undefined,
       transmission: vinDetails?.Transmission || undefined,
       fuelType: vinDetails?.FuelTypePrimary || undefined,
       engineVariant:
