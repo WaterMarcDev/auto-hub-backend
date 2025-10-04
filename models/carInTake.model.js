@@ -171,6 +171,7 @@ const carIntakeSchema = new mongoose.Schema(
         carRegistration: String,
         titleCertificate: String,
       },
+      sellerSignature: { type: String, trim: true },
       kycDescription: { type: String, trim: true },
       kycUploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     },

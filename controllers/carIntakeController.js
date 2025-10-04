@@ -321,6 +321,7 @@ const createCarIntake = async (req, res) => {
         sellingDate: formData.sellingDate || undefined,
         pickupType: formData.pickupType || undefined,
         documents: formData.documents || {},
+        sellerSignature: formData.sellerSignature || undefined,
         kycDescription: formData.kycDescription || undefined,
         kycUploadedBy: req.user?._id,
       },
@@ -815,6 +816,7 @@ const updateCarIntake = async (req, res) => {
         "sellingDate",
         "pickupType",
         "documents",
+        "sellerSignature",
         "kycDescription",
       ];
       let anyKyc = false;
