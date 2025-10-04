@@ -11,6 +11,7 @@ const {
   deleteCarIntake,
   updateCarIntakeStatus,
   getCarIntakeStats,
+  bulkUploadCarIntakes,
 } = require("../controllers/carIntakeController");
 
 // Configure multer for file uploads
@@ -30,14 +31,17 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   fileFilter: function (req, file, cb) {
-    // Accept images only
+    // Accept images, PDFs, and Excel files
     if (
       file.mimetype.startsWith("image/") ||
-      file.mimetype === "application/pdf"
+      file.mimetype === "application/pdf" ||
+      file.mimetype ===
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+      file.mimetype === "application/vnd.ms-excel"
     ) {
       cb(null, true);
     } else {
-      cb(new Error("Only images and PDF files are allowed!"), false);
+      cb(new Error("Only images, PDF, and Excel files are allowed!"), false);
     }
   },
   limits: {
@@ -52,6 +56,11 @@ const upload = multer({
 // @desc    Get car intake statistics
 // @access  Private
 router.get("/stats", auth, getCarIntakeStats);
+
+// @route   POST /api/car-intake/bulk-upload
+// @desc    Bulk upload car intakes from Excel (accepts file URL in body)
+// @access  Private
+router.post("/bulk-upload", auth, bulkUploadCarIntakes);
 
 // @route   POST /api/car-intake
 // @desc    Create new car intake

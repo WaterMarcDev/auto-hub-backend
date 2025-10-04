@@ -28,18 +28,29 @@ const storage = multer.diskStorage({
   },
 });
 
-// File filter to accept only images
+// File filter to accept images and Excel files
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif|webp/;
-  const extname = allowedTypes.test(
-    path.extname(file.originalname).toLowerCase()
-  );
-  const mimetype = allowedTypes.test(file.mimetype);
+  const allowedImageTypes = /jpeg|jpg|png|gif|webp/;
+  const allowedExcelTypes = /xlsx|xls/;
 
-  if (mimetype && extname) {
+  const extname = path.extname(file.originalname).toLowerCase();
+  const isImage =
+    allowedImageTypes.test(extname.substring(1)) &&
+    allowedImageTypes.test(file.mimetype);
+  const isExcel =
+    allowedExcelTypes.test(extname.substring(1)) ||
+    file.mimetype ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    file.mimetype === "application/vnd.ms-excel";
+
+  if (isImage || isExcel) {
     return cb(null, true);
   } else {
-    cb(new Error("Only image files are allowed (jpeg, jpg, png, gif, webp)"));
+    cb(
+      new Error(
+        "Only image and Excel files are allowed (jpeg, jpg, png, gif, webp, xlsx, xls)"
+      )
+    );
   }
 };
 
@@ -53,18 +64,18 @@ const upload = multer({
 });
 
 // @route   POST /api/upload/image
-// @desc    Upload a single image
+// @desc    Upload a single image or Excel file
 // @access  Private
 router.post("/image", auth, upload.single("image"), (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "No image file uploaded" });
+      return res.status(400).json({ error: "No file uploaded" });
     }
 
     const imageUrl = `/uploads/${req.file.filename}`;
 
     res.status(200).json({
-      message: "Image uploaded successfully",
+      message: "File uploaded successfully",
       imageUrl,
       filename: req.file.filename,
       originalName: req.file.originalname,
@@ -73,7 +84,7 @@ router.post("/image", auth, upload.single("image"), (req, res) => {
     });
   } catch (error) {
     console.error("Upload error:", error);
-    res.status(500).json({ error: "Failed to upload image" });
+    res.status(500).json({ error: "Failed to upload file" });
   }
 });
 
@@ -184,7 +195,7 @@ router.use((error, req, res, next) => {
     }
   }
 
-  if (error.message.includes("Only image files are allowed")) {
+  if (error.message.includes("Only image and Excel files are allowed")) {
     return res.status(400).json({ error: error.message });
   }
 

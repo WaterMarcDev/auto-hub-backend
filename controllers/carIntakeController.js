@@ -1,6 +1,9 @@
 const CarIntake = require("../models/carInTake.model");
 const Seller = require("../models/Seller");
 const Transaction = require("../models/Transaction");
+const xlsx = require("xlsx");
+const fs = require("fs");
+const path = require("path");
 
 // Helper to normalize image values: accept string or object, return string (prefer url then filename)
 const normalizeImageValue = (val) => {
@@ -1092,6 +1095,296 @@ const getCarIntakeStats = async (req, res) => {
   }
 };
 
+// @desc    Bulk upload car intakes from Excel
+// @route   POST /api/car-intake/bulk-upload
+// @access  Private
+const bulkUploadCarIntakes = async (req, res) => {
+  try {
+    const { fileUrl } = req.body;
+
+    if (!fileUrl) {
+      return res.status(400).json({ error: "No file URL provided" });
+    }
+
+    // Extract filename from URL (e.g., "/uploads/filename.xlsx" -> "filename.xlsx")
+    const filename = fileUrl.replace(/^\/uploads\//, "");
+
+    // Construct file path
+    const filePath = path.join(__dirname, "../uploads", filename);
+
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    // Read the Excel file
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(worksheet);
+
+    if (!data || data.length === 0) {
+      return res.status(400).json({ error: "Excel file is empty" });
+    }
+
+    const results = {
+      successful: [],
+      failed: [],
+      skipped: [],
+    };
+
+    // Collect all VINs from the Excel file
+    const vinsToCheck = data
+      .map((row, i) => {
+        const vin = row.vin || row.VIN;
+        return vin ? vin.toString().trim().toUpperCase() : null;
+      })
+      .filter(Boolean);
+
+    // Check for existing VINs in bulk
+    const existingVins = await CarIntake.find({
+      vin: { $in: vinsToCheck },
+    })
+      .select("vin")
+      .lean();
+
+    const existingVinSet = new Set(existingVins.map((v) => v.vin));
+
+    // Array to hold valid car intakes for bulk insert
+    const carIntakesToInsert = [];
+
+    // Process each row
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const rowNumber = i + 2; // +2 because Excel rows start at 1 and first row is header
+
+      try {
+        // Extract and normalize data from row
+        const make = row.Make || row.make;
+        const model = row.Modal || row.Model || row.model;
+        const year = row.Year || row.year;
+        const trim = row.trim || row.Trim;
+        const vin = row.vin || row.VIN;
+        const color = row.color || row.Color;
+        const bodyClass =
+          row["Boday Class"] || row["Body Class"] || row.bodyClass;
+        const engine = row.Engine || row.engine;
+        const transmission = row.Transmission || row.transmission;
+        const drive = row.Drive || row.drive;
+        const fuelType = row["Fuel type"] || row["Fuel Type"] || row.fuelType;
+        const where = row.Where || row.where || row.Location;
+        const keys = row.Keys || row.keys;
+        const dateIn = row["date In"] || row["Date In"] || row.dateIn;
+
+        // Validate required fields - only VIN is required
+        if (!vin) {
+          results.skipped.push({
+            row: rowNumber,
+            reason: "Missing required field: VIN",
+            data: row,
+          });
+          continue;
+        }
+
+        const normalizedVin = vin.toString().trim().toUpperCase();
+
+        // Check if VIN already exists
+        if (existingVinSet.has(normalizedVin)) {
+          results.skipped.push({
+            row: rowNumber,
+            reason: "VIN already exists",
+            vin: normalizedVin,
+          });
+          continue;
+        }
+
+        // Parse keys field (accept various formats)
+        let hasKeys = undefined;
+        if (keys !== undefined && keys !== null && keys !== "") {
+          const keysStr = keys.toString().trim().toLowerCase();
+          hasKeys =
+            keysStr === "yes" ||
+            keysStr === "true" ||
+            keysStr === "1" ||
+            keysStr === "on";
+        }
+
+        // Parse drive field and validate
+        let parsedDrive = undefined;
+        if (drive) {
+          const driveStr = drive.toString().trim().toUpperCase();
+          const validDriveValues = ["2WD", "4WD", "AWD", "FWD"];
+          if (validDriveValues.includes(driveStr)) {
+            parsedDrive = driveStr;
+          }
+        }
+
+        // Parse transmission and validate
+        let parsedTransmission = undefined;
+        if (transmission) {
+          const transStr = transmission.toString().trim();
+          const validTransmissionValues = ["Automatic", "Manual"];
+          const matchedTrans = validTransmissionValues.find(
+            (v) => v.toLowerCase() === transStr.toLowerCase()
+          );
+          if (matchedTrans) {
+            parsedTransmission = matchedTrans;
+          }
+        }
+
+        // Parse dateIn and use it as createdAt if provided
+        let createdAtDate = undefined;
+        if (dateIn) {
+          try {
+            // Handle Excel date serial numbers
+            if (typeof dateIn === "number") {
+              // Excel stores dates as days since 1900-01-01
+              const excelEpoch = new Date(1899, 11, 30);
+              createdAtDate = new Date(
+                excelEpoch.getTime() + dateIn * 86400000
+              );
+            } else {
+              createdAtDate = new Date(dateIn);
+            }
+
+            // Validate the date
+            if (isNaN(createdAtDate.getTime())) {
+              createdAtDate = undefined;
+            }
+          } catch (err) {
+            createdAtDate = undefined;
+          }
+        }
+
+        // Prepare car intake data
+        const carIntakeData = {
+          vin: normalizedVin,
+          carDetails: {
+            year: year ? parseInt(year) : undefined,
+            make: make ? make.toString().trim() : undefined,
+            model: model ? model.toString().trim() : undefined,
+            trim: trim ? trim.toString().trim() : undefined,
+            color: color ? color.toString().trim() : undefined,
+            bodyClass: bodyClass ? bodyClass.toString().trim() : undefined,
+            engine: engine ? engine.toString().trim() : undefined,
+            transmission: parsedTransmission,
+            drive: parsedDrive,
+            fuelType: fuelType ? fuelType.toString().trim() : undefined,
+            keys: hasKeys,
+            scrapYardLocation: where ? where.toString().trim() : undefined,
+            carDetailsUploadedBy: req.user._id,
+          },
+          status: "intake",
+          createdBy: req.user._id,
+        };
+
+        // Add custom createdAt if dateIn was provided and valid
+        if (createdAtDate) {
+          carIntakeData.createdAt = createdAtDate;
+          carIntakeData.updatedAt = createdAtDate;
+        }
+
+        // Add to bulk insert array with row number for reference
+        carIntakesToInsert.push({
+          data: carIntakeData,
+          row: rowNumber,
+        });
+      } catch (error) {
+        console.error(`Error processing row ${rowNumber}:`, error);
+        results.failed.push({
+          row: rowNumber,
+          reason: error.message,
+          data: row,
+        });
+      }
+    }
+
+    // Perform bulk insert
+    if (carIntakesToInsert.length > 0) {
+      try {
+        const insertedDocs = await CarIntake.insertMany(
+          carIntakesToInsert.map((item) => item.data),
+          { ordered: false } // Continue inserting even if some fail
+        );
+
+        // Map inserted documents to their row numbers
+        insertedDocs.forEach((doc, index) => {
+          const item = carIntakesToInsert[index];
+          const cd = doc.carDetails || {};
+          const carDesc =
+            [cd.year, cd.make, cd.model].filter(Boolean).join(" ") || "Car";
+          results.successful.push({
+            row: item.row,
+            vin: doc.vin,
+            car: carDesc,
+            id: doc._id,
+          });
+        });
+      } catch (error) {
+        // Handle bulk insert errors
+        if (error.name === "MongoBulkWriteError" && error.writeErrors) {
+          // Some documents succeeded, some failed
+          error.insertedDocs?.forEach((doc, index) => {
+            if (doc && doc._id) {
+              const item = carIntakesToInsert[index];
+              const cd = doc.carDetails || {};
+              const carDesc =
+                [cd.year, cd.make, cd.model].filter(Boolean).join(" ") || "Car";
+              results.successful.push({
+                row: item.row,
+                vin: doc.vin,
+                car: carDesc,
+                id: doc._id,
+              });
+            }
+          });
+
+          // Track failed insertions
+          error.writeErrors.forEach((writeError) => {
+            const item = carIntakesToInsert[writeError.index];
+            results.failed.push({
+              row: item.row,
+              reason:
+                writeError.errmsg ||
+                writeError.err?.message ||
+                "Database insertion failed",
+              data: item.data,
+            });
+          });
+        } else {
+          // Complete failure
+          console.error("Bulk insert error:", error);
+          carIntakesToInsert.forEach((item) => {
+            results.failed.push({
+              row: item.row,
+              reason: error.message || "Database insertion failed",
+              data: item.data,
+            });
+          });
+        }
+      }
+    }
+
+    res.status(200).json({
+      message: "Bulk upload completed",
+      summary: {
+        total: data.length,
+        successful: results.successful.length,
+        failed: results.failed.length,
+        skipped: results.skipped.length,
+      },
+      results,
+    });
+  } catch (error) {
+    console.error("Bulk upload error:", error);
+
+    res.status(500).json({
+      error: "Server error during bulk upload",
+      details: error.message,
+    });
+  }
+};
+
 module.exports = {
   createCarIntake,
   getCarIntakes,
@@ -1100,4 +1393,5 @@ module.exports = {
   deleteCarIntake,
   updateCarIntakeStatus,
   getCarIntakeStats,
+  bulkUploadCarIntakes,
 };
