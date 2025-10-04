@@ -200,8 +200,7 @@ const createCarIntake = async (req, res) => {
         color: formData.color || undefined,
         bodyClass: formData.bodyClass || undefined,
         chassisNo: formData.chassisNo || undefined,
-        displacementCC:
-          formData.displacementCC || formData.engineNo || undefined,
+        engine: formData.engine || formData.engineNo || undefined,
         engineVariant: formData.engineVariant || undefined,
         drive: formData.drive || undefined,
         transmission: formData.transmission || undefined,
@@ -705,7 +704,7 @@ const updateCarIntake = async (req, res) => {
         "color",
         "bodyClass",
         "chassisNo",
-        "displacementCC",
+        "engine",
         "engineVariant",
         "drive",
         "transmission",

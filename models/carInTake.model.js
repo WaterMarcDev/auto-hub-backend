@@ -41,7 +41,7 @@ const carIntakeSchema = new mongoose.Schema(
         type: String,
         trim: true,
       },
-      displacementCC: {
+      engine: {
         type: String,
         trim: true,
       },
@@ -169,6 +169,7 @@ const carIntakeSchema = new mongoose.Schema(
       documents: {
         driversLicense: String,
         carRegistration: String,
+        titleCertificate: String,
       },
       kycDescription: { type: String, trim: true },
       kycUploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

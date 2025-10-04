@@ -99,7 +99,7 @@ const getVinDetails = async (req, res) => {
         vinDetails?.EngineModel || vinDetails?.engine_code || undefined,
       chassisNo: vinNumber,
       weight: vinDetails?.GVWR || "",
-      displacementCC: vinDetails?.DisplacementCC || undefined,
+      engine: vinDetails?.DisplacementL || undefined,
     };
     // If a CarIntake exists, merge mapped VIN values into carDetails (without
     // overwriting non-empty existing fields), persist vinDetails and merged
