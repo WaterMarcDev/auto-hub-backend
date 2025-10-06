@@ -1,8 +1,7 @@
 const mongoose = require("mongoose");
 
-const sellerSchema = new mongoose.Schema(
+const buyerSchema = new mongoose.Schema(
   {
-    // Personal Information from form
     firstName: {
       type: String,
       required: [true, "First name is required"],
@@ -24,21 +23,17 @@ const sellerSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-
-    // Document Upload
-    driversLicense: {
-      type: String, // File path for uploaded DL-DMB
-    },
-
-    // Description
     description: {
       type: String,
       trim: true,
     },
-    // Metadata
     isActive: {
       type: Boolean,
       default: true,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -55,26 +50,8 @@ const sellerSchema = new mongoose.Schema(
   }
 );
 
-// Index for performance
-sellerSchema.index({ email: 1 });
-sellerSchema.index({ mobileNo: 1 });
-sellerSchema.index({ createdAt: -1 });
-
-// Virtual for full name
-sellerSchema.virtual("fullName").get(function () {
+buyerSchema.virtual("fullName").get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
 
-// Virtual to list car intakes sold by this seller
-sellerSchema.virtual("carIntakes", {
-  ref: "CarIntake",
-  localField: "_id",
-  foreignField: "seller",
-  justOne: false,
-});
-
-// Ensure virtuals are included when converting to JSON / Objects
-sellerSchema.set("toObject", { virtuals: true });
-sellerSchema.set("toJSON", { virtuals: true });
-
-module.exports = mongoose.model("Seller", sellerSchema);
+module.exports = mongoose.model("Buyer", buyerSchema);

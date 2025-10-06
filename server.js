@@ -102,6 +102,9 @@ app.use("/api/scrap-element", require("./routes/scrapElement.routes"));
 // Inventory routes
 app.use("/api/inventory", require("./routes/inventory.routes"));
 
+// Buyer routes
+app.use("/api/buyers", require("./routes/buyer.routes"));
+
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
 
