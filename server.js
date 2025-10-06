@@ -105,6 +105,9 @@ app.use("/api/inventory", require("./routes/inventory.routes"));
 // Buyer routes
 app.use("/api/buyers", require("./routes/buyer.routes"));
 
+// Waiver routes
+app.use("/api/waivers", require("./routes/waiver.routes"));
+
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
 
