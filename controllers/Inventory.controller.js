@@ -4,6 +4,8 @@ const Trim = require("../models/Trim.model");
 const Inventory = require("../models/Inventory.model");
 const Part = require("../models/Part.model");
 
+const mongoose = require("mongoose");
+
 const generateShortName = (name) => {
   if (!name) return "";
 
@@ -36,31 +38,78 @@ const createInventory = async (req, res) => {
       trim,
       vin,
       year,
-      partShortName,
       color,
     } = req.body;
 
-    let makeDoc = await Make.findOne({ name: make });
-    if (!makeDoc) {
+    // Resolve Make: accept ObjectId or name
+    let makeDoc = null;
+    let makeId = null;
+    if (make && mongoose.Types.ObjectId.isValid(make)) {
+      makeDoc = await Make.findById(make);
+      if (makeDoc) makeId = makeDoc._1d || makeDoc._id;
+    }
+    if (!makeDoc && make) {
+      makeDoc = await Make.findOne({ name: make });
+    }
+    if (!makeDoc && make) {
       makeDoc = await Make.create({
         name: make,
         shortName: generateShortName(make),
       });
     }
-    const makeId = makeDoc._id;
+    if (makeDoc) makeId = makeDoc._id;
 
-    let modelDoc = await CarModel.findOne({ name: model, make: makeId });
-    if (!modelDoc) {
+    // Resolve Model: accept ObjectId or name; if model is id but make not provided, derive make from model
+    let modelDoc = null;
+    let modelId = null;
+    if (model && mongoose.Types.ObjectId.isValid(model)) {
+      modelDoc = await CarModel.findById(model);
+      if (modelDoc && !makeId && modelDoc.make) {
+        const derivedMake = await Make.findById(modelDoc.make);
+        if (derivedMake) {
+          makeDoc = derivedMake;
+          makeId = derivedMake._id;
+        }
+      }
+    }
+    if (!modelDoc && model) {
+      modelDoc = await CarModel.findOne({ name: model, make: makeId });
+    }
+    if (!modelDoc && model) {
       modelDoc = await CarModel.create({
         name: model,
         make: makeId,
         shortName: generateShortName(model),
       });
     }
-    const modelId = modelDoc._id;
+    if (modelDoc) modelId = modelDoc._id;
 
-    let trimDoc = await Trim.findOne({ name: trim, model: modelId });
-    if (!trimDoc) {
+    // Resolve Trim: accept ObjectId or name; if trim provided as id, ensure we have model/make
+    let trimDoc = null;
+    let trimId = null;
+    if (trim && mongoose.Types.ObjectId.isValid(trim)) {
+      trimDoc = await Trim.findById(trim);
+      if (trimDoc) {
+        if (!modelId && trimDoc.model) {
+          const derivedModel = await CarModel.findById(trimDoc.model);
+          if (derivedModel) {
+            modelDoc = derivedModel;
+            modelId = derivedModel._id;
+            if (!makeId && derivedModel.make) {
+              const derivedMake = await Make.findById(derivedModel.make);
+              if (derivedMake) {
+                makeDoc = derivedMake;
+                makeId = derivedMake._id;
+              }
+            }
+          }
+        }
+      }
+    }
+    if (!trimDoc && trim) {
+      trimDoc = await Trim.findOne({ name: trim, model: modelId });
+    }
+    if (!trimDoc && trim) {
       trimDoc = await Trim.create({
         name: trim,
         make: makeId,
@@ -68,7 +117,7 @@ const createInventory = async (req, res) => {
         shortName: generateShortName(trim),
       });
     }
-    const trimId = trimDoc._id;
+    if (trimDoc) trimId = trimDoc._id;
 
     // Resolve partShortName server-side. Prefer an existing Part.shortName, fall back to name, else generate.
     let resolvedPartShort = "";
@@ -92,9 +141,9 @@ const createInventory = async (req, res) => {
       resolvedPartShort = generateShortName(partName || "");
     }
 
-    // AD/44/2008-FB/W
-
-    const tag = `${makeDoc.shortName}/${modelDoc.shortName}/${year}-${resolvedPartShort}/${color}`;
+    const tag = `${(makeDoc && makeDoc.shortName) || ""}/${
+      (modelDoc && modelDoc.shortName) || ""
+    }/${year || ""}-${resolvedPartShort}/${color || ""}`;
 
     const inventory = await Inventory.create({
       partName,
@@ -108,13 +157,14 @@ const createInventory = async (req, res) => {
       model: modelId,
       trim: trimId,
       vin,
-      tag: tag,
+      tag,
+      year,
+      color,
     });
 
-    res.status(201).json({
-      message: "Inventory created successfully",
-      data: inventory,
-    });
+    res
+      .status(201)
+      .json({ message: "Inventory created successfully", data: inventory });
   } catch (error) {
     console.error("Error creating inventory:", error);
     res.status(500).json({ message: "Server error while creating inventory" });
@@ -172,8 +222,72 @@ const getAllInventories = async (req, res) => {
   }
 };
 
+// Master parts list endpoint (paginated, filtered, reduced fields)
+// GET /api/inventory/parts
+const getPartsMasterList = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 25;
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (req.query.make) filter.make = req.query.make;
+    if (req.query.model) filter.model = req.query.model;
+    if (req.query.trim) filter.trim = req.query.trim;
+    if (req.query.cleaned !== undefined) {
+      const val = req.query.cleaned;
+      if (val === "true" || val === "1") filter.cleaned = true;
+      else if (val === "false" || val === "0") filter.cleaned = false;
+    }
+    if (req.query.quality) filter.quality = req.query.quality;
+    if (req.query.search) {
+      filter.partName = { $regex: req.query.search, $options: "i" };
+    }
+
+    const total = await Inventory.countDocuments(filter);
+
+    const items = await Inventory.find(filter)
+      .populate("make", "name shortName")
+      .populate("model", "name shortName")
+      .populate("trim", "name shortName")
+      .select(
+        "partName unit cleaned quality location weight dimensions tag year color"
+      )
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const parts = items.map((it) => ({
+      _id: it._id,
+      partName: it.partName,
+      unit: it.unit,
+      cleaned: it.cleaned,
+      quality: it.quality,
+      location: it.location,
+      weight: it.weight,
+      dimensions: it.dimensions,
+      tag: it.tag,
+      year: it.year,
+      color: it.color,
+      make: it.make ? { _id: it.make._id, name: it.make.name } : null,
+      model: it.model ? { _id: it.model._id, name: it.model.name } : null,
+      trim: it.trim ? { _id: it.trim._id, name: it.trim.name } : null,
+    }));
+
+    res.status(200).json({
+      parts,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    console.error("Error fetching parts master list:", error);
+    res.status(500).json({ message: "Server error while fetching parts" });
+  }
+};
+
 module.exports = {
   createInventory,
   getInventoryByVIN,
+  getPartsMasterList,
   getAllInventories,
 };
