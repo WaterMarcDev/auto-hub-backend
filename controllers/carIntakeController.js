@@ -1029,14 +1029,21 @@ const updateCarIntakeStatus = async (req, res) => {
       return res.status(400).json({ error: "Invalid status" });
     }
 
-    const carIntake = await CarIntake.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    ).populate(
-      "seller",
-      "firstName lastName email mobileNo driversLicense description"
-    );
+    // If status is 'scraped', also set scrapedBy to current user
+    const update = { status };
+    if (status === "scraped") {
+      update.scrapedBy = req.user?._id;
+      update.scrapDate = new Date();
+    }
+
+    const carIntake = await CarIntake.findByIdAndUpdate(req.params.id, update, {
+      new: true,
+    })
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
+      .populate("scrapedBy", "first_name last_name email");
 
     if (!carIntake) {
       return res.status(404).json({ error: "Car intake not found" });
@@ -1387,6 +1394,245 @@ const bulkUploadCarIntakes = async (req, res) => {
   }
 };
 
+// @desc    Bulk upload scraped car records from Excel (sheet named 'GONE')
+// @route   POST /api/car-intake/bulk-upload-scraped
+// @access  Private
+const bulkUploadScraped = async (req, res) => {
+  try {
+    const { fileUrl } = req.body;
+
+    if (!fileUrl) {
+      return res.status(400).json({ error: "No file URL provided" });
+    }
+
+    const filename = fileUrl.replace(/^\/uploads\//, "");
+    const filePath = path.join(__dirname, "../uploads", filename);
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const workbook = xlsx.readFile(filePath);
+
+    // Find sheet named GONE (case-insensitive)
+    const sheetName = workbook.SheetNames.find(
+      (n) => String(n || "").toLowerCase() === "gone"
+    );
+
+    if (!sheetName) {
+      return res.status(400).json({ error: "Sheet 'GONE' not found" });
+    }
+
+    const worksheet = workbook.Sheets[sheetName];
+    const data = xlsx.utils.sheet_to_json(worksheet, { raw: true });
+
+    if (!data || data.length === 0) {
+      return res.status(400).json({ error: "GONE sheet is empty" });
+    }
+
+    const results = { successful: [], failed: [], skipped: [] };
+
+    // We'll collect vins to avoid duplicates in import
+    const vinsToCheck = data
+      .map((row) => {
+        const vin = row.vin || row.VIN || row.VIN_NUMBER || row["VIN"];
+        return vin ? String(vin).trim().toUpperCase() : null;
+      })
+      .filter(Boolean);
+
+    const existing = await CarIntake.find({ vin: { $in: vinsToCheck } })
+      .select("vin")
+      .lean();
+    const existingSet = new Set(existing.map((d) => d.vin));
+
+    const toInsert = [];
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const rowNumber = i + 2;
+      try {
+        // Determine status from 'What Happen?' / variants. Support 'crushed', 'sold', 'towed'.
+        const what =
+          row["What Happen?"] ||
+          row["What Happend?"] ||
+          row["What Happened?"] ||
+          row.what ||
+          row.what_happen ||
+          row.what_happend ||
+          row.what_happened;
+
+        let statusForRow = null;
+        const whatMissing =
+          what === undefined || what === null || String(what).trim() === "";
+
+        if (whatMissing) {
+          // If 'What' not provided, save as intake and apply default yard values later
+          statusForRow = "intake";
+        } else {
+          const whatStr = String(what).trim().toLowerCase();
+          if (whatStr.includes("crush") || whatStr.includes("crushed")) {
+            statusForRow = "scraped";
+          } else if (whatStr.includes("sold")) {
+            statusForRow = "sold";
+          } else if (whatStr.includes("tow") || whatStr.includes("towed")) {
+            statusForRow = "towed";
+          } else {
+            // Unhandled 'what' value; skip row
+            results.skipped.push({
+              row: rowNumber,
+              reason: "Unhandled 'What Happen?' value",
+            });
+            continue;
+          }
+        }
+
+        // VIN required
+        const vin = row.vin || row.VIN || row.VIN_NUMBER || row["VIN"];
+        if (!vin) {
+          results.skipped.push({ row: rowNumber, reason: "Missing VIN" });
+          continue;
+        }
+
+        const normalizedVin = String(vin).trim().toUpperCase();
+        if (existingSet.has(normalizedVin)) {
+          results.skipped.push({ row: rowNumber, reason: "VIN exists" });
+          continue;
+        }
+
+        // Date in maps to createdAt
+        let createdAt = undefined;
+        const dateIn =
+          row["Date in"] ||
+          row["date In"] ||
+          row["Date In"] ||
+          row.dateIn ||
+          row["Date In "] ||
+          row["DateIn"];
+        if (dateIn) {
+          if (typeof dateIn === "number") {
+            const excelEpoch = new Date(1899, 11, 30);
+            createdAt = new Date(excelEpoch.getTime() + dateIn * 86400000);
+          } else {
+            const dt = new Date(dateIn);
+            if (!isNaN(dt.getTime())) createdAt = dt;
+          }
+        }
+
+        // Date maps to scrapDate
+        let scrapDate = undefined;
+        const dateField =
+          row.Date || row.date || row["Date "] || row["Scrap Date"];
+        if (dateField) {
+          if (typeof dateField === "number") {
+            const excelEpoch = new Date(1899, 11, 30);
+            scrapDate = new Date(excelEpoch.getTime() + dateField * 86400000);
+          } else {
+            const dt = new Date(dateField);
+            if (!isNaN(dt.getTime())) scrapDate = dt;
+          }
+        }
+
+        const carDetails = {
+          year: row.Year || row.year || undefined,
+          make: row.Make || row.make || undefined,
+          model: row.Model || row.model || undefined,
+          trim: row.Trim || row.trim || undefined,
+          color: row.Color || row.color || undefined,
+          carDetailsUploadedBy: req.user?._id,
+        };
+
+        // Apply defaults for missing 'what'
+        if (statusForRow === "intake") {
+          carDetails.scrapYardName =
+            row["Scrap Yard"] || row.scrapYardName || "RTX";
+          carDetails.scrapYardLocation =
+            row["Scrap Yard Location"] || row.scrapYardLocation || "New Jersey";
+        } else {
+          // If sheet provided explicit yard info, map it; otherwise leave undefined
+          if (row["Scrap Yard"] || row.scrapYardName)
+            carDetails.scrapYardName = row["Scrap Yard"] || row.scrapYardName;
+          if (row["Scrap Yard Location"] || row.scrapYardLocation)
+            carDetails.scrapYardLocation =
+              row["Scrap Yard Location"] || row.scrapYardLocation;
+        }
+
+        const doc = {
+          vin: normalizedVin,
+          carDetails,
+          status: statusForRow,
+          scrapDate: scrapDate,
+          createdBy: req.user?._id,
+        };
+
+        // Only set scrapedBy when the status is 'scraped'
+        if (statusForRow === "scraped") {
+          doc.scrapedBy = req.user?._id;
+        }
+
+        if (createdAt) {
+          doc.createdAt = createdAt;
+          doc.updatedAt = createdAt;
+        }
+
+        toInsert.push({ data: doc, row: rowNumber });
+      } catch (err) {
+        console.error(`Error processing GONE row ${rowNumber}:`, err);
+        results.failed.push({ row: rowNumber, reason: err.message });
+      }
+    }
+
+    if (toInsert.length > 0) {
+      try {
+        const inserted = await CarIntake.insertMany(
+          toInsert.map((t) => t.data),
+          { ordered: false }
+        );
+
+        inserted.forEach((d, idx) => {
+          const item = toInsert[idx];
+          results.successful.push({ row: item.row, vin: d.vin, id: d._id });
+        });
+      } catch (err) {
+        if (err.name === "MongoBulkWriteError" && err.writeErrors) {
+          err.insertedDocs?.forEach((d, idx) => {
+            const item = toInsert[idx];
+            results.successful.push({ row: item.row, vin: d.vin, id: d._id });
+          });
+          err.writeErrors.forEach((we) => {
+            const item = toInsert[we.index];
+            results.failed.push({
+              row: item.row,
+              reason: we.errmsg || we.err?.message,
+            });
+          });
+        } else {
+          console.error("Bulk insert GONE error:", err);
+          toInsert.forEach((it) =>
+            results.failed.push({ row: it.row, reason: err.message })
+          );
+        }
+      }
+    }
+
+    res.status(200).json({
+      message: "Bulk scraped upload completed",
+      summary: {
+        total: data.length,
+        successful: results.successful.length,
+        failed: results.failed.length,
+        skipped: results.skipped.length,
+      },
+      results,
+    });
+  } catch (error) {
+    console.error("Bulk upload scraped error:", error);
+    res.status(500).json({
+      error: "Server error during bulk upload scraped",
+      details: error.message,
+    });
+  }
+};
+
 module.exports = {
   createCarIntake,
   getCarIntakes,
@@ -1396,4 +1642,5 @@ module.exports = {
   updateCarIntakeStatus,
   getCarIntakeStats,
   bulkUploadCarIntakes,
+  bulkUploadScraped,
 };

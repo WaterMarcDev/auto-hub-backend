@@ -62,10 +62,12 @@ const carIntakeSchema = new mongoose.Schema(
       scrapYardName: {
         type: String,
         trim: true,
+        default: "RTX",
       },
       scrapYardLocation: {
         type: String,
         trim: true,
+        default: "New Jersey",
       },
       fuelType: {
         type: String,
@@ -202,6 +204,8 @@ const carIntakeSchema = new mongoose.Schema(
         "car-added-to-inventory",
         "elements-scraped",
         "scraped",
+        "sold",
+        "towed",
         "intake",
         "in-progress",
         "completed",
@@ -217,6 +221,10 @@ const carIntakeSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    // Who scraped the car (set when status becomes 'scraped')
+    scrapedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    // When the car was scraped (set when status becomes 'scraped')
+    scrapDate: { type: Date },
 
     // Metadata
     isActive: {

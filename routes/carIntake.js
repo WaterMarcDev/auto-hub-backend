@@ -12,6 +12,7 @@ const {
   updateCarIntakeStatus,
   getCarIntakeStats,
   bulkUploadCarIntakes,
+  bulkUploadScraped,
 } = require("../controllers/carIntakeController");
 
 // Configure multer for file uploads
@@ -61,6 +62,10 @@ router.get("/stats", auth, getCarIntakeStats);
 // @desc    Bulk upload car intakes from Excel (accepts file URL in body)
 // @access  Private
 router.post("/bulk-upload", auth, bulkUploadCarIntakes);
+// @route   POST /api/car-intake/bulk-upload-scraped
+// @desc    Bulk upload scraped records from Excel (sheet 'GONE')
+// @access  Private
+router.post("/bulk-upload-scraped", auth, bulkUploadScraped);
 
 // @route   POST /api/car-intake
 // @desc    Create new car intake
