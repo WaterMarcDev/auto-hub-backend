@@ -8,11 +8,13 @@ const {
   getAllParts,
   getPartById,
   updatePart,
+  deletePart,
 } = require("../controllers/part.controller");
 
 router.post("/", auth, createPart);
 router.get("/", auth, getAllParts);
 router.get("/:id", auth, getPartById);
 router.put("/:id", auth, updatePart);
+router.delete("/:id", auth, deletePart);
 
 module.exports = router;

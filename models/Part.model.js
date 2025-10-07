@@ -30,6 +30,14 @@ const partSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    // Soft delete flag and timestamp
+    deleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

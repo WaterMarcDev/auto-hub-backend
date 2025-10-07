@@ -7,8 +7,8 @@ const createPart = async (req, res) => {
     const { name, shortName, unit, weight, dimensions, image, description } =
       req.body;
 
-    // Check if part with the same name already exists
-    const existingPart = await Part.findOne({ name });
+    // Check if part with the same name already exists (and not deleted)
+    const existingPart = await Part.findOne({ name, deleted: { $ne: true } });
     if (existingPart) {
       return res.status(400).json({
         message: "Part with this name already exists",
@@ -45,8 +45,8 @@ const getAllParts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // Build filter object
-    const filter = {};
+    // Build filter object (exclude soft-deleted)
+    const filter = { deleted: { $ne: true } };
     if (req.query.search) {
       filter.name = { $regex: req.query.search, $options: "i" };
     }
@@ -74,7 +74,7 @@ const getAllParts = async (req, res) => {
 const getPartById = async (req, res) => {
   try {
     const part = await Part.findById(req.params.id);
-    if (!part) {
+    if (!part || part.deleted) {
       return res.status(404).json({ message: "Part not found" });
     }
     res.status(200).json(part);
@@ -93,6 +93,12 @@ const updatePart = async (req, res) => {
     const { name, shortName, unit, weight, dimensions, image, description } =
       req.body;
 
+    // Only update if not deleted
+    const existing = await Part.findById(req.params.id);
+    if (!existing || existing.deleted) {
+      return res.status(404).json({ message: "Part not found" });
+    }
+
     const part = await Part.findByIdAndUpdate(
       req.params.id,
       {
@@ -107,10 +113,6 @@ const updatePart = async (req, res) => {
       { new: true }
     );
 
-    if (!part) {
-      return res.status(404).json({ message: "Part not found" });
-    }
-
     res.status(200).json({
       message: "Part updated successfully",
       data: part,
@@ -123,9 +125,31 @@ const updatePart = async (req, res) => {
   }
 };
 
+// @desc    Delete part by ID
+// @route   DELETE /api/parts/:id
+const deletePart = async (req, res) => {
+  try {
+    // Soft delete: set deleted flag and timestamp
+    const part = await Part.findById(req.params.id);
+    if (!part || part.deleted) {
+      return res.status(404).json({ message: "Part not found" });
+    }
+
+    part.deleted = true;
+    part.deletedAt = new Date();
+    await part.save();
+
+    res.status(200).json({ message: "Part deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting part:", error);
+    res.status(500).json({ message: "Server error while deleting part" });
+  }
+};
+
 module.exports = {
   createPart,
   getAllParts,
   getPartById,
   updatePart,
+  deletePart,
 };
