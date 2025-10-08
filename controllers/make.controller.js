@@ -39,7 +39,9 @@ const getAllMakes = async (req, res) => {
 
     // Build filter object
     const filter = {};
-
+    // check for not deleted true
+    filter.isDeleted = { $ne: true };
+    // search by name
     if (req.query.search) {
       filter.name = { $regex: req.query.search, $options: "i" };
     }
@@ -87,7 +89,7 @@ const updateMake = async (req, res) => {
   try {
     const { name, shortName, description } = req.body;
 
-    const make = await Make.findById(req.params.id);
+    const make = await Make.findById(req.params.id, { isDeleted: false });
     if (!make) {
       return res.status(404).json({ message: "Make not found" });
     }
@@ -104,9 +106,26 @@ const updateMake = async (req, res) => {
   }
 };
 
+const deleteMake = async (req, res) => {
+  try {
+    const make = await Make.findById(req.params.id, { isDeleted: false });
+    if (!make) {
+      return res.status(404).json({ message: "Make not found" });
+    }
+
+    make.isDeleted = true;
+    await make.save();
+    res.status(200).json({ message: "Make deleted successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 module.exports = {
   createMake,
   getAllMakes,
   getMakeById,
   updateMake,
+  deleteMake,
 };
