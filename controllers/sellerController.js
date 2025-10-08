@@ -207,8 +207,10 @@ const deleteSeller = async (req, res) => {
       });
     }
 
-    // Soft delete - set isActive to false
+    // Soft delete - set isActive to false and mark deleted
     seller.isActive = false;
+    seller.isDeleted = true;
+    seller.deletedAt = new Date();
     seller.updatedBy = req.user._id;
     await seller.save();
 

@@ -27,6 +27,14 @@ const scrapElementSchema = new mongoose.Schema(
       trim: true,
       uppercase: true,
     },
+    // Soft delete
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

@@ -35,6 +35,11 @@ const partSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Compatibility: isDeleted alias
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
     deletedAt: {
       type: Date,
     },

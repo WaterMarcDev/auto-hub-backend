@@ -71,7 +71,10 @@ const getAllMakes = async (req, res) => {
 // @access Private/Admin
 const getMakeById = async (req, res) => {
   try {
-    const make = await Make.findById(req.params.id);
+    const make = await Make.findOne({
+      _id: req.params.id,
+      isDeleted: { $ne: true },
+    });
     if (!make) {
       return res.status(404).json({ message: "Make not found" });
     }
@@ -114,6 +117,7 @@ const deleteMake = async (req, res) => {
     }
 
     make.isDeleted = true;
+    make.deletedAt = new Date();
     await make.save();
     res.status(200).json({ message: "Make deleted successfully" });
   } catch (error) {

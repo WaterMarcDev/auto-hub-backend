@@ -46,6 +46,9 @@ const getAllTrims = async (req, res) => {
     // Build filter object
     const filter = {};
 
+    // Exclude soft-deleted trims
+    filter.isDeleted = { $ne: true };
+
     if (req.query.search) {
       filter.name = { $regex: req.query.search, $options: "i" };
     }
@@ -87,7 +90,10 @@ const getAllTrims = async (req, res) => {
 // access Private/Admin
 const getTrimById = async (req, res) => {
   try {
-    const trim = await Trim.findById(req.params.id)
+    const trim = await Trim.findOne({
+      _id: req.params.id,
+      isDeleted: { $ne: true },
+    })
       .populate("make")
       .populate("model");
     if (!trim) {
@@ -140,9 +146,30 @@ const updateTrim = async (req, res) => {
   }
 };
 
+const deleteTrim = async (req, res) => {
+  try {
+    const trim = await Trim.findById(req.params.id);
+    if (!trim || trim.isDeleted) {
+      return res.status(404).json({ message: "Trim not found" });
+    }
+
+    trim.isDeleted = true;
+    trim.deletedAt = new Date();
+    await trim.save();
+
+    res.status(200).json({ message: "Trim deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting trim:", error);
+    res.status(500).json({
+      message: "Server error while deleting trim",
+    });
+  }
+};
+
 module.exports = {
   createTrim,
   getAllTrims,
   getTrimById,
   updateTrim,
+  deleteTrim,
 };

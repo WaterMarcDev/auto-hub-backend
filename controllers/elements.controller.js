@@ -44,6 +44,9 @@ const getAllElements = async (req, res) => {
 
     // Build filter object
     const filter = {};
+
+    // Exclude soft-deleted elements
+    filter.isDeleted = { $ne: true };
     if (req.query.search) {
       filter.name = { $regex: req.query.search, $options: "i" };
     }
@@ -70,7 +73,10 @@ const getAllElements = async (req, res) => {
 // @route   GET /api/elements/:id
 const getElementById = async (req, res) => {
   try {
-    const element = await Element.findById(req.params.id);
+    const element = await Element.findOne({
+      _id: req.params.id,
+      isDeleted: { $ne: true },
+    });
     if (!element) {
       return res.status(404).json({ message: "Element not found" });
     }
@@ -117,9 +123,29 @@ const updateElement = async (req, res) => {
   }
 };
 
+const deleteElement = async (req, res) => {
+  try {
+    const element = await Element.findById(req.params.id);
+    if (!element || element.isDeleted) {
+      return res.status(404).json({ message: "Element not found" });
+    }
+
+    element.isDeleted = true;
+    element.deletedAt = new Date();
+    await element.save();
+    res.status(200).json({ message: "Element deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting element:", error);
+    res.status(500).json({
+      message: "Server error while deleting element",
+    });
+  }
+};
+
 module.exports = {
   createElement,
   getAllElements,
   getElementById,
   updateElement,
+  deleteElement
 };

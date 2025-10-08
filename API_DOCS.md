@@ -1,496 +1,533 @@
-# AutoHub API Documentation
+# AutoHub API Documentation (Complete Reference)
 
-## 🔐 Authentication Overview
+This document describes the backend HTTP API for the AutoHub application. It includes every public route implemented under the `routes/` folder, required authentication, request shapes, query parameters, and example responses.
 
-This API uses **httpOnly cookies** for secure authentication. After login, the JWT token is stored in an httpOnly cookie that is automatically sent with requests. The API also supports Authorization headers as a fallback.
+Notes:
 
-## Authentication Endpoints
+- Authentication uses httpOnly JWT cookie (cookie name `token`) or Authorization header `Bearer <token>`.
+- Most endpoints require authentication. Where an endpoint requires an admin user, the docs will indicate `Admin`.
+- All endpoints return JSON unless otherwise specified.
 
-### Register User
+---
 
-- **POST** `/api/auth/register`
-- **Body:**
+## Table of Contents
 
-```json
-{
+- [Authentication](#authentication)
+- [Users (Admin)](#users-admin)
+- [Car Intake](#car-intake)
+- [Transactions](#transactions)
+- [Uploads](#uploads)
+- [VIN Decoder](#vin-decoder)
+- [Makes / Models / Trims](#makes--models--trims)
+- [Parts](#parts)
+- [Elements](#elements)
+- [Scrap Elements](#scrap-elements)
+- [Inventory](#inventory)
+- [Buyers](#buyers)
+- [Waivers](#waivers)
+
+---
+
+## Conventions
+
+- All endpoints are rooted at `/api` (unless explicitly served at `/uploads` which is static).
+- Standard success response uses `200` or `201` with a JSON body. Errors use `4xx` or `5xx` with `{ error: "message" }`.
+- Pagination uses `?page` and `?limit` query params. Defaults: page=1, limit varies (usually 10).
+
+---
+
+## Authentication
+
+Base path: `/api/auth`
+
+### Register
+
+- POST /api/auth/register
+- Public
+- Body (JSON):
+  {
   "first_name": "John",
   "last_name": "Doe",
   "email": "john@example.com",
   "password": "SecurePass123!",
   "role": "staff" // optional, defaults to "staff"
-}
-```
+  }
+- Success: 201, returns created user (without password)
 
-- **Note:** Registration does NOT return a token. Users must login after registration.
+### Login
 
-### Login User
+- POST /api/auth/login
+- Public
+- Body:
+  { "email": "john@example.com", "password": "SecurePass123!" }
+- Success: 200, sets httpOnly cookie `token` and returns user object
 
-- **POST** `/api/auth/login`
-- **Body:**
+### Profile
 
-```json
-{
-  "email": "john@example.com",
-  "password": "SecurePass123!"
-}
-```
+- GET /api/auth/profile
+- Private (authenticated)
+- Success: 200, returns { user: <user object> }
 
-- **Note:** Sets an httpOnly cookie with JWT token for security
+### Logout
 
-### Logout User
+- POST /api/auth/logout
+- Private
+- Clears the `token` cookie and returns { message: "Logged out successfully" }
 
-- **POST** `/api/auth/logout`
-- **Auth:** httpOnly cookie OR `Authorization: Bearer <token>`
-- **Note:** Clears the authentication cookie
+---
 
-### Get Profile
+## Users (Admin)
 
-- **GET** `/api/auth/profile`
-- **Auth:** httpOnly cookie OR `Authorization: Bearer <token>`
+Base path: `/api/users` (requires authentication + admin role)
 
-## User Management (Admin Only)
+- GET /api/users
 
-### Get All Users
+  - Get all users (paginated)
+  - Success: 200 { success:true, count, users: [] }
 
-- **GET** `/api/users`
-- **Headers:** `Authorization: Bearer <admin_token>`
+- GET /api/users/:id
 
-### Get User by ID
+  - Get a single user by id
+  - Success: 200 { success: true, user }
 
-- **GET** `/api/users/:id`
-- **Headers:** `Authorization: Bearer <admin_token>`
+- PUT /api/users/:id
 
-### Update User
+  - Update user fields (first_name, last_name, email, role)
+  - Success: 200 { success: true, message: "User updated successfully", user }
 
-- **PUT** `/api/users/:id`
-- **Headers:** `Authorization: Bearer <admin_token>`
-- **Body:**
+- DELETE /api/users/:id
+  - Delete user (admin only) - soft or hard depending on implementation
+  - Success: 200 { success: true, message: "User deleted successfully" }
 
-```json
-{
-  "first_name": "Updated Name",
-  "last_name": "Updated Last",
-  "email": "updated@example.com",
-  "role": "admin"
-}
-```
+---
 
-### Delete User
+## Car Intake
 
-- **DELETE** `/api/users/:id`
-- **Headers:** `Authorization: Bearer <admin_token>`
+Base path: `/api/car-intake` (authenticated)
 
-## Default Admin User
+Endpoints:
 
-- **Email:** admin@autohub.com
-- **Password:** Admin123!
-- **Role:** admin
-
-Run `npm run seed:admin` to create the default admin user.
-
-## Password Requirements
+- POST /api/car-intake
 
-- Minimum 6 characters
-- At least one lowercase letter
-- At least one uppercase letter
-- At least one number
+  - Create a car intake. Accepts form data and file uploads (images) via `upload.any()`.
+  - Body: multipart/form-data fields (vin, year, make, model, sellerData, etc.) or JSON.
+  - If `sellerData` provided, the flow will create Seller, CarIntake and optionally Transaction if payment info included.
+  - Success: 201 created (or 200 if draft exists) with carIntake object and related seller/transaction.
 
-## Available Roles
+- GET /api/car-intake
 
-- `admin` - Full access to all endpoints
-- `staff` - Limited access (can access profile only)
-
-## VIN Decoder API
-
-The VIN decoder API allows you to fetch detailed vehicle information using a Vehicle Identification Number (VIN). It uses the NHTSA VPIC (Vehicle Product Information Catalog) database.
-
-### Get VIN Details (GET)
-
-- **GET** `/api/vin/:vinNumber`
-- **Auth:** httpOnly cookie OR `Authorization: Bearer <token>`
-- **Parameters:**
-  - `vinNumber` (string, 17 characters): The VIN to decode
+  - Query params: page, limit, status (single or comma separated), make, year, search
+  - Response includes carIntakes array and pagination
 
-**Example Request:**
-
-```
-GET /api/vin/1HGBH41JXMN109186
-```
+- GET /api/car-intake/:id
 
-**Example Response:**
+  - Get single car intake with populated seller and transaction
 
-```json
-{
-  "success": true,
-  "vinNumber": "1HGBH41JXMN109186",
-  "data": {
-    "make": "HONDA",
-    "model": "Civic",
-    "year": "1991",
-    "vehicleType": "PASSENGER CAR",
-    "bodyClass": "Two Door",
-    "engineModel": "D15B7",
-    "cylinders": "4",
-    "displacement": "1.5",
-    "fuelType": "Gasoline",
-    "transmission": "Manual",
-    "driveType": "Front Wheel Drive",
-    "manufacturer": "HONDA OF AMERICA MFG., INC.",
-    "plantCountry": "UNITED STATES"
-  },
-  "source": "NHTSA VPIC Database",
-  "timestamp": "2025-09-03T10:30:00.000Z"
-}
-```
-
-### Decode VIN (POST)
-
-- **POST** `/api/vin/decode`
-- **Auth:** httpOnly cookie OR `Authorization: Bearer <token>`
-- **Body:**
-
-```json
-{
-  "vinNumber": "1HGBH41JXMN109186",
-  "includeRawData": false
-}
-```
-
-**Parameters:**
-
-- `vinNumber` (string, required): The VIN to decode (17 characters)
-- `includeRawData` (boolean, optional): Include raw API response data
-
-**Example Response:**
-
-```json
-{
-  "success": true,
-  "vinNumber": "1HGBH41JXMN109186",
-  "data": {
-    "make": "HONDA",
-    "model": "Civic",
-    "year": "1991",
-    "vehicleType": "PASSENGER CAR",
-    "bodyClass": "Two Door",
-    "engineModel": "D15B7",
-    "cylinders": "4",
-    "displacement": "1.5",
-    "fuelType": "Gasoline",
-    "transmission": "Manual",
-    "driveType": "Front Wheel Drive",
-    "manufacturer": "HONDA OF AMERICA MFG., INC.",
-    "plantCountry": "UNITED STATES"
-  },
-  "source": "NHTSA VPIC Database",
-  "timestamp": "2025-09-03T10:30:00.000Z"
-}
-```
-
-### Check VIN Service Health
-
-- **GET** `/api/vin/health`
-- **Auth:** httpOnly cookie OR `Authorization: Bearer <token>`
-
-**Example Response:**
-
-```json
-{
-  "status": "healthy",
-  "service": "NHTSA VPIC API",
-  "timestamp": "2025-09-03T10:30:00.000Z",
-  "testVin": "1HGBH41JXMN109186",
-  "responseTime": "< 5s"
-}
-```
-
-### VIN API Error Responses
-
-**Invalid VIN Format:**
-
-```json
-{
-  "error": "Invalid VIN format. VIN must be 17 characters long and contain only valid characters (no I, O, or Q)."
-}
-```
-
-**VIN Not Found/Invalid:**
-
-```json
-{
-  "error": "VIN could not be decoded",
-  "details": "Check Digit (9th position) does not calculate properly",
-  "vinNumber": "INVALID_VIN_NUMBER"
-}
-```
-
-**Service Unavailable:**
-
-```json
-{
-  "error": "VIN service temporarily unavailable. Please try again later."
-}
-```
-
-**Timeout:**
-
-```json
-{
-  "error": "VIN lookup request timed out. Please try again."
-}
-```
-
-### VIN Format Requirements
-
-- Must be exactly 17 characters long
-- Can contain letters A-Z and numbers 0-9
-- Cannot contain the letters I, O, or Q (to avoid confusion with numbers)
-- Case insensitive (automatically converted to uppercase)
-
-### Data Fields Returned
-
-The API returns the following vehicle information when available:
-
-- **make**: Vehicle manufacturer (e.g., "HONDA", "TOYOTA")
-- **model**: Vehicle model (e.g., "Civic", "Camry")
-- **year**: Model year
-- **vehicleType**: Type of vehicle (e.g., "PASSENGER CAR", "TRUCK")
-- **bodyClass**: Body style (e.g., "Two Door", "Four Door", "SUV")
-- **engineModel**: Engine model designation
-- **engineConfiguration**: Engine configuration (e.g., "V", "In-Line")
-- **cylinders**: Number of engine cylinders
-- **displacement**: Engine displacement in liters
-- **fuelType**: Primary fuel type (e.g., "Gasoline", "Diesel", "Electric")
-- **transmission**: Transmission type (e.g., "Manual", "Automatic")
-- **driveType**: Drive configuration (e.g., "Front Wheel Drive", "All Wheel Drive")
-- **manufacturer**: Manufacturing company name
-- **plantCountry**: Country where vehicle was manufactured
-- **trim**: Vehicle trim level (when available)
-- **series**: Vehicle series (when available)
-
-_Note: Not all fields may be available for every VIN, depending on the vehicle and data availability in the NHTSA database._
-
-## Car Intake Bulk Upload
-
-The bulk upload API allows you to import multiple car intakes from an Excel spreadsheet in a single operation. The API accepts a file URL pointing to an Excel file in your uploads directory.
-
-### Bulk Upload Car Intakes
-
-- **POST** `/api/car-intake/bulk-upload`
-- **Auth:** httpOnly cookie OR `Authorization: Bearer <token>`
-- **Content-Type:** `application/json`
-- **Body:**
-
-```json
-{
-  "fileUrl": "/uploads/carlist-1234567890.xlsx"
-}
-```
-
-**Note:** The `fileUrl` should be the path returned from the upload endpoint (e.g., `/uploads/filename.xlsx`).
-
-**Excel Sheet Headers (Column Names):**
-
-| Header                      | Required | Type           | Description                              | Example                    |
-| --------------------------- | -------- | -------------- | ---------------------------------------- | -------------------------- |
-| vin                         | Yes      | String         | Vehicle Identification Number (17 chars) | 1HGBH41JXMN109186          |
-| Make                        | No       | String         | Vehicle manufacturer                     | Honda, Toyota, Ford        |
-| Modal (or Model)            | No       | String         | Vehicle model                            | Civic, Camry, F-150        |
-| Year                        | No       | Number         | Model year                               | 2020, 2019                 |
-| trim                        | No       | String         | Trim level                               | EX, LE, XLT                |
-| color                       | No       | String         | Vehicle color                            | Red, Blue, Silver          |
-| Boday Class (or Body Class) | No       | String         | Body style                               | Sedan, SUV, Truck          |
-| Engine                      | No       | String         | Engine specification                     | 2.0L I4, V6                |
-| Transmission                | No       | String         | Transmission type (Automatic/Manual)     | Automatic, Manual          |
-| Drive                       | No       | String         | Drive type (2WD/4WD/AWD/FWD)             | FWD, AWD, 4WD              |
-| Fuel type (or Fuel Type)    | No       | String         | Fuel type                                | Gasoline, Diesel, Electric |
-| Where (or Location)         | No       | String         | Storage location in yard                 | Lot A, Row 3, Bay 12       |
-| Keys                        | No       | Boolean/String | Keys available (yes/no, true/false, 1/0) | yes, true, 1               |
-| date In (or Date In)        | No       | Date           | Date car was received                    | 2025-10-01, 10/1/2025      |
-
-**Important Notes:**
-
-- **Only VIN is required**: All other fields are optional
-- **Case-insensitive**: Headers can be in any case (e.g., "Make", "make", "MAKE")
-- **Flexible naming**: "Modal" or "Model" both work for model, "Boday Class" or "Body Class" for body class
-- **Date handling**: If "date In" is provided, it will be mapped to the `createdAt` timestamp
-- **Graceful skipping**: Rows with missing VIN are skipped, not failed
-- **Duplicate handling**: Cars with existing VINs are skipped automatically
-- **Valid values**: Drive must be one of: 2WD, 4WD, AWD, FWD. Transmission must be: Automatic or Manual
-
-**Example Request using cURL:**
+- PUT /api/car-intake/:id
+
+  - Update car intake (complex mapping of incoming flat fields into nested model)
+  - Handles seller updates, payment/transaction synchronization
+
+- PATCH /api/car-intake/:id/status
+
+  - Body: { status: "new-status" }
+  - Validates status against model enum. If status is `scraped`, also sets scrapedBy and scrapDate
+
+- DELETE /api/car-intake/:id
+
+  - Soft-delete (sets isActive = false) and also soft-deletes related transactions
+
+- GET /api/car-intake/stats
+
+  - Query params: startDate, endDate
+  - Returns aggregation stats grouped by status, totals
+
+- POST /api/car-intake/bulk-upload
+
+  - Body: { fileUrl: "/uploads/filename.xlsx" }
+  - File must exist in `/uploads/` directory
+  - Accepts many Excel header variants (VIN required). Returns summary: successful/failed/skipped
+
+- POST /api/car-intake/bulk-upload-scraped
+  - Like bulk-upload but expects a sheet named `GONE` and maps custom columns
+
+Notes and validation details:
+
+- VIN normalization, status computation, seller creation logic, and flexible incoming field handling are implemented in the controller. See code for exact field names and mapping.
+
+---
+
+## Transactions
+
+Base path: `/api/transactions` (authenticated)
+
+- POST /api/transactions
+
+  - Body validation: type (debit|credit), amount (float>0), paymentMethod (Cash|Bank Transfer|Zelle)
+  - Creates a transaction
+  - Success: 201 { message, transaction }
+
+- GET /api/transactions
+
+  - Query params: page, limit, type, status, paymentMethod, startDate, endDate
+  - Returns paginated transactions
+
+- GET /api/transactions/:id
+
+  - Get single transaction
+
+- PUT /api/transactions/:id
+
+  - Update transaction
+
+- PATCH /api/transactions/:id/status
+
+  - Body: { status: "pending|completed|failed|cancelled" }
+
+- DELETE /api/transactions/:id
+
+  - Soft delete (isActive=false)
+
+- GET /api/transactions/car-intake/:carIntakeId
+
+  - Get transactions related to a specific car intake
+
+- GET /api/transactions/seller/:sellerId
+
+  - Get transactions for a seller
+
+- GET /api/transactions/stats
+  - Query params: startDate, endDate, type
+  - Returns aggregation by type/status/paymentMethod and daily stats
+
+---
+
+## Uploads
+
+Base path: `/api/upload` (authenticated for most actions)
+
+- POST /api/upload/image
+
+  - Upload single file under field name `image` (images and Excel allowed)
+  - Returns { message, imageUrl, filename, originalName, size, mimetype }
+
+- POST /api/upload/multiple
+
+  - Upload multiple images under field `images` (limit 10)
+  - Returns array with file info
+
+- DELETE /api/upload/:filename
+
+  - Deletes file from `/uploads` directory
+
+- GET /api/upload/:filename
+  - Serves uploaded file (public)
+
+Notes:
+
+- Uploads are stored in `uploads/` and served statically at `/uploads` by the server.
+
+---
+
+## VIN Decoder
+
+Base path: `/api/vin` (authenticated)
+
+- GET /api/vin/:vinNumber
+  - Validates VIN format (17 characters, no I,O,Q)
+  - If VIN exists in DB, returns stored vinDetails and carIntake
+  - Otherwise calls NHTSA VPIC API and maps fields into carDetails, stores vinDetails and returns them
+  - Responses include `source` (database or MarketCheck/NHTSA) and `timestamp`
+
+Error cases include invalid VIN format, service timeout/unavailable, or VIN not decoded.
+
+---
+
+## Makes / Models / Trims
+
+These endpoints typically require authentication (admin-level in controllers).
+
+### Makes
+
+Base path: `/api/make` (controller uses paths like `/api/make`)
+
+- POST /api/make
+
+  - Create new make: { name, shortName, description }
+  - Success: 201 returns make
+
+- GET /api/make
+
+  - Paginated list: supports `?page`, `?limit`, `?search`
+
+- GET /api/make/:id
+
+  - Get make by id
+
+- PUT /api/make/:id
+
+  - Update make
+
+- DELETE /api/make/:id
+  - Soft delete (isDeleted = true)
+
+### Models
+
+Base path: `/api/model`
+
+- POST /api/model
+
+  - Create model: { name, make, shortName, description }
+
+- GET /api/model
+
+  - Paginated
+
+- GET /api/model/:id
+
+  - Get model by id
+
+- PUT /api/model/:id
+  - Update model
+
+### Trims
+
+Base path: `/api/trim`
+
+- POST /api/trim
+
+  - Create trim
+
+- GET /api/trim
+
+  - List trims with `?make` and `?model` filters
+
+- GET /api/trim/:id
+
+  - Get trim by id
+
+- PUT /api/trim/:id
+  - Update trim
+
+---
+
+## Parts
+
+Base path: `/api/part`
+
+- POST /api/part
+
+  - Create part: { name, shortName, unit, weight, dimensions, image, description }
+
+- GET /api/part
+
+  - List paginated
+
+- GET /api/part/:id
+
+  - Get single part
+
+- PUT /api/part/:id
+
+  - Update part
+
+- DELETE /api/part/:id
+  - Soft delete
+
+---
+
+## Elements
+
+Base path: `/api/element`
+
+- POST /api/element
+
+  - Create element
+
+- GET /api/element
+
+  - List elements (paginated, search)
+
+- GET /api/element/:id
+
+  - Get element details
+
+- PUT /api/element/:id
+  - Update element
+
+---
+
+## Scrap Elements
+
+Base path: `/api/scrap-element`
+
+- POST /api/scrap-element
+
+  - Create scrap element record: requires `elementName` and `vin` (unit optional)
+  - Public (no auth in route)
+
+- GET /api/scrap-element/vin/:vin
+  - Get scrap elements by VIN
+
+---
+
+## Inventory
+
+Base path: `/api/inventory` (authenticated)
+
+- POST /api/inventory
+
+  - Create inventory item. Accepts make/model/trim as id or name. Creates reference docs if not found.
+  - Returns created inventory with `tag` computed server-side
+
+- GET /api/inventory/parts
+
+  - Master parts list: query params include make/model/trim/cleaned/quality/search
+  - Returns reduced fields suitable for lookup/autocomplete
+
+- GET /api/inventory/vin/:vin
+
+  - Get inventory items by VIN
+
+- GET /api/inventory
+  - Get all inventories (paginated)
+
+---
+
+## Buyers
+
+Base path: `/api/buyers` (authenticated)
+
+- POST /api/buyers
+
+  - Create a buyer: { firstName, lastName, mobileNo, email }
+
+- GET /api/buyers
+
+  - List buyers (paginated, search)
+
+- GET /api/buyers/:id
+
+  - Get buyer details
+
+- PUT /api/buyers/:id
+
+  - Update buyer
+
+- DELETE /api/buyers/:id
+  - Soft delete buyer
+
+Note: Buyer documents include `isDeleted` (Boolean) and `deletedAt` (Date). List and GET endpoints exclude soft-deleted buyers by default.
+
+---
+
+## Waivers
+
+Base path: `/api/waivers` (authenticated)
+
+- POST /api/waivers
+
+  - Create waiver. Request supports either seller or buyer flows depending on `customerType`.
+  - Body contains either `sellerId` or `sellerData` (or buyerId/buyerData when `customerType` is `buyer`). Optionally `transactionData` to create a payment transaction.
+  - Validates `customerType` in ["seller","buyer"]
+  - Success: 201 { message: "Waiver created successfully", waiver, seller?, buyer?, transaction? }
+
+- GET /api/waivers
+
+  - List waivers with search, filtering by sellerId/buyerId, date range
+
+- GET /api/waivers/:id
+
+  - Get waiver details
+
+- PUT /api/waivers/:id
+
+  - Update waiver; supports updating or creating linked transaction
+
+- DELETE /api/waivers/:id
+
+  - Soft delete waiver (controller now sets `isDeleted=true` and `deletedAt`)
+
+  Note: The `Waiver` model now includes `isDeleted` (Boolean) and `deletedAt` (Date). GET/list endpoints exclude soft-deleted waivers by default.
+
+- GET /api/waivers/seller/:sellerId
+
+  - Get waivers for a seller
+
+- GET /api/waivers/buyer/:buyerId
+
+  - Get waivers for a buyer
+
+- GET /api/waivers/stats
+  - Returns summary counts, by id proof type, recent waivers etc.
+
+---
+
+## Soft-delete behavior (current implementation)
+
+The backend uses soft deletes for most user-visible resources. This section summarizes the current behavior, fields added to schemas, which endpoints perform soft deletes vs hard deletes, and recommendations for standardization.
+
+Fields added / in-use across models:
+
+- `isDeleted` (Boolean) — preferred canonical flag for soft-deleted documents. When true the document is considered deleted and should be excluded from normal list/get responses.
+- `deletedAt` (Date) — timestamp set when a document is soft-deleted.
+- `deleted` (Boolean) — legacy flag used by the `Part` model and some older code paths. New deletions on parts set both `deleted` and `isDeleted` for compatibility.
+- `isActive` (Boolean) — used in many models to indicate active/inactive status; controllers sometimes set `isActive=false` when soft-deleting.
+
+Endpoints using soft-delete (controller sets `isDeleted=true`, `deletedAt=Date.now()` and often `isActive=false`):
+
+- Buyers: DELETE /api/buyers/:id — soft-delete (isActive=false, isDeleted=true, deletedAt)
+- Makes: DELETE /api/make/:id — soft-delete (isDeleted=true, deletedAt)
+- Parts: DELETE /api/part/:id — soft-delete (deleted=true, isDeleted=true, deletedAt)
+- Sellers: DELETE /api/sellers/:id — soft-delete (isActive=false, isDeleted=true, deletedAt)
+- Car Intakes: DELETE /api/car-intake/:id — soft-delete (isActive=false, isDeleted=true, deletedAt) and cascades to related transactions (they are soft-deleted via updateMany)
+- Transactions: DELETE /api/transactions/:id — controller sets isActive=false; Transaction model also includes `isDeleted` for future alignment
+
+Endpoints that currently perform hard deletes (consider converting to soft-delete if you want recoverability):
+
+- Users: DELETE /api/users/:id — currently documented as delete; implementation may use hard delete in the controller.
+- Waivers: DELETE /api/waivers/:id — currently implemented as a hard delete (findByIdAndDelete)
+
+Querying and controller notes:
+
+- List and get endpoints were updated to exclude soft-deleted documents (e.g. filtering with `isDeleted: { $ne: true }` or checking `isActive`). Some older endpoints/models still rely on `deleted` or `isActive` for compatibility.
+- Part endpoints explicitly check both `deleted` and `isDeleted` to avoid breaking older clients.
+
+Recommendations:
+
+- Standardize on `isDeleted` + `deletedAt` as the single soft-delete contract across all models and update controllers to use them consistently.
+- Replace hard-delete calls (`findByIdAndDelete`, `findOneAndDelete`, etc.) with a shared soft-delete helper or Mongoose plugin that sets `isDeleted`, `deletedAt`, and optionally `isActive=false` and `updatedBy`.
+- Consider adding helper query methods (e.g., `Model.findActive()` or a global query filter) or a small plugin to reduce duplication and prevent accidental hard-deletes.
+
+## Static Uploads
+
+- Files in `/uploads` are served statically at `/uploads/*`.
+
+---
+
+## Error Handling
+
+- The server responds with JSON errors. Example:
+  {
+  "error": "Validation failed",
+  "details": [ ... ]
+  }
+- 404 handler returns { error: "Route not found" }
+
+---
+
+## Quick Start (developer)
+
+1. From the repo root start the backend:
 
 ```bash
-curl -X POST http://localhost:5000/api/car-intake/bulk-upload \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "fileUrl": "/uploads/car_intakes-1696420800000.xlsx"
-  }'
+cd backend
+npm install
+npm run dev
 ```
 
-**Example Request using JavaScript/Fetch:**
+2. Open docs: http://localhost:5000/ (this renders this markdown as HTML)
 
-```javascript
-// Step 1: Upload the Excel file first
-const formData = new FormData();
-formData.append("image", excelFile); // Field name is 'image'
+---
 
-const uploadResponse = await fetch("http://localhost:5000/api/upload/image", {
-  method: "POST",
-  headers: {
-    Authorization: "Bearer YOUR_TOKEN",
-  },
-  body: formData,
-});
-
-const uploadData = await uploadResponse.json();
-// uploadData.imageUrl will be something like "/uploads/image-1696420800000-car_intakes.xlsx"
-
-// Step 2: Submit bulk upload with file URL
-const bulkUploadResponse = await fetch(
-  "http://localhost:5000/api/car-intake/bulk-upload",
-  {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer YOUR_TOKEN",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      fileUrl: uploadData.imageUrl,
-    }),
-  }
-);
-
-const result = await bulkUploadResponse.json();
-console.log(result);
-```
-
-**Example Response:**
-
-```json
-{
-  "message": "Bulk upload completed",
-  "summary": {
-    "total": 10,
-    "successful": 7,
-    "failed": 1,
-    "skipped": 2
-  },
-  "results": {
-    "successful": [
-      {
-        "row": 2,
-        "vin": "1HGBH41JXMN109186",
-        "car": "2020 Honda Civic",
-        "id": "6523abc123def456789"
-      },
-      {
-        "row": 3,
-        "vin": "5YFBURHE5HP123456",
-        "car": "2019 Toyota Camry",
-        "id": "6523abc123def456790"
-      }
-    ],
-    "failed": [
-      {
-        "row": 5,
-        "reason": "VIN validation failed",
-        "data": {
-          "Make": "Ford",
-          "Model": "F-150",
-          "Year": 2021,
-          "vin": "INVALID"
-        }
-      }
-    ],
-    "skipped": [
-      {
-        "row": 4,
-        "reason": "Missing required fields (VIN, Make, Model, Year)",
-        "data": {
-          "Make": "Toyota",
-          "Year": 2020
-        }
-      },
-      {
-        "row": 6,
-        "reason": "VIN already exists",
-        "vin": "1HGBH41JXMN109186"
-      }
-    ]
-  }
-}
-```
-
-**Error Responses:**
-
-**No file URL provided:**
-
-```json
-{
-  "error": "No file URL provided"
-}
-```
-
-**File not found:**
-
-```json
-{
-  "error": "File not found"
-}
-```
-
-**Empty Excel file:**
-
-```json
-{
-  "error": "Excel file is empty"
-}
-```
-
-**Invalid file format:**
-
-```json
-{
-  "error": "Server error during bulk upload",
-  "details": "Invalid Excel file format"
-}
-```
-
-**Server error:**
-
-```json
-{
-  "error": "Server error during bulk upload",
-  "details": "Error message details"
-}
-```
-
-### Sample Excel File Structure
-
-```
-| Make  | Modal  | Year | trim | vin               | color  | Body Class | Engine    | Transmission | Drive | Fuel type | Where  | Keys | date In    |
-|-------|--------|------|------|-------------------|--------|------------|-----------|--------------|-------|-----------|--------|------|------------|
-| Honda | Civic  | 2020 | EX   | 1HGBH41JXMN109186| Silver | Sedan      | 2.0L I4   | Automatic    | FWD   | Gasoline  | Lot A  | yes  | 2025-10-01 |
-| Toyota| Camry  | 2019 | LE   | 5YFBURHE5HP123456| White  | Sedan      | 2.5L I4   | Automatic    | FWD   | Gasoline  | Lot B  | true | 10/1/2025  |
-| Ford  | F-150  | 2021 | XLT  | 1FTFW1E50MFA12345| Red    | Truck      | 3.5L V6   | Automatic    | 4WD   | Gasoline  | Row 3  | 1    | 2025-09-30 |
-```
-
-**Tips for Best Results:**
-
-1. First upload the Excel file using `/api/upload/image` endpoint to get a file URL
-2. Use the returned `imageUrl` (e.g., `/uploads/filename.xlsx`) in the bulk upload request
-3. Ensure all VINs are unique and valid (17 characters)
-4. Use consistent formatting for Make, Model, and Trim names
-5. For dates, use standard formats like YYYY-MM-DD or MM/DD/YYYY
-6. For boolean fields (Keys), use: yes/no, true/false, or 1/0
-7. Verify Drive and Transmission values match allowed values
-8. Test with a small batch first before uploading large files
-
-**Workflow:**
-
-1. **Upload Excel file** → POST `/api/upload/image` with file
-2. **Get file URL** → Response contains `imageUrl` field (e.g., `/uploads/file-123.xlsx`)
-3. **Bulk import** → POST `/api/car-intake/bulk-upload` with `fileUrl` in body
-4. **Review results** → Check successful, failed, and skipped records
+If you want this rendered to OpenAPI/Swagger format, I can generate an OpenAPI v3 YAML/JSON from these endpoints and types — tell me which format you prefer (JSON/YAML) and whether you want it added as `/api-docs` with Swagger UI.

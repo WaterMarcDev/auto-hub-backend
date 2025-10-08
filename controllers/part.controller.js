@@ -73,8 +73,11 @@ const getAllParts = async (req, res) => {
 // @route   GET /api/parts/:id
 const getPartById = async (req, res) => {
   try {
-    const part = await Part.findById(req.params.id);
-    if (!part || part.deleted) {
+    const part = await Part.findOne({
+      _id: req.params.id,
+      $or: [{ deleted: { $ne: true } }, { isDeleted: { $ne: true } }],
+    });
+    if (!part || part.deleted || part.isDeleted) {
       return res.status(404).json({ message: "Part not found" });
     }
     res.status(200).json(part);
@@ -136,6 +139,7 @@ const deletePart = async (req, res) => {
     }
 
     part.deleted = true;
+    part.isDeleted = true;
     part.deletedAt = new Date();
     await part.save();
 

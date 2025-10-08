@@ -39,6 +39,9 @@ const getBuyers = async (req, res) => {
 
     // Build filter object
     const filter = { isActive: true };
+
+    // Exclude soft-deleted buyers explicitly
+    filter.isDeleted = { $ne: true };
     if (req.query.search) {
       const searchRegex = new RegExp(req.query.search, "i");
       filter.$or = [
@@ -67,7 +70,10 @@ const getBuyers = async (req, res) => {
 
 const getBuyerById = async (req, res) => {
   try {
-    const buyer = await Buyer.findById(req.params.id)
+    const buyer = await Buyer.findOne({
+      _id: req.params.id,
+      isDeleted: { $ne: true },
+    })
       .populate("createdBy", "first_name last_name email")
       .populate("updatedBy", "first_name last_name email");
 
@@ -118,6 +124,7 @@ const deleteBuyer = async (req, res) => {
 
     buyer.isActive = false;
     buyer.isDeleted = true;
+    buyer.deletedAt = new Date();
     buyer.updatedBy = req.user._id;
 
     await buyer.save();

@@ -513,7 +513,7 @@ const getCarIntakes = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Build filter object
-    const filter = { isActive: true };
+    const filter = { isActive: true, isDeleted: { $ne: true } };
     if (req.query.status) {
       // Support multiple status values. Accept formats:
       // - ?status=kyc-uploaded
@@ -613,7 +613,10 @@ const getCarIntakes = async (req, res) => {
 // @access  Private
 const getCarIntake = async (req, res) => {
   try {
-    const carIntake = await CarIntake.findById(req.params.id)
+    const carIntake = await CarIntake.findOne({
+      _id: req.params.id,
+      isDeleted: { $ne: true },
+    })
       .populate(
         "seller",
         "firstName lastName email mobileNo driversLicense description"
@@ -999,14 +1002,16 @@ const deleteCarIntake = async (req, res) => {
       return res.status(404).json({ error: "Car intake not found" });
     }
 
-    // Soft delete - set isActive to false
+    // Soft delete - set isActive to false and mark deleted
     carIntake.isActive = false;
+    carIntake.isDeleted = true;
+    carIntake.deletedAt = new Date();
     await carIntake.save();
 
-    // Also soft delete related transaction
-    await Transaction.findOneAndUpdate(
+    // Also soft delete related transaction(s)
+    await Transaction.updateMany(
       { carIntake: carIntake._id },
-      { isActive: false }
+      { isActive: false, isDeleted: true, deletedAt: new Date() }
     );
 
     res.json({ message: "Car intake deleted successfully" });

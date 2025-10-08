@@ -41,6 +41,9 @@ const getAllModels = async (req, res) => {
     // Build filter object
     const filter = {};
 
+    // Exclude soft-deleted models
+    filter.isDeleted = { $ne: true };
+
     if (req.query.search) {
       filter.name = { $regex: req.query.search, $options: "i" };
     }
@@ -75,7 +78,10 @@ const getAllModels = async (req, res) => {
 // @access  Private/Admin
 const getModelById = async (req, res) => {
   try {
-    const model = await CarModel.findById(req.params.id).populate("make");
+    const model = await CarModel.findOne({
+      _id: req.params.id,
+      isDeleted: { $ne: true },
+    }).populate("make");
 
     if (!model) {
       return res.status(404).json({ message: "Model not found" });
@@ -109,9 +115,28 @@ const updateModel = async (req, res) => {
   }
 };
 
+const deleteModel = async (req, res) => {
+  try {
+    const model = await CarModel.findById(req.params.id);
+    if (!model || model.isDeleted) {
+      return res.status(404).json({ message: "Model not found" });
+    }
+
+    model.isDeleted = true;
+    model.deletedAt = new Date();
+    await model.save();
+
+    res.status(200).json({ message: "Model soft-deleted successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
 module.exports = {
   createModel,
   getAllModels,
   getModelById,
   updateModel,
+  deleteModel,
 };

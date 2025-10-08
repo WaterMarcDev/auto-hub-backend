@@ -22,6 +22,14 @@ const elementSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    // Soft delete
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

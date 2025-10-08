@@ -51,6 +51,14 @@ const inventorySchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    // Soft delete fields
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

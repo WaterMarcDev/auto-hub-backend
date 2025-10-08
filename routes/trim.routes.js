@@ -8,11 +8,13 @@ const {
   getAllTrims,
   getTrimById,
   updateTrim,
+  deleteTrim,
 } = require("../controllers/trim.controller");
 
 router.post("/", auth, createTrim);
 router.get("/", auth, getAllTrims);
 router.get("/:id", auth, getTrimById);
 router.put("/:id", auth, updateTrim);
+router.delete("/:id", auth, deleteTrim);
 
 module.exports = router;

@@ -328,6 +328,9 @@ const getWaivers = async (req, res) => {
       .skip(skip)
       .limit(limit);
 
+    // Exclude soft-deleted documents
+    filter.isDeleted = { $ne: true };
+
     const total = await Waiver.countDocuments(filter);
 
     res.json({
@@ -350,7 +353,10 @@ const getWaivers = async (req, res) => {
 // @access  Private
 const getWaiver = async (req, res) => {
   try {
-    const waiver = await Waiver.findById(req.params.id)
+    const waiver = await Waiver.findOne({
+      _id: req.params.id,
+      isDeleted: { $ne: true },
+    })
       .populate(
         "seller",
         "firstName lastName email mobileNo driversLicense description"
@@ -499,14 +505,17 @@ const updateWaiver = async (req, res) => {
 const deleteWaiver = async (req, res) => {
   try {
     const waiver = await Waiver.findById(req.params.id);
-    if (!waiver) {
+    if (!waiver || waiver.isDeleted) {
       return res.status(404).json({ error: "Waiver not found" });
     }
 
-    // Hard delete the waiver
-    await Waiver.findByIdAndDelete(req.params.id);
+    // Soft delete the waiver
+    waiver.isDeleted = true;
+    waiver.deletedAt = new Date();
+    if (typeof waiver.isActive !== "undefined") waiver.isActive = false;
+    await waiver.save();
 
-    res.json({ message: "Waiver deleted successfully" });
+    res.json({ message: "Waiver soft-deleted successfully" });
   } catch (error) {
     console.error("Delete waiver error:", error);
     res.status(500).json({ error: "Server error" });

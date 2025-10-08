@@ -39,6 +39,13 @@ const WaiverSchema = new mongoose.Schema(
     employeeSignature: {
       type: String,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,
