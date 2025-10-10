@@ -50,7 +50,7 @@ const getAllMakes = async (req, res) => {
     const makes = await Make.find(filter)
       .skip(skip)
       .limit(limit)
-      .sort({ createdAt: -1 });
+      .sort({ name: 1 }); // Sort by name ascending
 
     res.status(200).json({
       makes,

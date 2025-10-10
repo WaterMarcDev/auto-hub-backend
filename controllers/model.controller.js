@@ -57,7 +57,7 @@ const getAllModels = async (req, res) => {
       .populate("make")
       .skip(skip)
       .limit(limit)
-      .sort({ createdAt: -1 });
+      .sort({ name: 1 });
 
     res.status(200).json({
       models,

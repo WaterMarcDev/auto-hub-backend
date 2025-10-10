@@ -50,7 +50,10 @@ const getAllParts = async (req, res) => {
     if (req.query.search) {
       filter.name = { $regex: req.query.search, $options: "i" };
     }
-    const parts = await Part.find(filter).skip(skip).limit(limit);
+    const parts = await Part.find(filter)
+      .skip(skip)
+      .limit(limit)
+      .sort({ name: 1 });
     const total = await Part.countDocuments(filter);
 
     res.status(200).json({

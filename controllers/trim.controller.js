@@ -67,7 +67,7 @@ const getAllTrims = async (req, res) => {
       .populate("model")
       .skip(skip)
       .limit(limit)
-      .sort({ createdAt: -1 });
+      .sort({ name: 1 });
 
     res.status(200).json({
       trims,

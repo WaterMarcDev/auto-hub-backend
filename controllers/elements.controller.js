@@ -50,7 +50,10 @@ const getAllElements = async (req, res) => {
     if (req.query.search) {
       filter.name = { $regex: req.query.search, $options: "i" };
     }
-    const elements = await Element.find(filter).skip(skip).limit(limit);
+    const elements = await Element.find(filter)
+      .skip(skip)
+      .limit(limit)
+      .sort({ name: 1 });
     const total = await Element.countDocuments(filter);
 
     res.status(200).json({
@@ -147,5 +150,5 @@ module.exports = {
   getAllElements,
   getElementById,
   updateElement,
-  deleteElement
+  deleteElement,
 };
