@@ -174,4 +174,20 @@ app.use((req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  // Start the VIN cron job unless explicitly disabled
+  try {
+    if (
+      !process.env.DISABLE_VIN_CRON ||
+      process.env.DISABLE_VIN_CRON === "false"
+    ) {
+      // require lazily so it doesn't block startup when disabled
+      const vinJob = require("./jobs/fetchVinDetailsJob");
+      vinJob.startCron();
+      console.log("VIN cron job started");
+    } else {
+      console.log("VIN cron job disabled by DISABLE_VIN_CRON");
+    }
+  } catch (err) {
+    console.error("Failed to start VIN cron job:", err.message || err);
+  }
 });
