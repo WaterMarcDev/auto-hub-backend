@@ -56,7 +56,13 @@ const getAllCustomers = async (req, res) => {
         { mobileNo: searchRegex },
       ];
     }
-    const customers = await Customer.find(filter).skip(skip).limit(limit);
+    const customers = await Customer.find(filter)
+      .populate({
+        path: "carIntakes",
+        options: { sort: { createdAt: -1 } },
+      })
+      .skip(skip)
+      .limit(limit);
     const total = await Customer.countDocuments(filter);
     res.status(200).json({ customers, pagination: { page, limit, total } });
   } catch (error) {

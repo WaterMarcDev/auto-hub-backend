@@ -56,4 +56,14 @@ const CustomerSchema = new mongoose.Schema(
   }
 );
 
+CustomerSchema.virtual("carIntakes", {
+  ref: "CarIntake",
+  localField: "_id",
+  foreignField: "seller",
+  justOne: false,
+});
+
+CustomerSchema.set("toObject", { virtuals: true });
+CustomerSchema.set("toJSON", { virtuals: true });
+
 module.exports = mongoose.model("Customer", CustomerSchema);

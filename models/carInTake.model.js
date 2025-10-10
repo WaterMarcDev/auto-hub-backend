@@ -162,7 +162,7 @@ const carIntakeSchema = new mongoose.Schema(
 
     // Step 5: User KYC & Car Doc (grouped)
     kyc: {
-      seller: { type: mongoose.Schema.Types.ObjectId, ref: "Seller" },
+      seller: { type: mongoose.Schema.Types.ObjectId, ref: "Customer" },
       sellingDate: { type: Date },
       pickupType: {
         type: String,
@@ -173,7 +173,6 @@ const carIntakeSchema = new mongoose.Schema(
         carRegistration: String,
         titleCertificate: String,
       },
-      sellerSignature: { type: String, trim: true },
       kycDescription: { type: String, trim: true },
       kycUploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     },
