@@ -146,6 +146,9 @@ app.use("/api/waivers", require("./routes/waiver.routes"));
 // Customer routes
 app.use("/api/customers", require("./routes/customer"));
 
+// CheckIn routes
+app.use("/api/checkins", require("./routes/checkIn"));
+
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
 
