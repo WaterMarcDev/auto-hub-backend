@@ -206,9 +206,7 @@ const carIntakeSchema = new mongoose.Schema(
         "sold",
         "towed",
         "intake",
-        "in-progress",
-        "completed",
-        "cancelled",
+        // removed: in-progress, completed, cancelled
       ],
       default: "intake",
     },
