@@ -1,4 +1,5 @@
 const express = require("express");
+const nunjucks = require("nunjucks");
 const cors = require("cors");
 const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
@@ -6,6 +7,7 @@ const connectDB = require("./config/database");
 const loggerConfig = require("./config/logger");
 const addUserContext = require("./middleware/logging");
 const morgan = require("morgan");
+const path = require("path");
 require("dotenv").config();
 
 // Connect to MongoDB
@@ -13,6 +15,49 @@ connectDB();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Configure Nunjucks templating (views in backend/views) and get environment
+const njEnv = nunjucks.configure(path.join(__dirname, "views"), {
+  autoescape: true,
+  express: app,
+  watch: process.env.NODE_ENV === "development",
+});
+app.set("view engine", "njk");
+
+// Nunjucks filter to format dates in US format (attach to same env)
+njEnv.addFilter("usDate", function (dateVal, fallback = "-") {
+  try {
+    if (!dateVal) return fallback;
+    const d = typeof dateVal === "string" ? new Date(dateVal) : dateVal;
+    if (isNaN(d.getTime())) return fallback;
+    return d.toLocaleString("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch (e) {
+    return fallback;
+  }
+});
+
+// Nunjucks filter to format numbers as US Dollar currency
+njEnv.addFilter("usCurrency", function (val, fallback = "-$0.00") {
+  try {
+    if (val === undefined || val === null || val === "") return fallback;
+    const num = Number(val);
+    if (Number.isNaN(num)) return fallback;
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(num);
+  } catch (e) {
+    return fallback;
+  }
+});
 
 const allowlist = [
   "http://localhost:5173",
@@ -43,7 +88,6 @@ app.use(addUserContext);
 
 // Routes
 const fs = require("fs");
-const path = require("path");
 const { marked } = require("marked");
 
 // No custom marked renderer configured — rendering uses default behavior
@@ -185,6 +229,7 @@ app.listen(PORT, () => {
     ) {
       // require lazily so it doesn't block startup when disabled
       const vinJob = require("./jobs/fetchVinDetailsJob");
+
       vinJob.startCron();
       console.log("VIN cron job started");
     } else {

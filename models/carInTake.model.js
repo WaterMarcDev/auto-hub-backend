@@ -184,10 +184,6 @@ const carIntakeSchema = new mongoose.Schema(
       paymentDescription: { type: String, trim: true },
       paymentBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     },
-
-    // Link to Seller (created when KYC provided)
-    seller: { type: mongoose.Schema.Types.ObjectId, ref: "Seller" },
-
     // Status Tracking
     status: {
       type: String,

@@ -132,7 +132,9 @@ const createCarIntake = async (req, res) => {
 
     // Validate sellerId
     if (!sellerId) {
-      return res.status(400).json({ error: "Missing seller (customer) ObjectId" });
+      return res
+        .status(400)
+        .json({ error: "Missing seller (customer) ObjectId" });
     }
 
     // Optionally, check if sellerId is a valid ObjectId
@@ -315,7 +317,10 @@ const createCarIntake = async (req, res) => {
     await carIntake.save();
 
     const populatedCarIntake = await CarIntake.findById(carIntake._id)
-      .populate("seller", "firstName lastName email mobileNo driversLicense description")
+      .populate(
+        "seller",
+        "firstName lastName email mobileNo driversLicense description"
+      )
       .populate("createdBy", "first_name last_name email");
 
     res.status(201).json({
@@ -411,7 +416,7 @@ const getCarIntakes = async (req, res) => {
 
     const carIntakes = await CarIntake.find(filter)
       .populate(
-        "seller",
+        "kyc.seller",
         "firstName lastName email mobileNo driversLicense description"
       )
       .populate("createdBy", "first_name last_name email")
@@ -446,8 +451,8 @@ const getCarIntake = async (req, res) => {
       isDeleted: { $ne: true },
     })
       .populate(
-        "seller",
-        "firstName lastName email mobileNo driversLicense description"
+        "kyc.seller",
+        "firstName lastName email mobileNo signatureImage description"
       )
       .populate("createdBy", "first_name last_name email");
 
@@ -486,7 +491,9 @@ const updateCarIntake = async (req, res) => {
     // Validate sellerId if provided
     if (sellerId) {
       if (!/^[0-9a-fA-F]{24}$/.test(sellerId)) {
-        return res.status(400).json({ error: "Invalid seller ObjectId format" });
+        return res
+          .status(400)
+          .json({ error: "Invalid seller ObjectId format" });
       }
       carIntake.seller = sellerId;
       carIntake.kyc = carIntake.kyc || {};
@@ -662,8 +669,7 @@ const updateCarIntake = async (req, res) => {
         // If status provided from frontend, only accept if it's in enum
         if (k === "status") {
           try {
-            const enumValues =
-              CarIntake.schema.path("status").enumValues || [];
+            const enumValues = CarIntake.schema.path("status").enumValues || [];
             if (enumValues.includes(carIntakeData.status))
               carIntake.status = carIntakeData.status;
           } catch (e) {
@@ -716,7 +722,7 @@ const updateCarIntake = async (req, res) => {
       !(await Transaction.findOne({ carIntake: carIntake._id }))
     ) {
       await new Transaction({
-        type: "credit",
+        type: "debit",
         amount:
           incomingPaid ??
           carIntake.payment?.paidAmount ??
@@ -888,6 +894,51 @@ const getCarIntakeStats = async (req, res) => {
   } catch (error) {
     console.error("Get stats error:", error);
     res.status(500).json({ error: "Server error" });
+  }
+};
+
+// @desc    Render payment slip for a car intake
+// @route   GET /api/car-intake/:id/print-payment
+// @access  Private
+const printPaymentSlip = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const carIntake = await CarIntake.findOne({
+      _id: id,
+      isDeleted: { $ne: true },
+    })
+      .populate(
+        "kyc.seller",
+        "firstName lastName email mobileNo signatureImage description"
+      )
+      .populate("createdBy", "first_name last_name email");
+
+    if (!carIntake) return res.status(404).send("Car intake not found");
+
+    // Find latest active transaction for this car intake
+    const transaction = await Transaction.findOne({
+      carIntake: carIntake._id,
+      isActive: true,
+    })
+      .sort({ createdAt: -1 })
+      .populate("createdBy", "first_name last_name email");
+
+    const data = {
+      carIntake,
+      transaction,
+      generatedAt: new Date(),
+      generatedBy: req.user
+        ? { id: req.user._id, name: req.user.first_name || req.user.name || "" }
+        : null,
+    };
+
+    // If client requests PDF or raw HTML, we can extend later. For now render HTML
+    return res.render("paymentSlip.njk", data);
+  } catch (err) {
+    console.error("Print payment slip error:", err);
+    return res
+      .status(500)
+      .json({ error: "Server error rendering payment slip" });
   }
 };
 
@@ -1343,15 +1394,28 @@ const bulkUploadScraped = async (req, res) => {
               row["Scrap Yard Location"] || row.scrapYardLocation;
         }
 
-        const doc = {
-          vin: normalizedVin,
-          carDetails,
-          status: statusForRow,
-          scrapDate: scrapDate,
-          createdBy: req.user?._id,
+        const generatedAt = new Date();
+        const generatedAtStr = generatedAt.toLocaleString();
+        const transactionDateStr =
+          transaction && transaction.transactionDate
+            ? transaction.transactionDate.toLocaleString()
+            : null;
+
+        const data = {
+          carIntake,
+          transaction,
+          generatedAtStr,
+          transactionDateStr,
+          generatedBy: req.user
+            ? {
+                id: req.user._id,
+                name: req.user.first_name || req.user.name || "",
+              }
+            : null,
         };
 
-        // Only set scrapedBy when the status is 'scraped'
+        // Render HTML using Nunjucks template
+        return res.render("paymentSlip.njk", data);
         if (statusForRow === "scraped") {
           doc.scrapedBy = req.user?._id;
         }
@@ -1430,4 +1494,5 @@ module.exports = {
   getCarIntakeStats,
   bulkUploadCarIntakes,
   bulkUploadScraped,
+  printPaymentSlip,
 };
