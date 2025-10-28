@@ -923,6 +923,21 @@ const printPaymentSlip = async (req, res) => {
       .sort({ createdAt: -1 })
       .populate("createdBy", "first_name last_name email");
 
+    // Load logo as base64 data URI so templates / PDF renderers always have the image
+    let logoDataUri = null;
+    try {
+      const logoPath = path.join(__dirname, "..", "assets", "logo-sm1.png");
+      if (fs.existsSync(logoPath)) {
+        const buf = fs.readFileSync(logoPath);
+        const b64 = buf.toString("base64");
+        logoDataUri = `data:image/png;base64,${b64}`;
+      }
+    } catch (e) {
+      // ignore logo read errors
+      console.warn("Could not read logo for payment slip:", e && e.message);
+      logoDataUri = null;
+    }
+
     const data = {
       carIntake,
       transaction,
@@ -930,6 +945,8 @@ const printPaymentSlip = async (req, res) => {
       generatedBy: req.user
         ? { id: req.user._id, name: req.user.first_name || req.user.name || "" }
         : null,
+      // Prefer inline base64 logo when available; otherwise template will fall back to /assets/logo-sm1.png
+      logoSrc: logoDataUri || "/assets/logo-sm1.png",
     };
 
     // If client requests PDF or raw HTML, we can extend later. For now render HTML

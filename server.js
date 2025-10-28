@@ -196,6 +196,8 @@ app.use("/api/checkins", require("./routes/checkIn"));
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
 
+app.use("/assets", express.static(path.join(__dirname, "assets")));
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   // Log the full error details

@@ -3,198 +3,202 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Payment Slip - {{ carIntake.vin }}</title>
+  <title>Payment Slip - {{ invoice.number or '—' }}</title>
     <style>
-      /* Print page config (US Letter) */
-      @page { size: Letter portrait; margin: 0.5in; }
-      @media print {
-        /* Ensure the document uses full page box and remove default margins */
-        html, body { margin:0; padding:0 }
-        /* Page container should match printable box (8.5in - 1in margins = 7.5in) */
-        .page { box-shadow: none; border: none; margin: 0; padding: 0 }
-      }
-
-      /* Visual system */
-      :root{
-        --bg: #f7f9fb;
-        --card: #ffffff;
-        --muted: #6b7280;
-        --text: #0f172a;
-        --accent: #0956d1; /* modern blue */
-        --accent-2: #eef6ff;
-        --border: #e6eefc;
-      }
-
-  body{
-    font-family: Inter, 
-    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; 
-    color:var(--text); 
-    
-    margin:0; 
-    padding:0; 
-    -webkit-print-color-adjust:exact;
-    }
-  /* Page container sized to printable area (7.5in) and provides small page padding visually */
-  .page{width:7.5in; max-width:7.5in; margin:0 auto; padding:0.15in; box-sizing:border-box; display:flex; align-items:stretch}
-  /* Card is the actual slip and should fill the page container exactly */
-  .card{width:100%; box-sizing:border-box; background:var(--card); border-radius:8px; box-shadow:0 6px 18px rgba(15,23,42,0.06); padding:16px; border:1px solid var(--border); display:flex; flex-direction:column}
-
-  /* Make the main content area flexible so footer stays at bottom */
-  .card .two-col, .card .transaction { flex: 0 0 auto }
-  .card .content-spacer { flex:1 1 auto }
+      @page { size: Letter portrait; margin: 0.6in; }
+      html,body{margin:0;padding:0;font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; color:#0f172a; -webkit-print-color-adjust:exact}
+      body{ padding:18px}
+      .sheet{max-width:800px;margin:0 auto;background:#fff;border-radius:6px;box-shadow:0 6px 18px rgba(15,23,42,0.06);overflow:hidden}
+      .container{padding:36px}
 
       /* Header */
-      .header{display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:18px}
-  .brand{display:flex; gap:12px; align-items:center}
-      h1{font-size:18px; margin:0}
-      .subtitle{color:var(--muted); font-size:12px}
-      .vin{font-size:16px; font-weight:700; color:var(--accent)}
+      .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .brand{display:flex;gap:16px;align-items:center}
+  /* Make logo area rectangular and let the img control sizing. Remove circular crop so missing images don't show a circle only */
+  .logo{width:auto;min-width:120px;height:auto;border-radius:0;background:transparent;display:flex;align-items:center;justify-content:center;border:0}
+  .logo img{max-width:160px;height:auto;border-radius:0;object-fit:contain;display:block}
+      .company{font-size:14px;font-weight:700}
+      .company .muted{display:block;color:#6b7280;font-weight:500;font-size:12px}
 
-      .meta{ text-align:right; min-width:160px }
-      .meta .date{font-weight:600}
-      .muted{color:var(--muted); font-size:13px}
+      .invoice-meta{text-align:right}
+      .invoice-meta h2{margin:0;font-size:20px}
+      .invoice-meta .muted{color:#6b7280;font-size:12px}
 
-      /* Two column responsive */
-      .two-col{display:grid; grid-template-columns: 1fr 1fr; gap:20px; margin-bottom:16px}
-      .col{background:var(--accent-2); padding:12px; border-radius:8px}
-      .col h3{margin:0 0 8px 0; font-size:13px}
+      hr.sep{border:0;border-top:1px solid #eef4ff;margin:18px 0}
 
-      /* key/value list */
-      .kv{display:grid; grid-template-columns: 120px 1fr; gap:6px 12px; align-items:start}
-      .kv .k{font-weight:600; color:var(--muted); font-size:13px}
-      .kv .v{font-size:13px}
+      /* Customer info */
+      .customer{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px}
+      .customer .left{min-width:260px}
+      .section-title{color:#6b7280;font-size:12px;margin-bottom:8px}
 
-      /* Transaction block */
-      .transaction{margin-top:8px; background:linear-gradient(180deg,var(--card), #fcfdff); border-radius:8px; padding:12px; border:1px solid var(--border)}
-      .transaction .line{display:flex; justify-content:space-between; gap:12px; align-items:center; padding:8px 0; border-bottom:1px dashed #eef4ff}
-      .transaction .line:last-child{border-bottom:0}
-      .amount{font-size:20px; font-weight:700; color:var(--accent)}
-      .label{color:var(--muted); font-size:13px}
+  /* Items table */
+  table.items{width:100%;border-collapse:collapse;margin-top:14px}
+  table.items thead th{background:#e7f0fb;color:#0f172a;text-align:left;padding:12px;font-weight:600;border-bottom:1px solid #dfeefb}
+  /* Alignment helpers for both header and body cells */
+  table.items thead th.center, table.items tbody td.center { text-align:center }
+  table.items thead th.right, table.items tbody td.right { text-align:right }
+  /* Use tabular numbers for consistent decimal alignment */
+  table.items tbody td.right { font-variant-numeric: tabular-nums; }
+  table.items tbody td{padding:14px 12px;border-bottom:1px solid #f1f6fb;vertical-align:top}
+  .item-desc{color:#6b7280;font-size:13px}
 
-      /* Footer */
-      .footer{margin-top:18px; font-size:13px; color:var(--muted); display:flex; justify-content:space-between; gap:8px}
+      /* Totals */
+      .totals{display:flex;justify-content:flex-end;margin-top:18px}
+      .totals .box{width:320px}
+      .totals .line{display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #f1f6fb}
+      .totals .line .k{color:#6b7280}
+      .totals .total{font-weight:700}
+      .balance-pill{display:inline-block;margin-top:12px;background:#eef6ff;padding:12px 16px;border-radius:8px;font-weight:800;color:#06266b;float:right}
 
-      /* Print friendly tweaks */
-      @media (max-width:720px){ .two-col{grid-template-columns:1fr} .meta{text-align:left} }
-      /* Print-specific compaction to keep content to a single page when possible */
-      @media print {
-        .page { width:7.5in; padding:0 }
-        .card { padding: 0.18in; box-shadow: none; border-radius: 0 }
-        h1 { font-size: 16px }
-        .kv .k, .kv .v, .label, .muted { font-size: 12px }
-        .two-col { gap: 8px }
-        .col { padding:8px }
-        .transaction { padding:8px }
-        .footer { margin-top:10px }
+      .thanks{margin-top:36px;color:#6b7280;font-size:13px}
+
+      @media print{
+        body{padding:0}
+        .sheet{box-shadow:none;border-radius:0}
+        .container{padding:18px}
       }
-      table{width:100%; border-collapse:collapse}
-      .desc{white-space:pre-wrap}
     </style>
   </head>
   <body>
-    <div class="page">
-      <div class="card" role="document">
-        <header class="header">
+    <div class="sheet" role="document">
+      <div class="container">
+        <div class="top">
           <div class="brand">
+            <div class="logo">
+              <img src="{{ logoSrc }}" alt="AutoHub Express" style="max-width:160px;height:auto;border-radius:0;display:block;object-fit:contain"/>
+            </div>
             <div>
-              <h1>AutoHub Payment Slip</h1>
-              <div class="subtitle">Official receipt for vehicle intake</div>
-              <div style="margin-top:8px">
-                <div class="muted">VIN</div>
-                <div class="vin">{{ carIntake.vin }}</div>
-              </div>
+              <div class="company">{{ company.name or 'RTX Recycling Inc' }}</div>
+              <div class="muted">{{ company.addressLine1 or '242 Monmouth Road' }}</div>
+              <div class="muted">{{ company.cityStateZip or 'Wrightstown, New Jersey 08562-2250' }}</div>
+              <div class="muted">{{ company.country or 'United States' }}</div>
+              <div class="muted">{{ company.email or 'hello@autohub.express' }}</div>
+              <div class="muted">Phone: {{ company.phone or '+1 6097581919' }}</div>
             </div>
           </div>
 
-          <div class="meta">
-            <div class="muted">Generated</div>
-            <div class="date">{{ generatedAt | usDate }}</div>
-            <div style="margin-top:8px" class="muted">Slip ID</div>
-            <div>{{ carIntake._id }}</div>
+          <div class="invoice-meta">
+            {% set issueDate = (invoice and invoice.issueDate) or (transaction and transaction.createdAt) or carIntake.createdAt or generatedAt %}
+            {% set issueDateStr = '' %}
+            {% if issueDate %}
+              {% if issueDate.toLocaleDateString %}
+                {% set issueDateStr = issueDate.toLocaleDateString('en-US') %}
+              {% else %}
+                {% set issueDateStr = issueDate | usDate %}
+              {% endif %}
+            {% endif %}
+            <h2>Payment Slip #0000001</h2>
+            <div class="muted">Issue Date: {{ issueDateStr }}</div>
           </div>
-        </header>
-
-        <section class="two-col">
-          <div class="col">
-            <h3>Car Details</h3>
-            <div class="kv">
-              <div class="k">Make</div><div class="v">{{ carIntake.carDetails.make or '-' }}</div>
-              <div class="k">Model</div><div class="v">{{ carIntake.carDetails.model or '-' }}</div>
-              <div class="k">Year</div><div class="v">{{ carIntake.carDetails.year or '-' }}</div>
-              <div class="k">Trim</div><div class="v">{{ carIntake.carDetails.trim or '-' }}</div>
-              <div class="k">Color</div><div class="v">{{ carIntake.carDetails.color or '-' }}</div>
-              <div class="k">Body</div><div class="v">{{ carIntake.carDetails.bodyClass or '-' }}</div>
-            </div>
-          </div>
-
-          <div class="col">
-            <h3>Seller Details</h3>
-            <div class="kv">
-              <div class="k">Name</div><div class="v">{{ carIntake.kyc.seller.firstName }} {{ carIntake.kyc.seller.lastName }}</div>
-              <div class="k">Phone</div><div class="v">{{ carIntake.kyc.seller.mobileNo or '-' }}</div>
-              <div class="k">Email</div><div class="v">{{ carIntake.kyc.seller.email or '-' }}</div>
-              <div class="k">Notes</div><div class="v desc">{{ carIntake.kyc.seller.description or '-' }}</div>
-            </div>
-          </div>
-        </section>
-
-  <section class="transaction">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px">
-            <div>
-              <div class="label">Transaction</div>
-              <div style="font-weight:700">{{ transaction?.paymentMethod or transaction?.type or '—' }}</div>
-            </div>
-            <div style="text-align:right">
-              <div class="label">Amount</div>
-              <div class="amount">{% if transaction %}{{ transaction.amount | usCurrency }}{% else %}-{% endif %}</div>
-            </div>
-          </div>
-
-          {% if transaction %}
-          <div class="line">
-            <div style="flex:1">
-              <div class="label">Status</div>
-              <div>{{ transaction.status or '-' }}</div>
-            </div>
-            <div style="flex:1">
-              <div class="label">Date</div>
-              <div>{{ transaction.createdAt | usDate }}</div>
-            </div>
-            <div style="flex:2">
-              <div class="label">Description</div>
-              <div class="desc">{{ transaction.description or transaction.paymentDescription or '-' }}</div>
-            </div>
-          </div>
-          {% else %}
-          <div class="muted">No transaction found for this intake.</div>
-          {% endif %}
-        </section>
-
-        <div class="content-spacer"></div>
-        <div class="footer">
-          <div>Generated by: {{ generatedBy.name or generatedBy.id or 'System' }}</div>
-          <div class="muted">Printed from AutoHub</div>
         </div>
+
+        <hr class="sep" />
+
+        <div class="customer">
+          <div class="left">
+            {% set sellerData = seller or (carIntake and carIntake.kyc and carIntake.kyc.seller) %}
+            <div class="section-title">Seller Info:</div>
+            <div style="font-weight:700">{{ sellerData.name or (sellerData.firstName and sellerData.lastName and (sellerData.firstName ~ ' ' ~ sellerData.lastName)) or '—' }}</div>
+            <div class="muted">{{ sellerData.email or '' }}</div>
+            <div class="muted">Phone: {{ sellerData.mobileNo or sellerData.phone or '' }}</div>
+            {% if sellerData.description %}
+              <div class="item-desc" style="margin-top:6px">{{ sellerData.description }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        {# Compute derived amounts when items are missing: prefer transaction.amount for carIntake #}
+        {% if not (items and items | length) %}
+          {% set baseAmount = (transaction and transaction.amount) or invoice.total or 0 %}
+          {% set taxPercent = 6.625 / 100 %}
+          {% set taxAmount = (baseAmount * taxPercent) %}
+          {% set subtotalDerived = baseAmount - taxAmount %}
+        {% else %}
+          {% set baseAmount = null %}
+          {% set taxPercent = 6.625 / 100 %}
+          {% set taxAmount = invoice.taxes or 0 %}
+          {% set subtotalDerived = invoice.subtotal or 0 %}
+        {% endif %}
+
+        <table class="items" role="table">
+          <thead>
+            <tr>
+              <th style="width:52%">Product or Service</th>
+              <th class="center" style="width:12%">Quantity</th>
+              <th class="right" style="width:18%">Price</th>
+              <th class="right" style="width:18%">Line Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if items and items | length %}
+              {% for it in items %}
+              <tr>
+                <td>
+                  <div style="font-weight:600">{{ it.title or it.name }}</div>
+                  {% if it.description %}
+                    <div class="item-desc">{{ it.description }}</div>
+                  {% endif %}
+                </td>
+                <td class="center">{{ it.qty or it.quantity or 1 }}</td>
+                <td class="right">{{ it.unitPrice | usCurrency }}</td>
+                <td class="right">{{ (it.qty or it.quantity or 1) * (it.unitPrice or it.price or 0) | usCurrency }}</td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td>
+                  <div style="font-weight:600">{{ ( (carIntake.carDetails.make or '') ~ ' ' ~ (carIntake.carDetails.model or '') ~ (carIntake.carDetails.year and (' ' ~ carIntake.carDetails.year) or '') ~ (carIntake.carDetails.trim and (' ' ~ carIntake.carDetails.trim) or '') ) | trim }}</div>
+                  <div class="item-desc">VIN: {{ carIntake.vin or '-' }}{% if carIntake.carDetails.color %} • Color: {{ carIntake.carDetails.color }}{% endif %}</div>
+                </td>
+                <td class="center">1</td>
+                <td class="right">{{ (baseAmount or 0) | usCurrency }}</td>
+                <td class="right">{{ (baseAmount or 0) | usCurrency }}</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+
+        <div class="totals">
+          <div class="box">
+            {% if baseAmount is not null %}
+              <div class="line"><div class="k">Subtotal</div><div class="v total">{{ subtotalDerived | usCurrency }}</div></div>
+              <div class="line"><div class="k">Taxes ({{ (taxPercent * 100) | round(3) }}%)</div><div class="v">{{ taxAmount | usCurrency }}</div></div>
+              <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
+              {# Show Payment Total and Amount Paid as net amount after tax deduction, balance zero #}
+              <div class="line"><div class="k">Payment Total</div><div class="v total">{{ subtotalDerived | usCurrency }}</div></div>
+              <div class="line"><div class="k">Amount Paid</div><div class="v">{{ subtotalDerived | usCurrency }}</div></div>
+              <div style="padding:12px">
+                {% set balance = 0 %}
+                <div class="balance-pill">Balance Due&nbsp;&nbsp;{{ balance | usCurrency }}</div>
+              </div>
+            {% else %}
+              <div class="line"><div class="k">Subtotal</div><div class="v total">{{ invoice.subtotal | usCurrency }}</div></div>
+              <div class="line"><div class="k">Taxes</div><div class="v">{{ invoice.taxes | usCurrency }}</div></div>
+              <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
+              <div class="line"><div class="k">Payment Total</div><div class="v total">{{ invoice.total | usCurrency }}</div></div>
+              <div class="line"><div class="k">Amount Paid</div><div class="v">{{ invoice.amountPaid | usCurrency }}</div></div>
+              <div style="padding:12px">
+                <div class="balance-pill">Balance Due&nbsp;&nbsp;{{ invoice.balanceDue | usCurrency }}</div>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div style="clear:both"></div>
+        
       </div>
     </div>
-      </div>
-    </div>
-      <script>
-        (function(){
-          try {
-            const params = new URLSearchParams(window.location.search);
-            if (params.get('autoPrint') === '1') {
-              function doPrint(){
-                try { window.print(); } catch(e){}
-                // don't force-close; leaving optional
-              }
-              if (document.readyState === 'complete') doPrint();
-              else window.addEventListener('load', doPrint);
-            }
-          } catch(e) {
-            // silent
+
+    <script>
+      (function(){
+        try{
+          const params = new URLSearchParams(window.location.search);
+          if (params.get('autoPrint') === '1'){
+            function p(){ try{ window.print() }catch(e){} }
+            if (document.readyState === 'complete') p(); else window.addEventListener('load', p);
           }
-        })();
-      </script>
+        }catch(e){}
+      })();
+    </script>
   </body>
 </html>
