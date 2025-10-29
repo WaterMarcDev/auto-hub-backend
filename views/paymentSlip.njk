@@ -87,7 +87,12 @@
                 {% set issueDateStr = issueDate | usDate %}
               {% endif %}
             {% endif %}
-            <h2>Payment Slip #0000001</h2>
+            {# Slip number: prefer paymentSlip.slipNumber -> invoice.number -> fallback #}
+            {% if slipPadded %}
+              <h2>Payment Slip #{{ slipPadded }}</h2>
+            {% else %}
+              <h2>Payment Slip</h2>
+            {% endif %}
             <div class="muted">Issue Date: {{ issueDateStr }}</div>
           </div>
         </div>
@@ -109,10 +114,32 @@
 
         {# Compute derived amounts when items are missing: prefer transaction.amount for carIntake #}
         {% if not (items and items | length) %}
-          {% set baseAmount = (transaction and transaction.amount) or invoice.total or 0 %}
-          {% set taxPercent = 6.625 / 100 %}
-          {% set taxAmount = (baseAmount * taxPercent) %}
-          {% set subtotalDerived = baseAmount - taxAmount %}
+          {# Prefer paymentSlip snapshot when available, otherwise fallback to transaction/invoice #}
+          {% set baseAmount = (paymentSlip and paymentSlip.grossAmount) or (transaction and transaction.amount) or invoice.total or 0 %}
+          {# determine taxPercent: prefer paymentSlip.taxRate -> transaction.taxRate -> default 6.625% #}
+          {% if paymentSlip and (paymentSlip.taxRate is not none) %}
+            {% set taxPercent = paymentSlip.taxRate %}
+          {% elseif transaction and (transaction.taxRate is not none) %}
+            {% set taxPercent = transaction.taxRate %}
+          {% else %}
+            {% set taxPercent = 6.625 / 100 %}
+          {% endif %}
+          {# determine taxAmount: prefer paymentSlip.taxAmount -> transaction.taxAmount -> compute #}
+          {% if paymentSlip and (paymentSlip.taxAmount is not none) %}
+            {% set taxAmount = paymentSlip.taxAmount %}
+          {% elseif transaction and (transaction.taxAmount is not none) %}
+            {% set taxAmount = transaction.taxAmount %}
+          {% else %}
+            {% set taxAmount = baseAmount * taxPercent %}
+          {% endif %}
+          {# determine net (payment total) as gross - tax; prefer paymentSlip.netAmount -> transaction.netAmount -> compute #}
+          {% if paymentSlip and (paymentSlip.netAmount is not none) %}
+            {% set netDerived = paymentSlip.netAmount %}
+          {% elseif transaction and (transaction.netAmount is not none) %}
+            {% set netDerived = transaction.netAmount %}
+          {% else %}
+            {% set netDerived = (baseAmount - taxAmount) %}
+          {% endif %}
         {% else %}
           {% set baseAmount = null %}
           {% set taxPercent = 6.625 / 100 %}
@@ -161,12 +188,12 @@
         <div class="totals">
           <div class="box">
             {% if baseAmount is not null %}
-              <div class="line"><div class="k">Subtotal</div><div class="v total">{{ subtotalDerived | usCurrency }}</div></div>
+              <div class="line"><div class="k">Subtotal</div><div class="v total">{{ baseAmount | usCurrency }}</div></div>
               <div class="line"><div class="k">Taxes ({{ (taxPercent * 100) | round(3) }}%)</div><div class="v">{{ taxAmount | usCurrency }}</div></div>
               <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
               {# Show Payment Total and Amount Paid as net amount after tax deduction, balance zero #}
-              <div class="line"><div class="k">Payment Total</div><div class="v total">{{ subtotalDerived | usCurrency }}</div></div>
-              <div class="line"><div class="k">Amount Paid</div><div class="v">{{ subtotalDerived | usCurrency }}</div></div>
+              <div class="line"><div class="k">Payment Total</div><div class="v total">{{ netDerived | usCurrency }}</div></div>
+              <div class="line"><div class="k">Amount Paid</div><div class="v">{{ netDerived | usCurrency }}</div></div>
               <div style="padding:12px">
                 {% set balance = 0 %}
                 <div class="balance-pill">Balance Due&nbsp;&nbsp;{{ balance | usCurrency }}</div>

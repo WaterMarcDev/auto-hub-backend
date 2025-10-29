@@ -2,21 +2,29 @@ const mongoose = require("mongoose");
 
 const transactionSchema = new mongoose.Schema(
   {
-    // Transaction Type
     type: {
       type: String,
       enum: ["debit", "credit"],
       required: [true, "Transaction type is required"],
     },
-
-    // Amount
     amount: {
       type: Number,
-      // required: [true, "Transaction amount is required"],
-      // min: [0.01, "Amount must be greater than 0"],
     },
-
-    // Related Records
+    // Tax fields: taxRate is a decimal (e.g., 0.1 for 10%), taxAmount is computed
+    taxRate: {
+      type: Number,
+      // Default sales tax rate set to 6.625% (0.06625)
+      default: 0.06625,
+    },
+    taxAmount: {
+      type: Number,
+      default: 0,
+    },
+    // netAmount is the final amount after applying tax (amount +/- taxAmount)
+    netAmount: {
+      type: Number,
+      default: 0,
+    },
     carIntake: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "CarIntake",
@@ -25,41 +33,27 @@ const transactionSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Seller",
     },
-
-    // Payment Information (matching the form)
     paymentMethod: {
       type: String,
-      // enum: ["Cash", "Bank Transfer", "Zelle"],
-      // required: [true, "Payment method is required"],
     },
-
-    // Transaction Details
     description: {
       type: String,
       trim: true,
     },
-
-    // Status
     status: {
       type: String,
       enum: ["pending", "completed", "failed", "cancelled"],
       default: "pending",
     },
-
-    // Date
     transactionDate: {
       type: Date,
       default: Date.now,
     },
-
-    // Staff Information
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: [true, "Creator is required"],
     },
-
-    // Metadata
     isActive: {
       type: Boolean,
       default: true,
@@ -85,12 +79,148 @@ transactionSchema.index({ seller: 1 });
 transactionSchema.index({ createdBy: 1 });
 transactionSchema.index({ createdAt: -1 });
 
-// Virtual for formatted amount
+// Virtual for formatted original (gross) amount
 transactionSchema.virtual("formattedAmount").get(function () {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-  }).format(this.amount);
+  }).format(this.amount || 0);
 });
 
+// Virtual for formatted net amount (after tax)
+transactionSchema.virtual("formattedNetAmount").get(function () {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(this.netAmount || 0);
+});
+
+// Virtual for formatted tax amount
+transactionSchema.virtual("formattedTax").get(function () {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(this.taxAmount || 0);
+});
+
+// Helper to compute tax and adjust amount.
+function applyTaxToAmount(amount, taxRate, type) {
+  const base = Number(amount || 0);
+  const rate = Number(taxRate || 0);
+  const tax = Number(Math.abs(base) * rate);
+  const taxAmount = Number(tax.toFixed(2));
+  let netAmount = base;
+  if (type === "debit") {
+    // debit: tax deducted from the gross amount
+    netAmount = Number((base - taxAmount).toFixed(2));
+  } else {
+    // credit: tax added to the gross amount
+    netAmount = Number((base + taxAmount).toFixed(2));
+  }
+  return { taxAmount, netAmount };
+}
+
+// When saving via document.save(), compute tax and set amount/taxAmount
+transactionSchema.pre("save", function (next) {
+  // Only run if amount is provided (amount is treated as the original/gross amount)
+  if (typeof this.amount !== "number") return next();
+  const { taxAmount, netAmount } = applyTaxToAmount(
+    this.amount,
+    this.taxRate,
+    this.type
+  );
+  this.taxAmount = taxAmount;
+  this.netAmount = netAmount;
+  // keep `amount` as the original/gross value
+  return next();
+});
+
+// When using findOneAndUpdate, compute tax if amount/type/taxRate are being changed
+transactionSchema.pre("findOneAndUpdate", async function (next) {
+  try {
+    const update = this.getUpdate() || {};
+    // normalize to $set
+    const set = update.$set ? update.$set : update;
+
+    // If neither amount nor type nor taxRate are present in the update, skip
+    if (set.amount == null && set.type == null && set.taxRate == null)
+      return next();
+
+    // Fetch current document to fill missing values
+    const current = await this.model.findOne(this.getQuery()).lean();
+    const currentAmount =
+      current && typeof current.amount === "number" ? current.amount : 0;
+    const currentTaxRate =
+      current && typeof current.taxRate === "number" ? current.taxRate : 0;
+    const currentType = current && current.type ? current.type : "credit";
+
+    // amount in update is treated as original/gross amount
+    const amount = set.amount != null ? set.amount : currentAmount;
+    const taxRate = set.taxRate != null ? set.taxRate : currentTaxRate;
+    const type = set.type != null ? set.type : currentType;
+
+    if (typeof amount !== "number") return next();
+
+    const { taxAmount, netAmount } = applyTaxToAmount(amount, taxRate, type);
+
+    // Ensure $set exists and write computed values
+    if (!update.$set) update.$set = {};
+    update.$set.taxAmount = taxAmount;
+    update.$set.netAmount = netAmount;
+    // Keep amount as the original/gross amount
+    update.$set.amount = amount;
+    // keep taxRate and type as-is (if provided they remain in update.$set)
+    this.setUpdate(update);
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+});
+// After saving a transaction, create a PaymentSlip snapshot if appropriate
+transactionSchema.post("save", async function (doc, next) {
+  try {
+    // Only create slip for completed transactions tied to a carIntake
+    if (!doc || !doc.carIntake) return next();
+    if (doc.status !== "completed") return next();
+
+    // Lazy require to avoid circular dependency during module load
+    let PaymentSlip;
+    try {
+      PaymentSlip = require("./PaymentSlip");
+    } catch (e) {
+      // If PaymentSlip model not present, skip silently
+      return next();
+    }
+
+    // Avoid creating duplicate slip for same transaction
+    const existing = await PaymentSlip.findOne({ transaction: doc._id });
+    if (existing) return next();
+
+    // Create snapshot
+    await PaymentSlip.createFrom({
+      carIntakeId: doc.carIntake,
+      transactionId: doc._id,
+      snapshot: {
+        paymentMethod: doc.paymentMethod,
+        amount: doc.amount,
+        grossAmount: doc.amount,
+        taxRate: doc.taxRate,
+        taxAmount: doc.taxAmount,
+        netAmount: doc.netAmount,
+        paymentDate: doc.transactionDate || doc.createdAt,
+      },
+      createdBy: doc.createdBy,
+    });
+
+    return next();
+  } catch (err) {
+    // Log and continue (do not block transaction save)
+    try {
+      console.error("PaymentSlip creation error:", err && err.message);
+    } catch (e) {
+      /* ignore */
+    }
+    return next();
+  }
+});
 module.exports = mongoose.model("Transaction", transactionSchema);

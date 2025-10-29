@@ -923,6 +923,78 @@ const printPaymentSlip = async (req, res) => {
       .sort({ createdAt: -1 })
       .populate("createdBy", "first_name last_name email");
 
+    // Try to find an existing PaymentSlip for this car intake (prefer most recent)
+    let paymentSlipDoc = null;
+    try {
+      const PaymentSlipModel = require("../models/PaymentSlip");
+      paymentSlipDoc = await PaymentSlipModel.findOne({
+        carIntake: carIntake._id,
+      })
+        .sort({ createdAt: -1 })
+        .populate("transaction")
+        .populate("createdBy", "first_name last_name email");
+
+      // If no slip exists, create one now using current carIntake + transaction data
+      if (!paymentSlipDoc) {
+        const PaymentSlipModelInst = PaymentSlipModel;
+
+        // Build slip snapshot data
+        const grossAmount =
+          (transaction && transaction.amount) ||
+          carIntake.payment?.paidAmount ||
+          carIntake.price?.finalPrice ||
+          0;
+        const taxRate =
+          (transaction && transaction.taxRate) || carIntake.taxRate || 0.06625;
+        const taxAmount =
+          (transaction && transaction.taxAmount) ||
+          Number(Math.abs(grossAmount * taxRate).toFixed(2));
+        const netAmount =
+          (transaction && transaction.netAmount) ||
+          (transaction && transaction.type === "debit"
+            ? Number((grossAmount - taxAmount).toFixed(2))
+            : Number((grossAmount + taxAmount).toFixed(2)));
+
+        const slipData = {
+          amount: grossAmount,
+          taxRate,
+          taxAmount,
+          netAmount,
+          paymentMethod:
+            (transaction && transaction.paymentMethod) ||
+            carIntake.payment?.paymentMethod,
+          paymentDescription:
+            (transaction && transaction.description) ||
+            carIntake.payment?.paymentDescription,
+          carSnapshot: carIntake.toObject(),
+          transactionSnapshot: transaction ? transaction.toObject() : null,
+        };
+
+        const created = await PaymentSlipModelInst.create({
+          carIntake: carIntake._id,
+          transaction: transaction?._id,
+          slipData,
+          // store explicit snapshot fields so queries can read them directly
+          paymentMethod: slipData.paymentMethod,
+          grossAmount: slipData.amount,
+          taxRate: slipData.taxRate,
+          taxAmount: slipData.taxAmount,
+          netAmount: slipData.netAmount,
+          paymentDate: transaction?.createdAt || new Date(),
+          createdBy: req.user?._id,
+        });
+
+        // re-fetch populated doc
+        paymentSlipDoc = await PaymentSlipModelInst.findById(created._id)
+          .populate("transaction")
+          .populate("createdBy", "first_name last_name email");
+      }
+    } catch (e) {
+      // PaymentSlip model not available or population failed - ignore
+      console.warn("PaymentSlip creation/check failed:", e && e.message);
+      paymentSlipDoc = null;
+    }
+
     // Load logo as base64 data URI so templates / PDF renderers always have the image
     let logoDataUri = null;
     try {
@@ -938,9 +1010,17 @@ const printPaymentSlip = async (req, res) => {
       logoDataUri = null;
     }
 
+    // compute padded slip string if paymentSlip found
+    const slipPadded =
+      paymentSlipDoc && paymentSlipDoc.slipNumber
+        ? String(paymentSlipDoc.slipNumber).padStart(7, "0")
+        : null;
+
     const data = {
       carIntake,
       transaction,
+      paymentSlip: paymentSlipDoc,
+      slipPadded,
       generatedAt: new Date(),
       generatedBy: req.user
         ? { id: req.user._id, name: req.user.first_name || req.user.name || "" }
