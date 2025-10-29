@@ -193,6 +193,9 @@ app.use("/api/customers", require("./routes/customer"));
 // CheckIn routes
 app.use("/api/checkins", require("./routes/checkIn"));
 
+// Dashboard routes (aggregations for frontend charts)
+app.use("/api/dashboard", require("./routes/dashboard.routes"));
+
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
 
