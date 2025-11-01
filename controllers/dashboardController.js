@@ -3,6 +3,7 @@ const CarIntake = require("../models/carInTake.model");
 const Inventory = require("../models/Inventory.model");
 const Waiver = require("../models/Waiver.model");
 const Customer = require("../models/customer");
+const CheckIn = require("../models/checkIn");
 
 // Helper to build date format and unit for groupBy
 const buildDateBucket = (groupBy) => {
@@ -67,7 +68,7 @@ const buildBuckets = (unit, startDate, endDate) => {
 };
 
 // GET /api/dashboard/summary
-// Returns labels + series for Earning (credit) and Paid (debit)
+// Returns labels + series for CarIntake data (Scraped and Sold)
 const getDashboardSummary = async (req, res) => {
   try {
     const { startDate: sDate, endDate: eDate, groupBy = "month" } = req.query;
@@ -95,25 +96,49 @@ const getDashboardSummary = async (req, res) => {
       }
     }
 
-    const match = { isActive: true };
+    const match = { isActive: true, isDeleted: { $ne: true } };
     if (startDate || endDate) {
-      match.transactionDate = {};
-      if (startDate) match.transactionDate.$gte = startDate;
-      if (endDate) match.transactionDate.$lte = endDate;
+      match.createdAt = {};
+      if (startDate) match.createdAt.$gte = startDate;
+      if (endDate) match.createdAt.$lte = endDate;
     }
 
-    // Aggregate transactions by time bucket and type
-    const bucketsAgg = await Transaction.aggregate([
+    // Aggregate carIntakes by time bucket - total count
+    const totalBucketsAgg = await CarIntake.aggregate([
       { $match: match },
       {
         $group: {
           _id: {
             bucket: {
-              $dateToString: { format: dbFormat, date: "$transactionDate" },
+              $dateToString: { 
+                format: dbFormat, 
+                date: "$createdAt",
+                timezone: "UTC"
+              },
             },
-            type: "$type",
           },
-          totalAmount: { $sum: { $ifNull: ["$amount", 0] } },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.bucket": 1 } },
+    ]);
+
+    // Aggregate carIntakes by time bucket - scraped only
+    const scrapedMatch = { ...match, status: "scraped" };
+    const scrapedBucketsAgg = await CarIntake.aggregate([
+      { $match: scrapedMatch },
+      {
+        $group: {
+          _id: {
+            bucket: {
+              $dateToString: { 
+                format: dbFormat, 
+                date: "$createdAt",
+                timezone: "UTC"
+              },
+            },
+          },
+          count: { $sum: 1 },
         },
       },
       { $sort: { "_id.bucket": 1 } },
@@ -121,27 +146,44 @@ const getDashboardSummary = async (req, res) => {
 
     const expectedBuckets = buildBuckets(unit, startDate, endDate);
 
-    const seriesMap = { Earning: {}, Paid: {} };
-    expectedBuckets.forEach((b) => {
-      seriesMap.Earning[b] = 0;
-      seriesMap.Paid[b] = 0;
+    console.log('Dashboard Summary Debug:', {
+      unit,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      expectedBucketsCount: expectedBuckets.length,
+      expectedBuckets: expectedBuckets.slice(0, 5),
+      totalRecords: totalBucketsAgg.length,
+      scrapedRecords: scrapedBucketsAgg.length,
+      totalBuckets: totalBucketsAgg.slice(0, 3),
+      scrapedBuckets: scrapedBucketsAgg.slice(0, 3)
     });
 
-    bucketsAgg.forEach((b) => {
+    const seriesMap = { Total: {}, Scraped: {} };
+    expectedBuckets.forEach((b) => {
+      seriesMap.Total[b] = 0;
+      seriesMap.Scraped[b] = 0;
+    });
+
+    // Map total counts
+    totalBucketsAgg.forEach((b) => {
       const bucket = b._id.bucket;
-      const t = b._id.type;
-      if (t === "credit") seriesMap.Earning[bucket] = b.totalAmount;
-      else if (t === "debit") seriesMap.Paid[bucket] = b.totalAmount;
+      seriesMap.Total[bucket] = b.count;
+    });
+
+    // Map scraped counts
+    scrapedBucketsAgg.forEach((b) => {
+      const bucket = b._id.bucket;
+      seriesMap.Scraped[bucket] = b.count;
     });
 
     const series = [
       {
-        name: "Earning",
-        data: expectedBuckets.map((l) => seriesMap.Earning[l] || 0),
+        name: "Total Cars",
+        data: expectedBuckets.map((l) => seriesMap.Total[l] || 0),
       },
       {
-        name: "Paid",
-        data: expectedBuckets.map((l) => seriesMap.Paid[l] || 0),
+        name: "Scraped",
+        data: expectedBuckets.map((l) => seriesMap.Scraped[l] || 0),
       },
     ];
 
@@ -153,7 +195,7 @@ const getDashboardSummary = async (req, res) => {
 };
 
 // GET /api/dashboard/revenue-trend
-// Returns daily points and total for the requested date range (default last 30 days)
+// Returns daily points and total for credit transactions (default last 30 days)
 const getRevenueTrend = async (req, res) => {
   try {
     const { startDate: sDate, endDate: eDate } = req.query;
@@ -163,7 +205,7 @@ const getRevenueTrend = async (req, res) => {
       ? new Date(sDate)
       : new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
 
-    const match = { isActive: true };
+    const match = { isActive: true, type: "credit" };
     match.transactionDate = { $gte: startDate, $lte: endDate };
 
     const dailyAgg = await Transaction.aggregate([
@@ -172,7 +214,11 @@ const getRevenueTrend = async (req, res) => {
         $group: {
           _id: {
             date: {
-              $dateToString: { format: "%Y-%m-%d", date: "$transactionDate" },
+              $dateToString: { 
+                format: "%Y-%m-%d", 
+                date: "$transactionDate",
+                timezone: "UTC"
+              },
             },
           },
           totalAmount: { $sum: { $ifNull: ["$amount", 0] } },
@@ -234,14 +280,13 @@ const getSummaryCounts = async (req, res) => {
 };
 
 // GET /api/dashboard/earning-goal
-// Returns totals for fromScrap and fromJunk (configurable statuses via query)
+// Returns totals for fromScrap and fromCheckIn
 const getEarningGoal = async (req, res) => {
   try {
     const {
       startDate,
       endDate,
       scrapStatus = "scraped",
-      junkStatus = "sold",
       goalAmount,
     } = req.query;
 
@@ -252,34 +297,54 @@ const getEarningGoal = async (req, res) => {
       if (endDate) baseMatch.createdAt.$lte = new Date(endDate);
     }
 
+    // Calculate fromScrap: sum of finalPrice from CarIntake where status is 'scraped'
     const scrapMatch = Object.assign({}, baseMatch, { status: scrapStatus });
-    const junkMatch = Object.assign({}, baseMatch, { status: junkStatus });
-
     const scrapAgg = await CarIntake.aggregate([
       { $match: scrapMatch },
       {
         $group: { _id: null, total: { $sum: { $ifNull: ["$finalPrice", 0] } } },
       },
     ]);
-    const junkAgg = await CarIntake.aggregate([
-      { $match: junkMatch },
+
+    // Calculate fromCheckIn: sum of transaction amounts linked to check-ins
+    const checkInMatch = {};
+    if (startDate || endDate) {
+      checkInMatch.checkInTime = {};
+      if (startDate) checkInMatch.checkInTime.$gte = new Date(startDate);
+      if (endDate) checkInMatch.checkInTime.$lte = new Date(endDate);
+    }
+
+    const checkInAgg = await CheckIn.aggregate([
+      { $match: checkInMatch },
       {
-        $group: { _id: null, total: { $sum: { $ifNull: ["$finalPrice", 0] } } },
+        $lookup: {
+          from: "transactions",
+          localField: "transaction",
+          foreignField: "_id",
+          as: "transactionData",
+        },
+      },
+      { $unwind: { path: "$transactionData", preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: { $ifNull: ["$transactionData.amount", 0] } },
+        },
       },
     ]);
 
     const fromScrapAmount = scrapAgg[0]?.total || 0;
-    const fromJunkAmount = junkAgg[0]?.total || 0;
+    const fromCheckInAmount = checkInAgg[0]?.total || 0;
 
     const goal = goalAmount ? parseFloat(goalAmount) : undefined;
     const fromScrapPct = goal
       ? Math.round((fromScrapAmount / goal) * 100)
-      : null;
-    const fromJunkPct = goal ? Math.round((fromJunkAmount / goal) * 100) : null;
+      : 70;
+    const fromCheckInPct = goal ? Math.round((fromCheckInAmount / goal) * 100) : 80;
 
     return res.json({
       fromScrap: { amount: fromScrapAmount, percentageOfGoal: fromScrapPct },
-      fromJunk: { amount: fromJunkAmount, percentageOfGoal: fromJunkPct },
+      fromCheckIn: { amount: fromCheckInAmount, percentageOfGoal: fromCheckInPct },
       goal: goal || null,
     });
   } catch (error) {

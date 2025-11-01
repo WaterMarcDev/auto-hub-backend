@@ -61,6 +61,7 @@ njEnv.addFilter("usCurrency", function (val, fallback = "-$0.00") {
 
 const allowlist = [
   "http://localhost:5173",
+  "http://192.168.1.4:5173",
   "https://wmshostings.us",
   "https://www.wmshostings.us",
   "https://autohubexpress.us",
