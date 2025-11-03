@@ -39,6 +39,7 @@ const createInventory = async (req, res) => {
       vin,
       year,
       color,
+      image,
     } = req.body;
 
     // Resolve Make: accept ObjectId or name
@@ -160,6 +161,7 @@ const createInventory = async (req, res) => {
       tag,
       year,
       color,
+      image: image || null,
     });
 
     res

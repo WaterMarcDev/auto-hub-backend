@@ -51,6 +51,10 @@ const inventorySchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    image: {
+      type: String,
+      default: null,
+    },
     // Soft delete fields
     isDeleted: {
       type: Boolean,
