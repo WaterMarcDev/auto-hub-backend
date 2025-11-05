@@ -420,7 +420,7 @@ const getCarIntakes = async (req, res) => {
         "firstName lastName email mobileNo driversLicense description"
       )
       .populate("createdBy", "first_name last_name email")
-      .sort({ createdAt: -1 })
+      .sort({ updatedAt: -1 })
       .skip(skip)
       .limit(limit);
 

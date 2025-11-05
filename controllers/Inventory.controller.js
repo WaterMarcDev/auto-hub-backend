@@ -212,7 +212,7 @@ const getAllInventories = async (req, res) => {
       .populate("trim")
       .skip(skip)
       .limit(limit)
-      .sort({ createdAt: -1 });
+      .sort({ updatedAt: -1 });
 
     res.status(200).json({
       inventories,
@@ -257,7 +257,7 @@ const getPartsMasterList = async (req, res) => {
       )
       .skip(skip)
       .limit(limit)
-      .sort({ createdAt: -1 })
+      .sort({ updatedAt: -1 })
       .lean();
 
     const parts = items.map((it) => ({
