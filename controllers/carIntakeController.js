@@ -833,7 +833,7 @@ const updateCarIntakeStatus = async (req, res) => {
       new: true,
     })
       .populate(
-        "seller",
+        "kyc.seller",
         "firstName lastName email mobileNo driversLicense description"
       )
       .populate("scrapedBy", "first_name last_name email");
