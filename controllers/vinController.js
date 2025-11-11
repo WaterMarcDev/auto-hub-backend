@@ -44,6 +44,11 @@ const getVinDetails = async (req, res) => {
       .populate("createdBy", "first_name last_name email");
 
     if (existing) {
+      // If the existing record has completed payment, treat VIN as processed
+      if (existing.status === "payment-done") {
+        return res.status(400).json({ error: "VIN already processed" });
+      }
+
       // If we already stored raw VIN details, return them; otherwise map our carDetails
       const vinData = existing.vinDetails;
 
