@@ -179,6 +179,9 @@ app.use("/api/element", require("./routes/element.routes"));
 // Scrap Element routes
 app.use("/api/scrap-element", require("./routes/scrapElement.routes"));
 
+// Element Hub routes (accumulated elements + history + sell)
+app.use("/api/element-hub", require("./routes/elementHub.routes"));
+
 // Inventory routes
 app.use("/api/inventory", require("./routes/inventory.routes"));
 
@@ -196,6 +199,9 @@ app.use("/api/checkins", require("./routes/checkIn"));
 
 // Dashboard routes (aggregations for frontend charts)
 app.use("/api/dashboard", require("./routes/dashboard.routes"));
+
+// Invoice print route
+app.use("/api/invoices", require("./routes/invoice.routes"));
 
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));

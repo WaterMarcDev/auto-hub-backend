@@ -1,4 +1,5 @@
 const ScrapElement = require("../models/ScrapElements");
+const elementHubController = require("./elementHub.controller");
 
 // Create Scrap Element
 const createScrapElement = async (req, res) => {
@@ -29,6 +30,23 @@ const createScrapElement = async (req, res) => {
 
     // Save to database
     const savedElement = await newScrapElement.save();
+
+    // If weight is provided, add to central Element Hub (accumulated stock)
+    try {
+      if (savedElement.weight && savedElement.weight > 0) {
+        await elementHubController.addToHubInternal({
+          elementName: savedElement.elementName,
+          amount: savedElement.weight,
+          unit: savedElement.unit,
+          sourceVin: savedElement.vin,
+          createdBy: req.user ? req.user._id : undefined,
+        });
+      }
+    } catch (err) {
+      console.error("Failed to update element hub after scrap create:", err);
+      // don't block the main response; just log
+    }
+
     res.status(201).json(savedElement);
   } catch (error) {
     console.error("Error creating scrap element:", error);

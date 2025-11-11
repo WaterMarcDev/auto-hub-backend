@@ -28,7 +28,16 @@ const InvoiceSchema = new Schema(
     checkIn: {
       type: Schema.Types.ObjectId,
       ref: "CheckIn",
-      required: true,
+      // required only when invoiceType === 'checkin'
+    },
+    elementSell: {
+      type: Schema.Types.ObjectId,
+      ref: "ElementHubHistory",
+    },
+    invoiceType: {
+      type: String,
+      enum: ["checkin", "element-sell"],
+      default: "checkin",
     },
     transaction: { type: Schema.Types.ObjectId, ref: "Transaction" },
     invoiceData: { type: Schema.Types.Mixed },
@@ -49,6 +58,16 @@ const InvoiceSchema = new Schema(
   },
   { timestamps: true }
 );
+// Conditional validation: require checkIn when invoiceType === 'checkin' and elementSell when invoiceType === 'element-sell'
+InvoiceSchema.path("checkIn").validate(function (value) {
+  if (this.invoiceType === "checkin") return !!value;
+  return true;
+}, "checkIn is required for checkin invoices");
+
+InvoiceSchema.path("elementSell").validate(function (value) {
+  if (this.invoiceType === "element-sell") return !!value;
+  return true;
+}, "elementSell is required for element-sell invoices");
 
 InvoiceSchema.pre("save", async function (next) {
   try {
@@ -95,6 +114,8 @@ InvoiceSchema.statics.createFrom = async function ({
   transactionId,
   snapshot = {},
   createdBy,
+  elementSellId,
+  invoiceType = "checkin",
 }) {
   const amt = Number(snapshot.amount ?? 0);
 
@@ -111,6 +132,8 @@ InvoiceSchema.statics.createFrom = async function ({
       ? new Date(snapshot.createdAt)
       : undefined,
     createdBy,
+    elementSell: elementSellId,
+    invoiceType,
   });
 
   await invoice.save();

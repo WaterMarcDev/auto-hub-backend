@@ -100,7 +100,20 @@
             {% endif %}
           </div>
           <div class="right" style="min-width:220px">
-            {% if checkIn %}
+            {% if elementSell %}
+              <div class="section-title">Element Sell Details:</div>
+              <div class="muted">Element: {{ elementSell.elementName or '—' }}</div>
+              <div class="muted">Amount: {{ elementSell.amount or 0 }} lb</div>
+              {% if elementSell.createdAt %}
+                {% set sellTimeStr = '' %}
+                {% if elementSell.createdAt.toLocaleDateString %}
+                  {% set sellTimeStr = elementSell.createdAt.toLocaleDateString('en-US') ~ ' ' ~ elementSell.createdAt.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'}) %}
+                {% else %}
+                  {% set sellTimeStr = elementSell.createdAt | date('MMM DD, YYYY HH:mm') %}
+                {% endif %}
+                <div class="muted">Date: {{ sellTimeStr }}</div>
+              {% endif %}
+            {% elif checkIn %}
               <div class="section-title">Check-In Details:</div>
               <div class="muted">Token: {{ checkIn.checkInToken or '—' }}</div>
               <div class="muted">Persons: 1 + {{ checkIn.numberOfPersons or 0 }}</div>
@@ -127,7 +140,20 @@
             </tr>
           </thead>
           <tbody>
-            {% if items and items | length %}
+            {% if elementSell %}
+              <tr>
+                <td>
+                  <div>{{ elementSell.elementName or 'Element Sale' }}</div>
+                  <div class="item-desc">Sale of {{ elementSell.amount or 0 }} lb of {{ elementSell.elementName or 'element' }}</div>
+                  {% if elementSell.note %}
+                    <div class="item-desc">Note: {{ elementSell.note }}</div>
+                  {% endif %}
+                </td>
+                <td class="center">{{ elementSell.amount or 0 }} lb</td>
+                <td class="right">${{ (transaction and transaction.amount) or 0 | round(2) }}</td>
+                <td class="right">${{ (transaction and transaction.amount) or 0 | round(2) }}</td>
+              </tr>
+            {% elif items and items | length %}
               {% for it in items %}
               <tr>
                 <td>
@@ -158,12 +184,17 @@
         <div class="totals">
           <div class="box">
             <div class="line"><div class="k">Subtotal</div><div class="v">${{ (invoiceDoc and invoiceDoc.subtotal) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
-            <div class="line"><div class="k">Taxes</div><div class="v">${{ (invoiceDoc and invoiceDoc.taxAmount) or 0 | round(2) }}</div></div>
+            <div class="line"><div class="k">Taxes</div><div class="v">${{ (invoiceDoc and invoiceDoc.taxAmount) or (transaction and transaction.taxAmount) or 0 | round(2) }}</div></div>
             <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
-            <div class="line"><div class="k">Total</div><div class="v total">${{ (invoiceDoc and invoiceDoc.total) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
-            <div class="line"><div class="k">Amount Paid</div><div class="v">${{ (invoiceDoc and invoiceDoc.amountPaid) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
+            <div class="line"><div class="k">Total</div><div class="v total">${{ (invoiceDoc and invoiceDoc.total) or (transaction and transaction.netAmount) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
+            <div class="line"><div class="k">Amount Paid</div><div class="v">${{ (elementSell and transaction and transaction.netAmount) or (invoiceDoc and invoiceDoc.amountPaid) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
             <div style="padding:12px">
-              {% set balance = (invoiceDoc and invoiceDoc.balanceDue) or 0 %}
+              {% if elementSell %}
+                {# For element sells, balance is always 0 since payment is made at time of sale #}
+                {% set balance = 0 %}
+              {% else %}
+                {% set balance = (invoiceDoc and invoiceDoc.balanceDue) or 0 %}
+              {% endif %}
               <div class="balance-pill">Balance Due&nbsp;&nbsp;${{ balance | round(2) }}</div>
             </div>
           </div>
