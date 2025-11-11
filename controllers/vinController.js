@@ -38,7 +38,7 @@ const getVinDetails = async (req, res) => {
     // First check if we already have this VIN stored
     const existing = await CarIntake.findOne({ vin: vinNumber })
       .populate(
-        "seller",
+        "kyc.seller",
         "firstName lastName email mobileNo driversLicense description"
       )
       .populate("createdBy", "first_name last_name email");
