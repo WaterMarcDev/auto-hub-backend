@@ -1,6 +1,8 @@
 const CheckIn = require("../models/checkIn");
 const Transaction = require("../models/Transaction");
 const Customer = require("../models/customer");
+const fs = require("fs");
+const path = require("path");
 
 // Create a new check-in. Expects body: { customer: ObjectId, transaction: { ...transactionData }, employeeSignature: string }
 // checkInTime is automatic, checkedInBy is taken from req.user (assumes auth middleware sets req.user)
@@ -143,5 +145,118 @@ exports.checkout = async (req, res) => {
     return res
       .status(500)
       .json({ message: "Internal server error", error: err.message });
+  }
+};
+
+// @desc    Print invoice for a check-in
+// @access  Private
+exports.printInvoice = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const checkIn = await CheckIn.findById(id)
+      .populate("customer")
+      .populate("transaction")
+      .populate("checkedInBy", "first_name last_name email");
+
+    if (!checkIn) return res.status(404).send("CheckIn not found");
+
+    // Try to find an existing Invoice for this check-in (prefer most recent)
+    let invoiceDoc = null;
+    try {
+      const InvoiceModel = require("../models/Invoice");
+      invoiceDoc = await InvoiceModel.findOne({
+        checkIn: checkIn._id,
+      })
+        .sort({ createdAt: -1 })
+        .populate("transaction")
+        .populate("createdBy", "first_name last_name email");
+
+      // If no invoice exists, create one now
+      if (!invoiceDoc) {
+        const InvoiceModelInst = InvoiceModel;
+
+        // Build invoice snapshot data
+        const amount = (checkIn.transaction && checkIn.transaction.amount) || 0;
+        const taxRate = 0; // No tax for check-in entry fees by default
+
+        // Determine if payment was made (transaction exists and has amount)
+        const amountPaid = checkIn.transaction?.amount || 0;
+
+        const invoiceData = {
+          amount,
+          taxRate,
+          amountPaid,
+          paymentMethod: checkIn.transaction?.paymentMethod,
+          checkInSnapshot: checkIn.toObject(),
+          transactionSnapshot: checkIn.transaction
+            ? checkIn.transaction.toObject()
+            : null,
+        };
+
+        const created = await InvoiceModelInst.create({
+          checkIn: checkIn._id,
+          transaction: checkIn.transaction?._id,
+          invoiceData,
+          paymentMethod: invoiceData.paymentMethod,
+          amount: invoiceData.amount,
+          amountPaid: invoiceData.amountPaid,
+          taxRate: invoiceData.taxRate,
+          invoiceDate: checkIn.checkInTime || new Date(),
+          createdBy: req.user?._id,
+        });
+
+        // re-fetch populated doc
+        invoiceDoc = await InvoiceModelInst.findById(created._id)
+          .populate("transaction")
+          .populate("createdBy", "first_name last_name email");
+      }
+    } catch (e) {
+      // Invoice model not available or creation failed - ignore
+      console.warn("Invoice creation/check failed:", e && e.message);
+      invoiceDoc = null;
+    }
+
+    // Load logo as base64 data URI
+    let logoDataUri = null;
+    try {
+      const logoPath = path.join(__dirname, "..", "assets", "logo-sm1.png");
+      if (fs.existsSync(logoPath)) {
+        const buf = fs.readFileSync(logoPath);
+        const b64 = buf.toString("base64");
+        logoDataUri = `data:image/png;base64,${b64}`;
+      }
+    } catch (e) {
+      console.warn("Could not read logo for invoice:", e && e.message);
+      logoDataUri = null;
+    }
+
+    // Compute padded invoice string if invoice found
+    const invoicePadded =
+      invoiceDoc && invoiceDoc.invoiceNumber
+        ? String(invoiceDoc.invoiceNumber).padStart(7, "0")
+        : null;
+
+    const data = {
+      checkIn,
+      customer: checkIn.customer,
+      transaction: checkIn.transaction,
+      invoiceDoc,
+      invoicePadded,
+      generatedAt: new Date(),
+      generatedBy: req.user
+        ? { id: req.user._id, name: req.user.first_name || req.user.name || "" }
+        : null,
+      logoSrc: logoDataUri || "/assets/logo-sm1.png",
+    };
+
+    // Mark invoice as printed
+    checkIn.invoicePrinted = true;
+    await checkIn.save();
+
+    // Render using invoice template
+    return res.render("invoice.njk", data);
+  } catch (err) {
+    console.error("Print invoice error:", err);
+    return res.status(500).json({ error: "Server error rendering invoice" });
   }
 };

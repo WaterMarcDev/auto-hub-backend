@@ -43,6 +43,10 @@ const checkInSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
   },
+  invoicePrinted: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 checkInSchema.pre("save", function (next) {
@@ -54,6 +58,45 @@ checkInSchema.pre("save", function (next) {
       .toUpperCase();
   }
   next();
+});
+
+// After saving a check-in, create an Invoice snapshot if appropriate
+checkInSchema.post("save", async function (doc, next) {
+  try {
+    // Only create invoice for check-ins with a transaction
+    if (!doc || !doc.transaction) return next();
+    if (doc.status !== "checked-in") return next();
+
+    // Lazy require to avoid circular dependency during module load
+    let Invoice;
+    try {
+      Invoice = require("./Invoice");
+    } catch (e) {
+      // If Invoice model not present, skip silently
+      return next();
+    }
+
+    // Avoid creating duplicate invoice for same check-in
+    const existing = await Invoice.findOne({ checkIn: doc._id });
+    if (existing) return next();
+
+    // Create invoice snapshot
+    await Invoice.createFrom({
+      checkInId: doc._id,
+      transactionId: doc.transaction,
+      snapshot: {
+        amount: 0, // Will be populated from transaction when it's available
+        taxRate: 0,
+        invoiceDate: doc.checkInTime,
+      },
+      createdBy: doc.checkedInBy,
+    });
+
+    return next();
+  } catch (e) {
+    console.error("Error creating invoice for check-in:", e);
+    return next(); // Don't fail the check-in save if invoice creation fails
+  }
 });
 
 const CheckIn = mongoose.model("CheckIn", checkInSchema);
