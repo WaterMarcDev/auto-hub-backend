@@ -152,7 +152,7 @@ const getVinDetails = async (req, res) => {
 
       carIntake = await CarIntake.findById(carIntake._id)
         .populate(
-          "seller",
+          "kyc.seller",
           "firstName lastName email mobileNo driversLicense description"
         )
         .populate("createdBy", "first_name last_name email");
