@@ -166,7 +166,7 @@ const carIntakeSchema = new mongoose.Schema(
       sellingDate: { type: Date },
       pickupType: {
         type: String,
-        enum: ["You Pull", "We Pull", "Bulk", "Location"],
+        enum: ["You Pull", "We Pull", "Bulk", "Location", "Brought In"],
       },
       documents: {
         driversLicense: String,
