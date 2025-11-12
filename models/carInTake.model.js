@@ -170,7 +170,7 @@ const carIntakeSchema = new mongoose.Schema(
       },
       documents: {
         driversLicense: String,
-        carRegistration: String,
+        physicalPaper: String,
         titleCertificate: String,
       },
       kycDescription: { type: String, trim: true },
