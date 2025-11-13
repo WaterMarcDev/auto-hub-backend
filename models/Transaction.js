@@ -25,6 +25,12 @@ const transactionSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // Flag to indicate if amount represents gross or net
+    // If true, amount is the net and we calculate gross from it
+    amountIsNet: {
+      type: Boolean,
+      default: false,
+    },
     carIntake: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "CarIntake",
@@ -104,34 +110,57 @@ transactionSchema.virtual("formattedTax").get(function () {
 });
 
 // Helper to compute tax and adjust amount.
-function applyTaxToAmount(amount, taxRate, type) {
+// If amountIsNet is true, amount is treated as net and we calculate gross
+// Otherwise, amount is treated as gross and we calculate net
+function applyTaxToAmount(amount, taxRate, type, amountIsNet = false) {
   const base = Number(amount || 0);
   const rate = Number(taxRate || 0);
-  const tax = Number(Math.abs(base) * rate);
-  const taxAmount = Number(tax.toFixed(2));
-  let netAmount = base;
-  if (type === "debit") {
-    // debit: tax deducted from the gross amount
-    netAmount = Number((base - taxAmount).toFixed(2));
+
+  if (amountIsNet) {
+    // amount is net, calculate gross
+    // For debit: gross = net / (1 - rate)
+    // For credit: gross = net / (1 + rate)
+    let grossAmount = base;
+    if (type === "debit") {
+      grossAmount = base / (1 - rate);
+    } else {
+      grossAmount = base / (1 + rate);
+    }
+    const taxAmount = Number(Math.abs(grossAmount - base).toFixed(2));
+    return {
+      amount: Number(grossAmount.toFixed(2)),
+      taxAmount,
+      netAmount: base,
+    };
   } else {
-    // credit: tax added to the gross amount
-    netAmount = Number((base + taxAmount).toFixed(2));
+    // amount is gross, calculate net (original behavior)
+    const tax = Number(Math.abs(base) * rate);
+    const taxAmount = Number(tax.toFixed(2));
+    let netAmount = base;
+    if (type === "debit") {
+      // debit: tax deducted from the gross amount
+      netAmount = Number((base - taxAmount).toFixed(2));
+    } else {
+      // credit: tax added to the gross amount
+      netAmount = Number((base + taxAmount).toFixed(2));
+    }
+    return { amount: base, taxAmount, netAmount };
   }
-  return { taxAmount, netAmount };
 }
 
 // When saving via document.save(), compute tax and set amount/taxAmount
 transactionSchema.pre("save", function (next) {
-  // Only run if amount is provided (amount is treated as the original/gross amount)
+  // Only run if amount is provided
   if (typeof this.amount !== "number") return next();
-  const { taxAmount, netAmount } = applyTaxToAmount(
+  const result = applyTaxToAmount(
     this.amount,
     this.taxRate,
-    this.type
+    this.type,
+    this.amountIsNet
   );
-  this.taxAmount = taxAmount;
-  this.netAmount = netAmount;
-  // keep `amount` as the original/gross value
+  this.amount = result.amount; // update to gross if it was net
+  this.taxAmount = result.taxAmount;
+  this.netAmount = result.netAmount;
   return next();
 });
 
@@ -142,8 +171,13 @@ transactionSchema.pre("findOneAndUpdate", async function (next) {
     // normalize to $set
     const set = update.$set ? update.$set : update;
 
-    // If neither amount nor type nor taxRate are present in the update, skip
-    if (set.amount == null && set.type == null && set.taxRate == null)
+    // If neither amount nor type nor taxRate nor amountIsNet are present in the update, skip
+    if (
+      set.amount == null &&
+      set.type == null &&
+      set.taxRate == null &&
+      set.amountIsNet == null
+    )
       return next();
 
     // Fetch current document to fill missing values
@@ -153,22 +187,25 @@ transactionSchema.pre("findOneAndUpdate", async function (next) {
     const currentTaxRate =
       current && typeof current.taxRate === "number" ? current.taxRate : 0;
     const currentType = current && current.type ? current.type : "credit";
+    const currentAmountIsNet =
+      current && current.amountIsNet ? current.amountIsNet : false;
 
-    // amount in update is treated as original/gross amount
+    // amount in update can be either gross or net depending on amountIsNet flag
     const amount = set.amount != null ? set.amount : currentAmount;
     const taxRate = set.taxRate != null ? set.taxRate : currentTaxRate;
     const type = set.type != null ? set.type : currentType;
+    const amountIsNet =
+      set.amountIsNet != null ? set.amountIsNet : currentAmountIsNet;
 
     if (typeof amount !== "number") return next();
 
-    const { taxAmount, netAmount } = applyTaxToAmount(amount, taxRate, type);
+    const result = applyTaxToAmount(amount, taxRate, type, amountIsNet);
 
     // Ensure $set exists and write computed values
     if (!update.$set) update.$set = {};
-    update.$set.taxAmount = taxAmount;
-    update.$set.netAmount = netAmount;
-    // Keep amount as the original/gross amount
-    update.$set.amount = amount;
+    update.$set.amount = result.amount; // update to gross if it was net
+    update.$set.taxAmount = result.taxAmount;
+    update.$set.netAmount = result.netAmount;
     // keep taxRate and type as-is (if provided they remain in update.$set)
     this.setUpdate(update);
     return next();

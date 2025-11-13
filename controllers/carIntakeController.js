@@ -714,6 +714,11 @@ const updateCarIntake = async (req, res) => {
         ? carIntakeData.paymentDescription
         : carIntakeData.payment && carIntakeData.payment.paymentDescription;
 
+    // Check if we have net amount and tax info from frontend
+    const incomingNetAmount = carIntakeData.netAmount;
+    const incomingTaxAmount = carIntakeData.taxAmount;
+    const incomingTaxRate = carIntakeData.taxRate;
+
     // If payment details provided and transaction not exists, create one
     if (
       (transactionData ||
@@ -721,13 +726,16 @@ const updateCarIntake = async (req, res) => {
         incomingMethod !== undefined) &&
       !(await Transaction.findOne({ carIntake: carIntake._id }))
     ) {
+      // Use paidAmount (gross) if provided, otherwise use finalPrice (net)
+      const transactionAmount =
+        incomingPaid ?? carIntake.price?.finalPrice ?? 0;
+      const isNet = incomingPaid === undefined; // if no paidAmount, finalPrice is net
+
       await new Transaction({
         type: "debit",
-        amount:
-          incomingPaid ??
-          carIntake.payment?.paidAmount ??
-          carIntake.price?.finalPrice ??
-          0,
+        amount: transactionAmount,
+        amountIsNet: isNet,
+        taxRate: incomingTaxRate ?? 0.06625,
         paymentMethod: incomingMethod ?? carIntake.payment?.paymentMethod,
         description: incomingDesc ?? carIntake.payment?.paymentDescription,
         carIntake: carIntake._id,
@@ -745,14 +753,16 @@ const updateCarIntake = async (req, res) => {
       incomingMethod !== undefined ||
       incomingDesc !== undefined
     ) {
+      const transactionAmount =
+        incomingPaid ?? carIntake.price?.finalPrice ?? 0;
+      const isNet = incomingPaid === undefined;
+
       await Transaction.findOneAndUpdate(
         { carIntake: carIntake._id },
         {
-          amount:
-            incomingPaid ??
-            carIntake.payment?.paidAmount ??
-            carIntake.price?.finalPrice ??
-            0,
+          amount: transactionAmount,
+          amountIsNet: isNet,
+          taxRate: incomingTaxRate ?? 0.06625,
           paymentMethod: incomingMethod ?? carIntake.payment?.paymentMethod,
           description: incomingDesc ?? carIntake.payment?.paymentDescription,
           ...transactionData,
@@ -939,27 +949,21 @@ const printPaymentSlip = async (req, res) => {
         const PaymentSlipModelInst = PaymentSlipModel;
 
         // Build slip snapshot data
-        const grossAmount =
-          (transaction && transaction.amount) ||
-          carIntake.payment?.paidAmount ||
-          carIntake.price?.finalPrice ||
-          0;
+        // finalPrice is what the seller receives (net amount)
+        const finalPrice = carIntake.price?.finalPrice || 0;
+        const netAmount = finalPrice;
         const taxRate =
           (transaction && transaction.taxRate) || carIntake.taxRate || 0.06625;
-        const taxAmount =
-          (transaction && transaction.taxAmount) ||
-          Number(Math.abs(grossAmount * taxRate).toFixed(2));
-        const netAmount =
-          (transaction && transaction.netAmount) ||
-          (transaction && transaction.type === "debit"
-            ? Number((grossAmount - taxAmount).toFixed(2))
-            : Number((grossAmount + taxAmount).toFixed(2)));
+
+        // Calculate gross from net: gross = net / (1 - tax_rate)
+        const grossAmount = netAmount / (1 - taxRate);
+        const taxAmount = grossAmount - netAmount;
 
         const slipData = {
           amount: grossAmount,
+          netAmount: netAmount,
           taxRate,
           taxAmount,
-          netAmount,
           paymentMethod:
             (transaction && transaction.paymentMethod) ||
             carIntake.payment?.paymentMethod,
@@ -976,10 +980,10 @@ const printPaymentSlip = async (req, res) => {
           slipData,
           // store explicit snapshot fields so queries can read them directly
           paymentMethod: slipData.paymentMethod,
-          grossAmount: slipData.amount,
+          grossAmount: Math.round((grossAmount + Number.EPSILON) * 100) / 100,
+          netAmount: Math.round((netAmount + Number.EPSILON) * 100) / 100,
           taxRate: slipData.taxRate,
-          taxAmount: slipData.taxAmount,
-          netAmount: slipData.netAmount,
+          taxAmount: Math.round((taxAmount + Number.EPSILON) * 100) / 100,
           paymentDate: transaction?.createdAt || new Date(),
           createdBy: req.user?._id,
         });
