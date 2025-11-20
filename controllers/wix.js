@@ -11,7 +11,7 @@ const syncWithWix = async (req, res) => {
     // Prepare data for Wix
     const wixData = inventoriesToSync.map((item) => ({
       externalId: item._id,
-      title: item.partName,
+      title: item.partName.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim(),
       make: item.make.name,
       model: item.model.name,
       trim: item.trim.name,
