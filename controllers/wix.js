@@ -3,7 +3,7 @@ const Inventory = require("../models/Inventory.model");
 const syncWithWix = async (req, res) => {
   try {
     // all inventory where wixSync is true
-    const inventoriesToSync = await Inventory.find({ wixSynced: false || null })
+    const inventoriesToSync = await Inventory.find({ wixSynced: false })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
