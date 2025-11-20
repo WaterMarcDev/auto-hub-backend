@@ -1,4 +1,4 @@
-const Inventory = require("../models/Inventory");
+const Inventory = require("../models/Inventory.model");
 
 const syncWithWix = async (req, res) => {
   try {
