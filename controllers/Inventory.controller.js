@@ -142,7 +142,7 @@ const createInventory = async (req, res) => {
       resolvedPartShort = generateShortName(partName || "");
     }
 
-    const tag = `${(makeDoc && makeDoc.shortName) || ""}/${
+    const sku = `${(makeDoc && makeDoc.shortName) || ""}/$/{
       (modelDoc && modelDoc.shortName) || ""
     }/${year || ""}-${resolvedPartShort}/${color || ""}`;
 
@@ -158,7 +158,7 @@ const createInventory = async (req, res) => {
       model: modelId,
       trim: trimId,
       vin,
-      tag,
+      sku,
       year,
       color,
       image: image || null,
@@ -253,7 +253,7 @@ const getPartsMasterList = async (req, res) => {
       .populate("model", "name shortName")
       .populate("trim", "name shortName")
       .select(
-        "partName unit cleaned quality location weight dimensions tag year color"
+        "partName unit cleaned quality location weight dimensions sku year color"
       )
       .skip(skip)
       .limit(limit)
@@ -269,7 +269,7 @@ const getPartsMasterList = async (req, res) => {
       location: it.location,
       weight: it.weight,
       dimensions: it.dimensions,
-      tag: it.tag,
+      sku: it.sku,
       year: it.year,
       color: it.color,
       make: it.make ? { _id: it.make._id, name: it.make.name } : null,

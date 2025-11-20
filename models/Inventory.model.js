@@ -47,13 +47,20 @@ const inventorySchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    tag: {
+    sku: {
       type: String,
       trim: true,
     },
     image: {
       type: String,
       default: null,
+    },
+    wixSynced: {
+      type: Boolean,
+      default: false,
+    },
+    wixSyncedAt: {
+      type: Date,
     },
     // Soft delete fields
     isDeleted: {

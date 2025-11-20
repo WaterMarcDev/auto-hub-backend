@@ -203,6 +203,9 @@ app.use("/api/dashboard", require("./routes/dashboard.routes"));
 // Invoice print route
 app.use("/api/invoices", require("./routes/invoice.routes"));
 
+// Wix integration routes
+app.use("/api/wix", require("./routes/wix.routes"));
+
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
 
