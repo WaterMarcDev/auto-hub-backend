@@ -1,3 +1,5 @@
+const Inventory = require("../models/Inventory");
+
 const syncWithWix = async (req, res) => {
   try {
     // all inventory where wixSync is true
