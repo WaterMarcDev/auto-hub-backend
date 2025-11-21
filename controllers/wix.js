@@ -29,6 +29,7 @@ const syncWithWix = async (req, res) => {
         .replace(/\s+/g, "-")}-${item.trim.name
         .toLowerCase()
         .replace(/\s+/g, "-")}-${item.year}`,
+      currency: "USD",
     }));
 
     // send wixData in response and mark items as synced
