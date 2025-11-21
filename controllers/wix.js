@@ -8,15 +8,28 @@ const syncWithWix = async (req, res) => {
       .populate("model", "name")
       .populate("trim", "name");
 
+    const title = item.partName
+      .replace(/([A-Z])/g, " $1")
+      .replace(/^./, (str) => str.toUpperCase())
+      .trim();
     // Prepare data for Wix
     const wixData = inventoriesToSync.map((item) => ({
       externalId: item._id,
-      title: item.partName.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim(),
+      title: title,
       make: item.make.name,
       model: item.model.name,
       trim: item.trim.name,
       year: item.year,
       sku: item.sku,
+      slug: `${item.partName
+        .toLowerCase()
+        .replace(/\s+/g, "-")}-${item.make.name
+        .toLowerCase()
+        .replace(/\s+/g, "-")}-${item.model.name
+        .toLowerCase()
+        .replace(/\s+/g, "-")}-${item.trim.name
+        .toLowerCase()
+        .replace(/\s+/g, "-")}-${item.year}`,
     }));
 
     // send wixData in response and mark items as synced

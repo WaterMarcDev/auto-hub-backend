@@ -43,6 +43,9 @@ const inventorySchema = new mongoose.Schema(
       ref: "Trim",
       required: [true, "Trim reference is required"],
     },
+    year: {
+      type: Number,
+    },
     vin: {
       type: String,
       trim: true,
