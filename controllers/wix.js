@@ -22,13 +22,7 @@ const syncWithWix = async (req, res) => {
       slug: `${item.partName
         .replace(/([A-Z])/g, "-$1")
         .toLowerCase()
-        .replace(/^-/, "")}-${item.make.name
-        .toLowerCase()
-        .replace(/\s+/g, "-")}-${item.model.name
-        .toLowerCase()
-        .replace(/\s+/g, "-")}-${item.trim.name
-        .toLowerCase()
-        .replace(/\s+/g, "-")}-${item.year}`,
+        .replace(/^-/, "")}`,
       currency: "USD",
     }));
 
