@@ -16,7 +16,7 @@ const syncWithWix = async (req, res) => {
       sku: item.sku,
       productType: "physical",
       priceData: {
-        price: 0,
+        price: 0.01,
         currency: "USD",
       },
       visible: false,
