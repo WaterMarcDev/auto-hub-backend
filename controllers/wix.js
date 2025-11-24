@@ -15,6 +15,10 @@ const syncWithWix = async (req, res) => {
         .trim(),
       sku: item.sku,
       productType: "physical",
+      priceData: {
+        price: 0,
+        currency: "USD",
+      },
       visible: false,
       slug: `${item.partName
         .replace(/([A-Z])/g, "-$1")
@@ -28,7 +32,6 @@ const syncWithWix = async (req, res) => {
         { trim: item.trim.name },
         { year: item.year.toString() },
       ],
-      price: 0,
       currency: "USD",
     }));
 
