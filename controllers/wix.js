@@ -9,20 +9,26 @@ const syncWithWix = async (req, res) => {
       .populate("trim", "name");
     // Prepare data for Wix
     const wixData = inventoriesToSync.map((item) => ({
-      externalId: item._id,
-      title: item.partName
+      inStock: false,
+      name: item.partName
         .replace(/([A-Z])/g, " $1")
         .replace(/^./, (str) => str.toUpperCase())
         .trim(),
-      make: item.make.name,
-      model: item.model.name,
-      trim: item.trim.name,
-      year: item.year,
       sku: item.sku,
+      productOptions: {
+        make: item.make.name,
+        model: item.model.name,
+        trim: item.trim.name,
+        year: item.year,
+      },
       slug: `${item.partName
         .replace(/([A-Z])/g, "-$1")
         .toLowerCase()
         .replace(/^-/, "")}`,
+      brand: item.make.name,
+      customTextFields: {
+        externalId: item._id.toString(),
+      },
       currency: "USD",
     }));
 
