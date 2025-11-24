@@ -26,9 +26,11 @@ const syncWithWix = async (req, res) => {
         .toLowerCase()
         .replace(/^-/, "")}`,
       brand: item.make.name,
-      customTextFields: {
-        externalId: item._id.toString(),
-      },
+      customTextFields: [
+        {
+          externalId: item._id.toString(),
+        },
+      ],
       currency: "USD",
     }));
 
