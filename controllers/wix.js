@@ -17,10 +17,11 @@ const syncWithWix = async (req, res) => {
       productType: "physical",
       price: 0,
       visible: false,
-      slug: `${item.partName
-        .replace(/([A-Z])/g, "-$1")
-        .toLowerCase()
-        .replace(/^-/, "")}`,
+      slug: `${item.make.name}-${item.model.name}-${
+        item.trim.name
+      }-${item.partName.replace(/([A-Z])/g, "-$1").replace(/^-/, "")}-${
+        item.year
+      }`,
       brand: item.make.name,
       customTextFields: [
         { externalId: item._id.toString() },
