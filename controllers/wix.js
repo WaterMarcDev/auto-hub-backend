@@ -15,12 +15,12 @@ const syncWithWix = async (req, res) => {
         .replace(/^./, (str) => str.toUpperCase())
         .trim(),
       sku: item.sku,
-      productOptions: {
-        make: item.make.name,
-        model: item.model.name,
-        trim: item.trim.name,
-        year: item.year,
-      },
+      productOptions: [
+        { name: "Make", value: item.make.name },
+        { name: "Model", value: item.model.name },
+        { name: "Trim", value: item.trim.name },
+        { name: "Year", value: item.year.toString() }, // Convert to string if number
+      ],
       slug: `${item.partName
         .replace(/([A-Z])/g, "-$1")
         .toLowerCase()
@@ -34,7 +34,7 @@ const syncWithWix = async (req, res) => {
 
     // send wixData in response and mark items as synced
     for (const item of inventoriesToSync) {
-      item.wixSynced = true;
+      // item.wixSynced = true;
       item.wixSyncedAt = new Date();
       await item.save();
     }
