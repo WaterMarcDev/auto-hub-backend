@@ -59,6 +59,7 @@ njEnv.addFilter("usCurrency", function (val, fallback = "-$0.00") {
   }
 });
 
+
 const allowlist = [
   "http://localhost:5173",
   "http://192.168.1.4:5173",
@@ -67,7 +68,6 @@ const allowlist = [
   "https://autohubexpress.us",
   "https://www.autohubexpress.us",
 ];
-
 const corsOptionsDelegate = (req, callback) => {
   const origin = req.header("Origin");
   const isAllowed = origin && allowlist.includes(origin);
@@ -79,6 +79,7 @@ const corsOptionsDelegate = (req, callback) => {
 
 app.options("/{*path}", cors(corsOptionsDelegate)); // preflight
 app.use(cors(corsOptionsDelegate));
+
 
 app.use(morgan("dev"));
 
@@ -95,6 +96,7 @@ const { marked } = require("marked");
 
 // Serve rendered API docs at '/'
 app.get("/", (req, res, next) => {
+  console.log("API docs requested");
   const docsPath = path.join(__dirname, "API_DOCS.md");
   fs.readFile(docsPath, "utf8", (err, data) => {
     if (err) return next(err);
@@ -154,6 +156,9 @@ app.use("/api/sellers", require("./routes/sellers"));
 
 // Transaction routes
 app.use("/api/transactions", require("./routes/transactions"));
+
+// Tag routes
+app.use("/api/tags", require("./routes/tag.routes"));
 
 // Upload routes
 app.use("/api/upload", require("./routes/upload"));

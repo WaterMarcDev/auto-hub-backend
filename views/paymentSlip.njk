@@ -139,7 +139,7 @@
           {% elseif transaction and (transaction.netAmount is not none) %}
             {% set netDerived = transaction.netAmount %}
           {% else %}
-            {% set netDerived = (baseAmount - taxAmount) %}
+            {% set netDerived = (baseAmount + taxAmount) %}
           {% endif %}
         {% else %}
           {% set baseAmount = null %}
