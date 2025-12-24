@@ -84,6 +84,39 @@ const deleteTag = async (req, res) => {
     });
 };
 
+const attachTagToPart = async (req, res) => {
+    const { barcode } = req.params;
+    const { partId } = req.body;
+
+    if (!partId) {
+        return res.status(400).json({ message: "partId is required" });
+    }
+
+    const tag = await tagService.attachTagToPart({ barcode, partId });
+
+    if (!tag) {
+        return res.status(409).json({
+        message: "Tag already assigned or does not exist",
+        });
+    }
+
+    res.json(tag);
+};
+
+const detachTagFromPart = async (req, res) => {
+    const { barcode } = req.params;
+
+    const tag = await tagService.detachTagFromPart({ barcode });
+
+    if (!tag) {
+        return res.status(404).json({ message: "Tag not found" });
+    }
+
+    res.json(tag);
+};
+
+
+
 module.exports = {
     generateTags,
     getTag,
@@ -91,4 +124,6 @@ module.exports = {
     getAvailableTags,
     toggleTag,
     deleteTag,
+    attachTagToPart,
+    detachTagFromPart,
 };

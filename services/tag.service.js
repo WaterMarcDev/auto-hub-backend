@@ -1,6 +1,39 @@
 const Tag = require("../models/tag.model");
 const {formatBarcode} = require("../utils/barcode");
 
+const attachTagToPart = async ({ barcode, partId }) => {
+  const barcodeNumber = Number(barcode);
+
+  const tag = await Tag.findOneAndUpdate(
+    {
+      barcodeNumber,
+      partId: null,
+    },
+    {
+      partId,
+      isUsed: true,
+    },
+    { new: true }
+  );
+
+  return tag ? toTagDTO(tag) : null;
+};
+
+const detachTagFromPart = async ({ barcode }) => {
+  const barcodeNumber = Number(barcode);
+
+  const tag = await Tag.findOneAndUpdate(
+    { barcodeNumber },
+    {
+      partId: null,
+      isUsed: false,
+    },
+    { new: true }
+  );
+
+  return tag ? toTagDTO(tag) : null;
+};
+
 
 const toTagDTO = (tag) => ({
   id: tag._id,
@@ -58,7 +91,7 @@ const getAllTags = async ({ limit = 50, skip = 0 }) => {
 };
 
 const getAvailableTags = async ({ limit = 50, skip = 0 }) => {
-  const tags = await Tag.find({ isUsed: false })
+  const tags = await Tag.find({ isUsed: false, partId: null})
     .sort({ barcodeNumber: 1 })
     .skip(skip)
     .limit(limit);
@@ -92,4 +125,6 @@ module.exports = {
   getAvailableTags,
   toggleTag,
   deleteTag,
+  attachTagToPart,
+  detachTagFromPart,
 };

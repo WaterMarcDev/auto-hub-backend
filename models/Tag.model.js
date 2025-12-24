@@ -16,6 +16,12 @@ const tagSchema = new mongoose.Schema(
         type: Boolean,
         default: false,
         },
+        partId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "CarPart",
+        default: null,
+        index: true,
+    },
     },
     { timestamps: true }
 );
