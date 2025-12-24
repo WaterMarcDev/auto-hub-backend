@@ -1,59 +1,130 @@
-const Tag = require("../models/Tag.model");
+const Tag = require("../models/tag.model");
+const {formatBarcode} = require("../utils/barcode");
 
-const padBarcode = (num, digits) => {
-  return String(num).padStart(digits, "0");
-};
+const attachTagToPart = async ({ barcode, partId }) => {
+  const barcodeNumber = Number(barcode);
 
-const bulkCreateTags = async ({ start, end, digits }) => {
-  if (start > end) throw new Error("start cannot be greater than end");
-
-  const maxAllowed = Math.pow(10, digits) - 1;
-  if (end > maxAllowed) {
-    throw new Error(`end exceeds max value for ${digits} digits`);
-  }
-
-  const tags = [];
-
-  for (let i = start; i <= end; i++) {
-    tags.push({ barcode: padBarcode(i, digits) });
-  }
-
-  return Tag.insertMany(tags, { ordered: false });
-};
-
-const getTagByBarcode = async (barcode) => {
-  return Tag.findOne({ barcode });
-};
-
-const deleteTagByBarcode = async (barcode) => {
-  return Tag.findOneAndDelete({ barcode });
-};
-
-const toggleTagUsage = async (barcode) => {
-  return Tag.findOneAndUpdate(
-    { barcode },
-    [{ $set: { isUsed: { $not: "$isUsed" } } }],
+  const tag = await Tag.findOneAndUpdate(
+    {
+      barcodeNumber,
+      partId: null,
+    },
+    {
+      partId,
+      isUsed: true,
+    },
     { new: true }
   );
+
+  return tag ? toTagDTO(tag) : null;
+};
+
+const detachTagFromPart = async ({ barcode }) => {
+  const barcodeNumber = Number(barcode);
+
+  const tag = await Tag.findOneAndUpdate(
+    { barcodeNumber },
+    {
+      partId: null,
+      isUsed: false,
+    },
+    { new: true }
+  );
+
+  return tag ? toTagDTO(tag) : null;
+};
+
+
+const toTagDTO = (tag) => ({
+  id: tag._id,
+  barcodeNumber: tag.barcodeNumber,
+  barcodeString: formatBarcode(tag.barcodeNumber, tag.digits),
+  digits: tag.digits,
+  isUsed: tag.isUsed,
+  createdAt: tag.createdAt,
+  updatedAt: tag.updatedAt,
+});
+
+const generateTags = async ({ start, end, digits }) => {
+  if (start > end) throw new Error("Invalid range");
+
+  const docs = [];
+  for (let i = start; i <= end; i++) {
+    docs.push({
+      barcodeNumber: i,
+      digits,
+    });
+  }
+
+  try {
+    const result = await Tag.insertMany(docs, { ordered: false });
+    return {
+      inserted: result.length,
+      skipped: 0,
+    };
+  } catch (err) {
+    const duplicateCount = err.writeErrors?.length || 0;
+    const total = docs.length;
+
+    return {
+      inserted: total - duplicateCount,
+      skipped: duplicateCount,
+    };
+  }
+};
+
+const getTag = async ({ barcode }) => {
+  const barcodeNumber = Number(barcode);
+  if (Number.isNaN(barcodeNumber)) return null;
+
+  const tag = await Tag.findOne({ barcodeNumber });
+  return tag ? toTagDTO(tag) : null;
+};
+
+const getAllTags = async ({ limit = 50, skip = 0 }) => {
+  const tags = await Tag.find({})
+    .sort({ barcodeNumber: 1 })
+    .skip(skip)
+    .limit(limit);
+
+  return tags.map(toTagDTO);
 };
 
 const getAvailableTags = async ({ limit = 50, skip = 0 }) => {
-  console.log("reached getAvailableTags");
-  return Tag.find({ isUsed: false })
-    .sort({ barcode: 1 })
+  const tags = await Tag.find({ isUsed: false, partId: null})
+    .sort({ barcodeNumber: 1 })
     .skip(skip)
     .limit(limit);
+
+  return tags.map(toTagDTO);
 };
 
-const getAllTags = async () => {
-  return Tag.find();
+const toggleTag = async ({ barcode }) => {
+  const barcodeNumber = Number(barcode);
+
+  const tag = await Tag.findOneAndUpdate(
+    { barcodeNumber },
+    [{ $set: { isUsed: { $not: "$isUsed" } } }],
+    { new: true }
+  );
+
+  return tag ? toTagDTO(tag) : null;
+};
+
+const deleteTag = async ({ barcode }) => {
+  const barcodeNumber = Number(barcode);
+  const tag = await Tag.findOneAndDelete({ barcodeNumber });
+
+  return tag ? toTagDTO(tag) : null;
 };
 
 module.exports = {
-  bulkCreateTags,
-  getTagByBarcode,
-  deleteTagByBarcode,
-  toggleTagUsage,
-  getAvailableTags,
+  generateTags,
+  getTag,
   getAllTags,
+  getAvailableTags,
+  toggleTag,
+  deleteTag,
+  attachTagToPart,
+  detachTagFromPart,
 };
