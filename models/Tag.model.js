@@ -1,19 +1,23 @@
 const mongoose = require("mongoose");
 
 const tagSchema = new mongoose.Schema(
-{
-    barcode: {
-        type: String,
+    {
+        barcodeNumber: {
+        type: Number,
         required: true,
-        unique: true,
+        unique: true,     
         index: true,
-    },
-    isUsed: {
+        },
+        digits: {
+        type: Number,
+        required: true,
+        },
+        isUsed: {
         type: Boolean,
         default: false,
+        },
     },
-},
     { timestamps: true }
 );
 
-module.exports = mongoose.model("Tag", tagSchema, "tags");
+module.exports = mongoose.model("Tag", tagSchema);

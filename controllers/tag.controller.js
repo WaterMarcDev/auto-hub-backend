@@ -3,55 +3,40 @@ const tagService = require("../services/tag.service");
 const generateTags = async (req, res) => {
     const { start, end, digits } = req.body;
 
-    if (!start || !end || !digits) {
+    if (start == null || end == null || digits == null) {
         return res.status(400).json({
         message: "start, end and digits are required",
-    });
-}
+        });
+    }
 
-    const result = await tagService.bulkCreateTags({ start, end, digits });
+    const result = await tagService.generateTags({ start, end, digits });
 
     res.status(201).json({
-        inserted: result.length,
         start,
         end,
         digits,
+        inserted: result.inserted,
+        skipped: result.skipped,
     });
 };
 
 const getTag = async (req, res) => {
     const { barcode } = req.params;
-    const tag = await tagService.getTagByBarcode(barcode);
 
-    if (!tag) return res.status(404).json({ message: "Tag not found" });
-
-    res.json(tag);
-};
-
-const deleteTag = async (req, res) => {
-    const { barcode } = req.params;
-    const tag = await tagService.deleteTagByBarcode(barcode);
-
-    if (!tag) return res.status(404).json({ message: "Tag not found" });
-
-    res.json({ message: "Tag deleted" });
-};
-
-const toggleTag = async (req, res) => {
-    const { barcode } = req.params;
-    const tag = await tagService.toggleTagUsage(barcode);
-
-    if (!tag) return res.status(404).json({ message: "Tag not found" });
+    const tag = await tagService.getTag({ barcode });
+    if (!tag) {
+        return res.status(404).json({ message: "Tag not found" });
+    }
 
     res.json(tag);
 };
 
-const getAvailableTags = async (req, res) => {
-    const { limit, skip } = req.query;
+const getAllTags = async (req, res) => {
+    const { limit = 50, skip = 0 } = req.query;
 
-    const tags = await tagService.getAvailableTags({
-        limit: Number(limit) || 50,
-        skip: Number(skip) || 0,
+    const tags = await tagService.getAllTags({
+        limit: Number(limit),
+        skip: Number(skip),
     });
 
     res.json({
@@ -60,16 +45,50 @@ const getAvailableTags = async (req, res) => {
     });
 };
 
-const getAllTags = async (req, res) => {
-    const tags = await tagService.getAllTags();
-    res.json(tags);
+const getAvailableTags = async (req, res) => {
+    const { limit = 50, skip = 0 } = req.query;
+
+    const tags = await tagService.getAvailableTags({
+        limit: Number(limit),
+        skip: Number(skip),
+    });
+
+    res.json({
+        count: tags.length,
+        tags,
+    });
+};
+
+const toggleTag = async (req, res) => {
+    const { barcode } = req.params;
+
+    const tag = await tagService.toggleTag({ barcode });
+    if (!tag) {
+        return res.status(404).json({ message: "Tag not found" });
+    }
+
+    res.json(tag);
+};
+
+const deleteTag = async (req, res) => {
+    const { barcode } = req.params;
+
+    const tag = await tagService.deleteTag({ barcode });
+    if (!tag) {
+        return res.status(404).json({ message: "Tag not found" });
+    }
+
+    res.json({
+        message: "Tag deleted",
+        tag,
+    });
 };
 
 module.exports = {
     generateTags,
     getTag,
-    deleteTag,
-    toggleTag,
-    getAvailableTags,
     getAllTags,
+    getAvailableTags,
+    toggleTag,
+    deleteTag,
 };
