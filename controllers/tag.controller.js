@@ -1,4 +1,15 @@
-const tagService = require("../services/tag.service");
+const Tag = require("../models/tag.model");
+const { formatBarcode } = require("../utils/barcode");
+const toTagDTO = (tag) => ({
+    id: tag._id,
+    barcodeNumber: tag.barcodeNumber,
+    barcodeString: formatBarcode(tag.barcodeNumber, tag.digits),
+    digits: tag.digits,
+    isUsed: tag.isUsed,
+    partId: tag.partId,
+    createdAt: tag.createdAt,
+    updatedAt: tag.updatedAt,
+});
 
 const generateTags = async (req, res) => {
     const { start, end, digits } = req.body;
@@ -9,90 +20,129 @@ const generateTags = async (req, res) => {
         });
     }
 
-    const result = await tagService.generateTags({ start, end, digits });
+    if (start > end) {
+        return res.status(400).json({ message: "Invalid range" });
+    }
 
-    res.status(201).json({
+    const docs = [];
+    for (let i = start; i <= end; i++) {
+        docs.push({ barcodeNumber: i, digits });
+    }
+
+    try {
+    const result = await Tag.insertMany(docs, { ordered: false });
+    return res.status(201).json({
         start,
         end,
         digits,
-        inserted: result.inserted,
-        skipped: result.skipped,
+        inserted: result.length,
+        skipped: 0,
+        });
+    } catch (err) {
+        const duplicateCount = err.writeErrors?.length || 0;
+        const total = docs.length;
+
+    return res.status(201).json({
+        start,
+        end,
+        digits,
+        inserted: total - duplicateCount,
+        skipped: duplicateCount,
     });
+}
 };
 
 const getTag = async (req, res) => {
     const { barcode } = req.params;
+    const barcodeNumber = Number(barcode);
 
-    const tag = await tagService.getTag({ barcode });
+    if (Number.isNaN(barcodeNumber)) {
+        return res.status(400).json({ message: "Invalid barcode" });
+    }
+
+    const tag = await Tag.findOne({ barcodeNumber });
     if (!tag) {
         return res.status(404).json({ message: "Tag not found" });
     }
 
-    res.json(tag);
+    res.json(toTagDTO(tag));
 };
 
 const getAllTags = async (req, res) => {
     const { limit = 50, skip = 0 } = req.query;
 
-    const tags = await tagService.getAllTags({
-        limit: Number(limit),
-        skip: Number(skip),
-    });
+    const tags = await Tag.find({})
+        .sort({ barcodeNumber: 1 })
+        .skip(Number(skip))
+        .limit(Number(limit));
 
     res.json({
         count: tags.length,
-        tags,
+        tags: tags.map(toTagDTO),
     });
 };
 
 const getAvailableTags = async (req, res) => {
     const { limit = 50, skip = 0 } = req.query;
 
-    const tags = await tagService.getAvailableTags({
-        limit: Number(limit),
-        skip: Number(skip),
-    });
+    const tags = await Tag.find({
+        isUsed: false,
+        partId: null,
+    })
+    .sort({ barcodeNumber: 1 })
+    .skip(Number(skip))
+    .limit(Number(limit));
 
     res.json({
         count: tags.length,
-        tags,
+        tags: tags.map(toTagDTO),
     });
 };
 
 const toggleTag = async (req, res) => {
-    const { barcode } = req.params;
+    const barcodeNumber = Number(req.params.barcode);
 
-    const tag = await tagService.toggleTag({ barcode });
+    if (Number.isNaN(barcodeNumber)) {
+        return res.status(400).json({ message: "Invalid barcode" });
+    }
+
+    const tag = await Tag.findOneAndUpdate(
+        { barcodeNumber },
+        [{ $set: { isUsed: { $not: "$isUsed" } } }],
+        { new: true }
+    );
+
     if (!tag) {
         return res.status(404).json({ message: "Tag not found" });
     }
 
-    res.json(tag);
+    res.json(toTagDTO(tag));
 };
 
-const deleteTag = async (req, res) => {
-    const { barcode } = req.params;
-
-    const tag = await tagService.deleteTag({ barcode });
-    if (!tag) {
-        return res.status(404).json({ message: "Tag not found" });
-    }
-
-    res.json({
-        message: "Tag deleted",
-        tag,
-    });
-};
 
 const attachTagToPart = async (req, res) => {
-    const { barcode } = req.params;
+    const barcodeNumber = Number(req.params.barcode);
     const { partId } = req.body;
+
+    if (Number.isNaN(barcodeNumber)) {
+        return res.status(400).json({ message: "Invalid barcode" });
+    }
 
     if (!partId) {
         return res.status(400).json({ message: "partId is required" });
     }
 
-    const tag = await tagService.attachTagToPart({ barcode, partId });
+    const tag = await Tag.findOneAndUpdate(
+        {
+        barcodeNumber,
+        partId: null, 
+        },
+        {
+        partId,
+        isUsed: true,
+        },
+        { new: true }
+    );
 
     if (!tag) {
         return res.status(409).json({
@@ -100,20 +150,9 @@ const attachTagToPart = async (req, res) => {
         });
     }
 
-    res.json(tag);
+    res.json(toTagDTO(tag));
 };
 
-const detachTagFromPart = async (req, res) => {
-    const { barcode } = req.params;
-
-    const tag = await tagService.detachTagFromPart({ barcode });
-
-    if (!tag) {
-        return res.status(404).json({ message: "Tag not found" });
-    }
-
-    res.json(tag);
-};
 
 
 
@@ -123,7 +162,5 @@ module.exports = {
     getAllTags,
     getAvailableTags,
     toggleTag,
-    deleteTag,
     attachTagToPart,
-    detachTagFromPart,
 };

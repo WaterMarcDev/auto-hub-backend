@@ -9,7 +9,6 @@ router.get("/:barcode", controller.getTag);
 router.patch("/:barcode/toggle", controller.toggleTag);
 // router.delete("/:barcode", controller.deleteTag);
 router.post("/:barcode/attach", controller.attachTagToPart);
-router.post("/:barcode/detach", controller.detachTagFromPart);
 
 
 module.exports = router;

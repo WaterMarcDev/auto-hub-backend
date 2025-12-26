@@ -18,7 +18,7 @@ const tagSchema = new mongoose.Schema(
         },
         partId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "CarPart",
+        ref: "inventory",
         default: null,
         index: true,
     },
