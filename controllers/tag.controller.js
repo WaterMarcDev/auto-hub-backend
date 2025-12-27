@@ -69,35 +69,59 @@ const getTag = async (req, res) => {
 };
 
 const getAllTags = async (req, res) => {
-    const { limit = 50, skip = 0 } = req.query;
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.max(Number(req.query.limit) || 10, 1);
+    const skip = (page - 1) * limit;
 
-    const tags = await Tag.find({})
+    const [tags, total] = await Promise.all([
+        Tag.find({})
         .sort({ barcodeNumber: 1 })
-        .skip(Number(skip))
-        .limit(Number(limit));
+        .skip(skip)
+        .limit(limit),
+        Tag.countDocuments({})
+    ]);
 
     res.json({
-        count: tags.length,
         tags: tags.map(toTagDTO),
+        pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+        },
     });
 };
+
 
 const getAvailableTags = async (req, res) => {
-    const { limit = 50, skip = 0 } = req.query;
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.max(Number(req.query.limit) || 10, 1);
+    const skip = (page - 1) * limit;
 
-    const tags = await Tag.find({
+    const filter = {
         isUsed: false,
         partId: null,
-    })
-    .sort({ barcodeNumber: 1 })
-    .skip(Number(skip))
-    .limit(Number(limit));
+    };
+
+    const [tags, total] = await Promise.all([
+        Tag.find(filter)
+        .sort({ barcodeNumber: 1 })
+        .skip(skip)
+        .limit(limit),
+        Tag.countDocuments(filter),
+    ]);
 
     res.json({
-        count: tags.length,
         tags: tags.map(toTagDTO),
+        pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+        },
     });
 };
+
 
 const toggleTag = async (req, res) => {
     const barcodeNumber = Number(req.params.barcode);
