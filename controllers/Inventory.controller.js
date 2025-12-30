@@ -142,7 +142,7 @@ const createInventory = async (req, res) => {
       resolvedPartShort = generateShortName(partName || "");
     }
 
-    const sku = `${(makeDoc && makeDoc.shortName) || ""}/${
+    const sku = `${(makeDoc && makeDoc.shortName) || ""}/$/{
       (modelDoc && modelDoc.shortName) || ""
     }/${year || ""}-${resolvedPartShort}/${color || ""}`;
 
