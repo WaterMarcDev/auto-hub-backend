@@ -1,5 +1,6 @@
 const formatBarcode = (number, digits) => {
-    return String(number).padStart(digits, "0");
+    const padded = String(number).padStart(digits, "0");
+    return `AUT${padded}`;
 };
 
 module.exports = { formatBarcode };

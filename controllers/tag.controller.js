@@ -3,7 +3,7 @@ const { formatBarcode } = require("../utils/barcode");
 const toTagDTO = (tag) => ({
     id: tag._id,
     barcodeNumber: tag.barcodeNumber,
-    barcodeString: formatBarcode(tag.barcodeNumber, tag.digits),
+    barcodeString: tag.barcodeString,
     digits: tag.digits,
     isUsed: tag.isUsed,
     partId: tag.partId,
@@ -19,6 +19,11 @@ const generateTags = async (req, res) => {
         message: "start, end and digits are required",
         });
     }
+    if (digits < 2) {
+        return res.status(400).json({
+            message: "digits must be at least 2",
+        });
+    }
 
     if (start > end) {
         return res.status(400).json({ message: "Invalid range" });
@@ -26,7 +31,7 @@ const generateTags = async (req, res) => {
 
     const docs = [];
     for (let i = start; i <= end; i++) {
-        docs.push({ barcodeNumber: i, digits });
+        docs.push({ barcodeNumber: i, digits, barcodeString: formatBarcode(i, digits) });
     }
 
     try {
@@ -188,3 +193,5 @@ module.exports = {
     toggleTag,
     attachTagToPart,
 };
+
+

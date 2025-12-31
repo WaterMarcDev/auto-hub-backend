@@ -12,6 +12,12 @@ const tagSchema = new mongoose.Schema(
         type: Number,
         required: true,
         },
+        barcodeString: {
+        type: String,
+        required: true,
+        unique: true,
+        index: true,
+        },
         isUsed: {
         type: Boolean,
         default: false,
