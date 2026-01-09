@@ -546,4 +546,4 @@ When contributing to the backend:
 
 ## License
 
-[Specify your license here]
+
