@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const bcrypt = require("bcryptjs");
 
 // @desc    Get all users (Admin only)
 // @route   GET /api/users
@@ -117,9 +118,93 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// @desc    Create new user
+// @route   POST /api/users
+// @access  Private/Admin/Manager
+const createUser = async (req, res) => {
+  try {
+    const { first_name, last_name, email, password, role } = req.body;
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res
+        .status(400)
+        .json({ error: "User already exists with this email" });
+    }
+
+    // Create user
+    const user = new User({
+      first_name,
+      last_name,
+      email,
+      password,
+      role: role || "staff",
+    });
+
+    await user.save();
+
+    res.status(201).json({
+      success: true,
+      message: "User created successfully",
+      user: {
+        id: user._id,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error("Create user error:", error);
+    res.status(500).json({ error: "Server error during creation" });
+  }
+};
+
+// @desc    Reset user password
+// @route   PUT /api/users/:id/password
+// @access  Private/Admin/Manager
+const resetPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    if (!password || password.length < 6) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 6 characters" });
+    }
+
+    const user = await User.findById(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Hash new password manually since we are modifying it directly or relying on pre-save?
+    // The User model pre-save hook handles hashing if 'password' field is modified.
+    // So we just set it.
+    user.password = password;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "Password reset successfully",
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    if (error.name === "CastError") {
+      return res.status(400).json({ error: "Invalid user ID" });
+    }
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
 module.exports = {
   getUsers,
   getUserById,
   updateUser,
   deleteUser,
+  createUser,
+  resetPassword,
 };
