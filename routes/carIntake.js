@@ -15,6 +15,7 @@ const {
   bulkUploadScraped,
   // print payment slip
   printPaymentSlip,
+  printAllDocuments,
 } = require("../controllers/carIntakeController");
 
 // Configure multer for file uploads
@@ -88,6 +89,11 @@ router.get("/:id", auth, getCarIntake);
 // @desc    Render payment slip for a car intake
 // @access  Private
 router.get("/:id/print-payment", auth, printPaymentSlip);
+
+// @route   GET /api/car-intake/:id/print-all-documents
+// @desc    Render combined documents (receipt + title certificate) for a car intake
+// @access  Private
+router.get("/:id/print-all-documents", auth, printAllDocuments);
 
 // @route   PUT /api/car-intake/:id
 // @desc    Update car intake
