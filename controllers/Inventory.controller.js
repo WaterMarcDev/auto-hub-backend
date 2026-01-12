@@ -4,6 +4,7 @@ const Trim = require("../models/Trim.model");
 const Inventory = require("../models/Inventory.model");
 const Part = require("../models/Part.model");
 
+
 const mongoose = require("mongoose");
 
 const generateShortName = (name) => {
@@ -142,9 +143,8 @@ const createInventory = async (req, res) => {
       resolvedPartShort = generateShortName(partName || "");
     }
 
-    const sku = `${(makeDoc && makeDoc.shortName) || ""}/${
-      (modelDoc && modelDoc.shortName) || ""
-    }/${year || ""}-${resolvedPartShort}/${color || ""}`;
+    const sku = `${(makeDoc && makeDoc.shortName) || ""}/${(modelDoc && modelDoc.shortName) || ""
+      }/${year || ""}-${resolvedPartShort}/${color || ""}`;
 
     const inventory = await Inventory.create({
       partName,
@@ -286,10 +286,104 @@ const getPartsMasterList = async (req, res) => {
     res.status(500).json({ message: "Server error while fetching parts" });
   }
 };
+// Export inventories with custom format
+// GET /api/inventory/export
+const exportInventories = async (req, res) => {
+  try {
+    const inventories = await Inventory.aggregate([
+      // Join with Make
+      {
+        $lookup: {
+          from: "makes",
+          localField: "make",
+          foreignField: "_id",
+          as: "make",
+        },
+      },
+      { $unwind: { path: "$make", preserveNullAndEmptyArrays: true } },
 
+      // Join with Model
+      {
+        $lookup: {
+          from: "models", // check collection name usually 'models' unless specified otherwise in schema
+          localField: "model",
+          foreignField: "_id",
+          as: "model",
+        },
+      },
+      { $unwind: { path: "$model", preserveNullAndEmptyArrays: true } },
+
+      // Join with Trim
+      {
+        $lookup: {
+          from: "trims",
+          localField: "trim",
+          foreignField: "_id",
+          as: "trim",
+        },
+      },
+      { $unwind: { path: "$trim", preserveNullAndEmptyArrays: true } },
+
+      // Join with Tag to get SKU (barcodeString)
+      {
+        $lookup: {
+          from: "tags",
+          localField: "_id",
+          foreignField: "inventoryId",
+          as: "tag",
+        },
+      },
+      // A part should have at most one active tag, but take the first if any
+      { $unwind: { path: "$tag", preserveNullAndEmptyArrays: true } },
+
+      // Project desired fields
+      {
+        $project: {
+          _id: 0, // Exclude Mongo ID from output if not requested
+          weight: { $ifNull: ["$weight", 0] },
+          name: {
+            $concat: [
+              { $toString: { $ifNull: ["$year", ""] } },
+              " ",
+              { $ifNull: ["$make.name", ""] },
+              " ",
+              { $ifNull: ["$model.name", ""] },
+              " ",
+              { $ifNull: ["$trim.name", ""] },
+              " - ",
+              ({ $ifNull: ["$partName", ""] }),
+            ],
+          },
+          sku: { $ifNull: ["$tag.barcodeString", null] },
+          "product type": { $literal: "Physical" },
+          brand: { $ifNull: ["$make.name", ""] },
+          currency: { $literal: "USD" },
+          "additionalInfoSections.source_vehicle": {
+            // Placeholder string interpolation as requested
+            $concat: [
+              { $toString: { $ifNull: ["$year", ""] } }, " ",
+              { $ifNull: ["$make.name", ""] }, " ",
+              { $ifNull: ["$model.name", ""] }, " ",
+              { $ifNull: ["$trim.name", ""] }, " (VIN: ",
+              { $ifNull: ["$vin", "N/A"] }, ")"
+            ]
+          },
+          "additionalInfoSections.fitment": { $literal: {} }
+        },
+      },
+    ]);
+
+    res.status(200).json(inventories);
+  } catch (error) {
+    console.error("Error exporting inventories:", error);
+    res.status(500).json({ message: "Server error while exporting inventories" });
+  }
+};
 module.exports = {
   createInventory,
   getInventoryByVIN,
   getPartsMasterList,
   getAllInventories,
+  exportInventories,
 };
+
