@@ -6,9 +6,11 @@ const {
   getInventoryByVIN,
   getPartsMasterList,
   getAllInventories,
+  exportInventories,
 } = require("../controllers/Inventory.controller");
 
 router.post("/", auth, createInventory);
+router.get("/export", auth, exportInventories); // Specific routes before generic /:id or / (if any conflict)
 router.get("/vin/:vin", auth, getInventoryByVIN);
 router.get("/parts", auth, getPartsMasterList);
 router.get("/", auth, getAllInventories);

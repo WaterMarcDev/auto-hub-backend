@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["admin", "manager", "staff", "front_desk"],
+      enum: ["admin", "manager", "staff", "front_desk", "scraper"],
       default: "staff",
     },
     isDeleted: {
