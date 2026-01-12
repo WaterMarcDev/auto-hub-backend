@@ -3,31 +3,31 @@ const mongoose = require("mongoose");
 const tagSchema = new mongoose.Schema(
     {
         barcodeNumber: {
-        type: Number,
-        required: true,
-        unique: true,     
-        index: true,
+            type: Number,
+            required: true,
+            unique: true,
+            index: true,
         },
         digits: {
-        type: Number,
-        required: true,
+            type: Number,
+            required: true,
         },
         barcodeString: {
-        type: String,
-        required: true,
-        unique: true,
-        index: true,
+            type: String,
+            required: true,
+            unique: true,
+            index: true,
         },
         isUsed: {
-        type: Boolean,
-        default: false,
+            type: Boolean,
+            default: false,
         },
-        partId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "inventory",
-        default: null,
-        index: true,
-    },
+        inventoryId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "inventory",
+            default: null,
+            index: true,
+        },
     },
     { timestamps: true }
 );
