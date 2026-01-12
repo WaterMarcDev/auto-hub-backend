@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const Tag = require("../models/tag.model");
 
 const connectDB = async () => {
   try {
@@ -9,6 +10,10 @@ const connectDB = async () => {
         // but keeping them for compatibility
       }
     );
+
+    mongoose.connection.once("open", async () => {
+    await Tag.syncIndexes();
+  });
 
     console.log(`MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {

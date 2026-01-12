@@ -77,7 +77,7 @@ const corsOptionsDelegate = (req, callback) => {
   });
 };
 
-app.options("/{*path}", cors(corsOptionsDelegate)); // preflight
+// app.options("/{*path}", cors(corsOptionsDelegate)); // preflight
 app.use(cors(corsOptionsDelegate));
 
 
