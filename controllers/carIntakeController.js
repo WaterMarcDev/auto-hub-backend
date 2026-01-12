@@ -1043,6 +1043,191 @@ const printPaymentSlip = async (req, res) => {
   }
 };
 
+// @desc    Print combined documents (receipt + title certificate)
+// @route   GET /api/car-intake/:id/print-all-documents
+// @access  Private
+const printAllDocuments = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const carIntake = await CarIntake.findOne({
+      _id: id,
+      isDeleted: { $ne: true },
+    })
+      .populate(
+        "kyc.seller",
+        "firstName lastName email mobileNo signatureImage description"
+      )
+      .populate("createdBy", "first_name last_name email");
+
+    if (!carIntake) return res.status(404).send("Car intake not found");
+
+    // Find latest active transaction for this car intake
+    const transaction = await Transaction.findOne({
+      carIntake: carIntake._id,
+      isActive: true,
+    })
+      .sort({ createdAt: -1 })
+      .populate("createdBy", "first_name last_name email");
+
+    // Try to find an existing PaymentSlip for this car intake (prefer most recent)
+    let paymentSlipDoc = null;
+    try {
+      const PaymentSlipModel = require("../models/PaymentSlip");
+      paymentSlipDoc = await PaymentSlipModel.findOne({
+        carIntake: carIntake._id,
+      })
+        .sort({ createdAt: -1 })
+        .populate("transaction")
+        .populate("createdBy", "first_name last_name email");
+
+      // If no slip exists, create one now using current carIntake + transaction data
+      if (!paymentSlipDoc) {
+        const PaymentSlipModelInst = PaymentSlipModel;
+
+        // Build slip snapshot data
+        // finalPrice is what the seller receives (net amount)
+        const finalPrice = carIntake.price?.finalPrice || 0;
+        const netAmount = finalPrice;
+        const taxRate =
+          (transaction && transaction.taxRate) || carIntake.taxRate || 0.06625;
+
+        // Calculate gross from net: gross = net / (1 - tax_rate)
+        const grossAmount = netAmount / (1 - taxRate);
+        const taxAmount = grossAmount - netAmount;
+
+        const slipData = {
+          amount: grossAmount,
+          netAmount: netAmount,
+          taxRate,
+          taxAmount,
+          paymentMethod:
+            (transaction && transaction.paymentMethod) ||
+            carIntake.payment?.paymentMethod,
+          paymentDescription:
+            (transaction && transaction.description) ||
+            carIntake.payment?.paymentDescription,
+          carSnapshot: carIntake.toObject(),
+          transactionSnapshot: transaction ? transaction.toObject() : null,
+        };
+
+        const created = await PaymentSlipModelInst.create({
+          carIntake: carIntake._id,
+          transaction: transaction?._id,
+          slipData,
+          // store explicit snapshot fields so queries can read them directly
+          paymentMethod: slipData.paymentMethod,
+          grossAmount: Math.round((grossAmount + Number.EPSILON) * 100) / 100,
+          netAmount: Math.round((netAmount + Number.EPSILON) * 100) / 100,
+          taxRate: slipData.taxRate,
+          taxAmount: Math.round((taxAmount + Number.EPSILON) * 100) / 100,
+          paymentDate: transaction?.createdAt || new Date(),
+          createdBy: req.user?._id,
+        });
+
+        // re-fetch populated doc
+        paymentSlipDoc = await PaymentSlipModelInst.findById(created._id)
+          .populate("transaction")
+          .populate("createdBy", "first_name last_name email");
+      }
+    } catch (e) {
+      // PaymentSlip model not available or population failed - ignore
+      console.warn("PaymentSlip creation/check failed:", e && e.message);
+      paymentSlipDoc = null;
+    }
+
+    // Load logo as base64 data URI so templates / PDF renderers always have the image
+    let logoDataUri = null;
+    try {
+      const logoPath = path.join(__dirname, "..", "assets", "logo-sm1.png");
+      if (fs.existsSync(logoPath)) {
+        const buf = fs.readFileSync(logoPath);
+        const b64 = buf.toString("base64");
+        logoDataUri = `data:image/png;base64,${b64}`;
+      }
+    } catch (e) {
+      // ignore logo read errors
+      console.warn("Could not read logo for payment slip:", e && e.message);
+      logoDataUri = null;
+    }
+
+    // Handle title certificate - silently skip if missing
+    let titleCertificateDataUri = null;
+    try {
+      const titleCertPath = carIntake?.kyc?.documents?.titleCertificate;
+      if (titleCertPath) {
+        // Extract filename from path (could be /uploads/filename.jpg or just filename.jpg)
+        let filename = titleCertPath;
+        if (filename.startsWith("/uploads/")) {
+          filename = filename.replace("/uploads/", "");
+        } else if (filename.startsWith("uploads/")) {
+          filename = filename.replace("uploads/", "");
+        }
+
+        const filePath = path.join(__dirname, "..", "uploads", filename);
+        
+        // Check if file exists before attempting to read
+        if (fs.existsSync(filePath)) {
+          const buf = fs.readFileSync(filePath);
+          const ext = path.extname(filename).toLowerCase();
+          
+          // Determine MIME type based on extension
+          const mimeTypes = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+          };
+          
+          const mimeType = mimeTypes[ext] || "image/jpeg";
+          const b64 = buf.toString("base64");
+          titleCertificateDataUri = `data:${mimeType};base64,${b64}`;
+        } else {
+          // File not found - silently continue without title certificate
+          console.warn(
+            `Title certificate file not found: ${filePath} for car intake ${id}`
+          );
+        }
+      }
+    } catch (e) {
+      // Silently handle any errors reading title certificate - just log for debugging
+      console.warn(
+        "Could not read title certificate for combined print:",
+        e && e.message
+      );
+      titleCertificateDataUri = null;
+    }
+
+    // compute padded slip string if paymentSlip found
+    const slipPadded =
+      paymentSlipDoc && paymentSlipDoc.slipNumber
+        ? String(paymentSlipDoc.slipNumber).padStart(7, "0")
+        : null;
+
+    const data = {
+      carIntake,
+      transaction,
+      paymentSlip: paymentSlipDoc,
+      slipPadded,
+      generatedAt: new Date(),
+      generatedBy: req.user
+        ? { id: req.user._id, name: req.user.first_name || req.user.name || "" }
+        : null,
+      // Prefer inline base64 logo when available; otherwise template will fall back to /assets/logo-sm1.png
+      logoSrc: logoDataUri || "/assets/logo-sm1.png",
+      titleCertificateDataUri, // Will be null if not available
+    };
+
+    // Render combined template
+    return res.render("combinedDocuments.njk", data);
+  } catch (err) {
+    console.error("Print all documents error:", err);
+    return res
+      .status(500)
+      .json({ error: "Server error rendering documents" });
+  }
+};
+
 // @desc    Bulk upload car intakes from Excel
 // @route   POST /api/car-intake/bulk-upload
 // @access  Private
@@ -1596,4 +1781,5 @@ module.exports = {
   bulkUploadCarIntakes,
   bulkUploadScraped,
   printPaymentSlip,
+  printAllDocuments,
 };
