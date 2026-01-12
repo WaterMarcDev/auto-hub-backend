@@ -1,19 +1,35 @@
 const mongoose = require("mongoose");
 
 const tagSchema = new mongoose.Schema(
-{
-    barcode: {
-        type: String,
-        required: true,
-        unique: true,
-        index: true,
+    {
+        barcodeNumber: {
+            type: Number,
+            required: true,
+            unique: true,
+            index: true,
+        },
+        digits: {
+            type: Number,
+            required: true,
+        },
+        barcodeString: {
+            type: String,
+            required: true,
+            unique: true,
+            index: true,
+        },
+        isUsed: {
+            type: Boolean,
+            default: false,
+        },
+        inventoryId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "inventory",
+            default: null,
+            index: true,
+        },
     },
-    isUsed: {
-        type: Boolean,
-        default: false,
-    },
-},
     { timestamps: true }
 );
 
-module.exports = mongoose.model("Tag", tagSchema, "tags");
+module.exports = mongoose.model("Tag", tagSchema);

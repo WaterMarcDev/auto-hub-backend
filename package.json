@@ -38,6 +38,8 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.5",
     "nunjucks": "^3.2.4",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "xlsx": "^0.18.5"
   }
 }
