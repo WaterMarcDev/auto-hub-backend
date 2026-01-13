@@ -448,6 +448,7 @@ const exportInventories = async (req, res) => {
         sku: item.sku,
         "product type": "Physical",
         brand: item.makeName,
+        price: 0,
         currency: "USD",
         additionalInfoSections: {
           source_vehicle: sourceVehicleHtml,
