@@ -24,7 +24,7 @@ const tagSchema = new mongoose.Schema(
         },
         inventoryId: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "inventory",
+            ref: "Inventory",
             default: null,
             index: true,
         },
