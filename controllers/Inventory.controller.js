@@ -446,7 +446,7 @@ const exportInventories = async (req, res) => {
         weight: item.weight,
         name: `${item.year} ${item.makeName} ${item.modelName} ${item.trimName} - ${formattedPartName}`.trim(),
         sku: item.sku,
-        "productType": "Physical",
+        "productType": 1,
         brand: item.makeName,
         price: 0,
         currency: "USD",
