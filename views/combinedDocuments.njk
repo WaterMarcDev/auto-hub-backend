@@ -229,9 +229,9 @@
     <!-- Page 2: Title Certificate -->
     <div class="sheet title-certificate-page" role="document">
       <div class="container">
-        <div class="title-certificate-title">Title Certificate</div>
-        {% if titleCertificateDataUri %}
-          <img src="{{ titleCertificateDataUri }}" alt="Title Certificate" class="title-certificate-image" />
+        <div class="title-certificate-title">{{ documentTitle }}</div>
+        {% if documentDataUri %}
+          <img src="{{ documentDataUri }}" alt="{{ documentTitle }}" class="title-certificate-image" />
         {% endif %}
       </div>
     </div>
