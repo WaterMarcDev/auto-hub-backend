@@ -1711,9 +1711,9 @@ const bulkUploadScraped = async (req, res) => {
           transactionDateStr,
           generatedBy: req.user
             ? {
-                id: req.user._id,
-                name: req.user.first_name || req.user.name || "",
-              }
+              id: req.user._id,
+              name: req.user.first_name || req.user.name || "",
+            }
             : null,
         };
 

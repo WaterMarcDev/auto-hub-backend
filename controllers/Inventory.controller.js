@@ -7,9 +7,15 @@ const Part = require("../models/Part.model");
 
 const mongoose = require("mongoose");
 
+function toTitleFromCamelCase(input) {
+  if (typeof input !== "string") return "";
+  return input
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, char => char.toUpperCase());
+}
+
 const generateShortName = (name) => {
   if (!name) return "";
-
   const parts = name.trim().split(/\s+/).filter(Boolean);
 
   if (parts.length === 1) {
@@ -305,7 +311,7 @@ const exportInventories = async (req, res) => {
       // Join with Model
       {
         $lookup: {
-          from: "models", // check collection name usually 'models' unless specified otherwise in schema
+          from: "models",
           localField: "model",
           foreignField: "_id",
           as: "model",
@@ -324,7 +330,7 @@ const exportInventories = async (req, res) => {
       },
       { $unwind: { path: "$trim", preserveNullAndEmptyArrays: true } },
 
-      // Join with Tag to get SKU (barcodeString)
+      // Join with Tag
       {
         $lookup: {
           from: "tags",
@@ -333,52 +339,132 @@ const exportInventories = async (req, res) => {
           as: "tag",
         },
       },
-      // A part should have at most one active tag, but take the first if any
       { $unwind: { path: "$tag", preserveNullAndEmptyArrays: true } },
 
-      // Project desired fields
+      // Join with CarIntake by VIN
+      {
+        $lookup: {
+          from: "carintakes",
+          localField: "vin",
+          foreignField: "vin",
+          as: "carIntake",
+        },
+      },
+      { $unwind: { path: "$carIntake", preserveNullAndEmptyArrays: true } },
+
+      // Raw projection (NO formatting logic here)
       {
         $project: {
-          _id: 0, // Exclude Mongo ID from output if not requested
+          _id: 0,
+          year: { $ifNull: ["$year", ""] },
+          makeName: { $ifNull: ["$make.name", ""] },
+          modelName: { $ifNull: ["$model.name", ""] },
+          trimName: { $ifNull: ["$trim.name", ""] },
+          partName: { $ifNull: ["$partName", ""] },
+          vin: { $ifNull: ["$vin", "N/A"] },
           weight: { $ifNull: ["$weight", 0] },
-          name: {
-            $concat: [
-              { $toString: { $ifNull: ["$year", ""] } },
-              " ",
-              { $ifNull: ["$make.name", ""] },
-              " ",
-              { $ifNull: ["$model.name", ""] },
-              " ",
-              { $ifNull: ["$trim.name", ""] },
-              " - ",
-              ({ $ifNull: ["$partName", ""] }),
-            ],
-          },
           sku: { $ifNull: ["$tag.barcodeString", null] },
-          "product type": { $literal: "Physical" },
-          brand: { $ifNull: ["$make.name", ""] },
-          currency: { $literal: "USD" },
-          "additionalInfoSections.source_vehicle": {
-            // Placeholder string interpolation as requested
-            $concat: [
-              { $toString: { $ifNull: ["$year", ""] } }, " ",
-              { $ifNull: ["$make.name", ""] }, " ",
-              { $ifNull: ["$model.name", ""] }, " ",
-              { $ifNull: ["$trim.name", ""] }, " (VIN: ",
-              { $ifNull: ["$vin", "N/A"] }, ")"
-            ]
-          },
-          "additionalInfoSections.fitment": { $literal: {} }
+          // Flatten car details for easier access
+          cd: { $ifNull: ["$carIntake.carDetails", {}] },
+          vd: { $ifNull: ["$carIntake.vinDetails", {}] },
         },
       },
     ]);
 
-    res.status(200).json(inventories);
+    const formattedInventories = inventories.map(item => {
+      const formattedPartName = toTitleFromCamelCase(item.partName);
+      const cd = item.cd || {};
+      const vd = item.vd || {};
+
+      // Helper to safely get value or N/A. Checks multiple sources.
+      const val = (...args) => {
+        for (const arg of args) {
+          if (arg && arg !== "N/A" && arg !== "") return arg;
+        }
+        return "N/A";
+      };
+
+      const sourceVehicleHtml = `<ul>
+	<li>
+	<p>Year:${val(item.year, vd.ModelYear)}</p>
+	</li>
+	<li>
+	<p>Make:${val(item.makeName, vd.Make)}</p>
+	</li>
+	<li>
+	<p>Model:${val(item.modelName, vd.Model)}</p>
+	</li>
+	<li>
+	<p>Model Type:${val(item.trimName, vd.Trim)}</p>
+	</li>
+	<li>
+	<p>Body: ${val(cd.bodyClass, vd.BodyClass)}</p>
+	</li>
+	<li>
+	<p>Door Structure:${val(cd.doorCount, vd.Doors)}</p>
+	</li>
+	<li>
+	<p>Cylinders:${val(cd.cylinders, vd.EngineCylinders)}</p>
+	</li>
+	<li>
+	<p>Engine Size:${val(cd.engine, vd.DisplacementL)}</p>
+	</li>
+	<li>
+	<p>Transmission:${val(cd.transmission, vd.TransmissionStyle)}</p>
+	</li>
+	<li>
+	<p>Drive Train:${val(cd.drive, vd.DriveType)}</p>
+	</li>
+	<li>
+	<p>Steering:${val(cd.steering, "POWER")}</p>
+	</li>
+	<li>
+	<p>Brakes:${val(cd.brakes, vd.BrakeSystemType)}</p>
+	</li>
+	<li>
+	<p>ABS:${val(cd.abs, "Y")}</p>
+	</li>
+	<li>
+	<p>Primary Ext Color:${val(cd.color)}</p>
+	</li>
+	<li>
+	<p>Primary Int Color:${val(cd.interiorColor)}</p>
+	</li>
+	<li>
+	<p>Seat Mat:${val(cd.seatMaterial)}</p>
+	</li>
+	<li>
+	<p>Roof Type:${val(cd.roofType)}</p>
+	</li>
+	<li>
+	<p>Win Regulator:${val(cd.windowRegulator)}</p>
+	</li>
+</ul>
+`;
+
+      return {
+        weight: item.weight,
+        name: `${item.year} ${item.makeName} ${item.modelName} ${item.trimName} - ${formattedPartName}`.trim(),
+        sku: item.sku,
+        "product type": "Physical",
+        brand: item.makeName,
+        currency: "USD",
+        additionalInfoSections: {
+          source_vehicle: sourceVehicleHtml,
+          fitment: {}
+        }
+      };
+    });
+
+    res.status(200).json(formattedInventories);
   } catch (error) {
     console.error("Error exporting inventories:", error);
     res.status(500).json({ message: "Server error while exporting inventories" });
   }
 };
+
+
+
 module.exports = {
   createInventory,
   getInventoryByVIN,
