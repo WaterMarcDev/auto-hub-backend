@@ -83,7 +83,18 @@ const getAllTags = async (req, res) => {
   const skip = (page - 1) * limit;
 
   const [tags, total] = await Promise.all([
-    Tag.find({}).sort({ barcodeNumber: 1 }).skip(skip).limit(limit),
+    Tag.find({})
+      .populate({
+        path: 'inventoryId',
+        populate: [
+          { path: 'make', select: 'name' },
+          { path: 'model', select: 'name' },
+          { path: 'trim', select: 'name' }
+        ]
+      })
+      .sort({ barcodeNumber: 1 })
+      .skip(skip)
+      .limit(limit),
     Tag.countDocuments({}),
   ]);
 

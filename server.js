@@ -95,40 +95,44 @@ const { marked } = require("marked");
 // No custom marked renderer configured — rendering uses default behavior
 
 // Serve rendered API docs at '/'
-app.get("/", (req, res, next) => {
-  console.log("API docs requested");
-  const docsPath = path.join(__dirname, "API_DOCS.md");
-  fs.readFile(docsPath, "utf8", (err, data) => {
-    if (err) return next(err);
-    const html = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>AutoHub API Docs</title>
-    <style>
-  :root{color-scheme: light}
-      body{font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;margin:20px;line-height:1.6;}
-      pre{background:#f6f8fa;padding:12px;border-radius:6px;overflow:auto;}
-      code{background:#f6f8fa;padding:2px 6px;border-radius:4px;}
-      h1,h2,h3{color:#0b3d91;}
-      a{color:#0366d6;}
-      table{border-collapse:collapse;}
-      table td, table th{border:1px solid #dfe2e5;padding:6px 13px;}
-  /* small responsive container for wide docs */
-  .docs-container { max-width: 960px; margin: 0 auto; }
-    </style>
-  </head>
-  <body>
-    <div class="docs-container">
-      ${marked.parse(data)}
-    </div>
-    
-  </body>
-</html>`;
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.send(html);
-  });
+// app.get("/", (req, res, next) => {
+//   console.log("API docs requested");
+//   const docsPath = path.join(__dirname, "API_DOCS.md");
+//   fs.readFile(docsPath, "utf8", (err, data) => {
+//     if (err) return next(err);
+//     const html = `<!doctype html>
+// <html>
+//   <head>
+//     <meta charset="utf-8">
+//     <meta name="viewport" content="width=device-width,initial-scale=1">
+//     <title>AutoHub API Docs</title>
+//     <style>
+//   :root{color-scheme: light}
+//       body{font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;margin:20px;line-height:1.6;}
+//       pre{background:#f6f8fa;padding:12px;border-radius:6px;overflow:auto;}
+//       code{background:#f6f8fa;padding:2px 6px;border-radius:4px;}
+//       h1,h2,h3{color:#0b3d91;}
+//       a{color:#0366d6;}
+//       table{border-collapse:collapse;}
+//       table td, table th{border:1px solid #dfe2e5;padding:6px 13px;}
+//   /* small responsive container for wide docs */
+//   .docs-container { max-width: 960px; margin: 0 auto; }
+//     </style>
+//   </head>
+//   <body>
+//     <div class="docs-container">
+//       ${marked.parse(data)}
+//     </div>
+
+//   </body>
+// </html>`;
+//     res.setHeader("Content-Type", "text/html; charset=utf-8");
+//     res.send(html);
+//   });
+// });
+
+app.get("/", (req, res) => {
+  res.send("AutoHub API up and running");
 });
 
 // Status endpoint (replaced previous root JSON)
