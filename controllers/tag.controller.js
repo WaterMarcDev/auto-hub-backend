@@ -1,4 +1,4 @@
-const Tag = require("../models/tag.model");
+const Tag = require("../models/Tag.model");
 const { formatBarcode } = require("../utils/barcode");
 const toTagDTO = (tag) => ({
   id: tag._id,
