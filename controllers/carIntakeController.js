@@ -1151,25 +1151,43 @@ const printAllDocuments = async (req, res) => {
     }
 
     // Handle title certificate - silently skip if missing
-    let titleCertificateDataUri = null;
+    // Priority: Title Certificate > DL Document > Physical Paper
+    let documentDataUri = null;
+    let documentTitle = "Document";
+
     try {
-      const titleCertPath = carIntake?.kyc?.documents?.titleCertificate;
-      if (titleCertPath) {
-        // Extract filename from path (could be /uploads/filename.jpg or just filename.jpg)
-        let filename = titleCertPath;
-        if (filename.startsWith("/uploads/")) {
-          filename = filename.replace("/uploads/", "");
-        } else if (filename.startsWith("uploads/")) {
-          filename = filename.replace("uploads/", "");
+      const docs = carIntake?.kyc?.documents || {};
+      let docPath = null;
+
+      if (docs.titleCertificate) {
+        docPath = docs.titleCertificate;
+        documentTitle = "Title Certificate";
+      } else if (docs.driversLicense) {
+        docPath = docs.driversLicense; // Corrected from dlDocument
+        documentTitle = "Driver's License";
+      } else if (docs.physicalPaper) {
+        docPath = docs.physicalPaper;
+        documentTitle = "Physical Paper";
+      }
+
+      if (docPath) {
+        // Extract filename from path (could be URL, /uploads/filename.jpg or just filename.jpg)
+        let filename = docPath;
+        // Robust extraction: get everything after the last 'uploads/'
+        if (filename.includes("uploads/")) {
+          filename = filename.substring(filename.lastIndexOf("uploads/") + 8);
+        } else if (filename.includes("/")) {
+          // If just a path without 'uploads/', try basename
+          filename = path.basename(filename);
         }
 
         const filePath = path.join(__dirname, "..", "uploads", filename);
-        
+
         // Check if file exists before attempting to read
         if (fs.existsSync(filePath)) {
           const buf = fs.readFileSync(filePath);
           const ext = path.extname(filename).toLowerCase();
-          
+
           // Determine MIME type based on extension
           const mimeTypes = {
             ".jpg": "image/jpeg",
@@ -1178,24 +1196,24 @@ const printAllDocuments = async (req, res) => {
             ".gif": "image/gif",
             ".webp": "image/webp",
           };
-          
+
           const mimeType = mimeTypes[ext] || "image/jpeg";
           const b64 = buf.toString("base64");
-          titleCertificateDataUri = `data:${mimeType};base64,${b64}`;
+          documentDataUri = `data:${mimeType};base64,${b64}`;
         } else {
           // File not found - silently continue without title certificate
           console.warn(
-            `Title certificate file not found: ${filePath} for car intake ${id}`
+            `Document file not found: ${filePath} for car intake ${id}`
           );
         }
       }
     } catch (e) {
       // Silently handle any errors reading title certificate - just log for debugging
       console.warn(
-        "Could not read title certificate for combined print:",
+        "Could not read document for combined print:",
         e && e.message
       );
-      titleCertificateDataUri = null;
+      documentDataUri = null;
     }
 
     // compute padded slip string if paymentSlip found
@@ -1215,16 +1233,15 @@ const printAllDocuments = async (req, res) => {
         : null,
       // Prefer inline base64 logo when available; otherwise template will fall back to /assets/logo-sm1.png
       logoSrc: logoDataUri || "/assets/logo-sm1.png",
-      titleCertificateDataUri, // Will be null if not available
+      documentDataUri, // Dynamic document image
+      documentTitle, // Dynamic document title
     };
 
     // Render combined template
     return res.render("combinedDocuments.njk", data);
   } catch (err) {
     console.error("Print all documents error:", err);
-    return res
-      .status(500)
-      .json({ error: "Server error rendering documents" });
+    return res.status(500).json({ error: "Server error rendering documents" });
   }
 };
 
