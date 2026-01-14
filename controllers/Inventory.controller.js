@@ -452,10 +452,10 @@ const exportInventories = async (req, res) => {
         price: 0,
         currency: "USD",
         additionalInfoSections: [
-          { "title": "Description", "description": "" },
-          { "title": "Fitment", "description": "" },
-          { "title": "Source Vehicle", "description": sourceVehicleHtml },
-          { "title": "Return and Refund Policy", "description": "" },
+          {
+            "title": "Storage recommendations",
+            "description": "<p>To preserve...</p>"
+          }
         ]
       };
     });
