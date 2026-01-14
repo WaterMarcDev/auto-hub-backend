@@ -597,41 +597,54 @@ const syncInventoriesV3 = async (req, res) => {
       };
     });
 
-    // Batching logic (max 100 per request)
-    const BATCH_SIZE = 100;
-    const results = [];
-    for (let i = 0; i < formattedProducts.length; i += BATCH_SIZE) {
-      const batch = formattedProducts.slice(i, i + BATCH_SIZE);
-      try {
-        const response = await axios.post(
-          "https://www.wixapis.com/stores/v3/bulk/products/create",
-          { products: batch },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "x-wix-api-key": process.env.WIX_API_KEY,
-            },
-          }
-        );
-        results.push({ batch: i / BATCH_SIZE + 1, status: "success", data: response.data });
-      } catch (err) {
-        console.error(`Error syncing batch ${i / BATCH_SIZE + 1}:`, err.response?.data || err.message);
-        results.push({
-          batch: i / BATCH_SIZE + 1,
-          status: "error",
-          error: err.response?.data || err.message,
-        });
-      }
-    }
+    // Background Execution for batches
+    const processInBg = async (products) => {
+      const BATCH_SIZE = 100;
+      const CONCURRENCY = 3; // Process 3 batches at a time
+      const batches = [];
 
-    res.status(200).json({
-      message: "Wix V3 Sync completed",
+      for (let i = 0; i < products.length; i += BATCH_SIZE) {
+        batches.push(products.slice(i, i + BATCH_SIZE));
+      }
+
+      console.log(`Starting background sync for ${products.length} products in ${batches.length} batches...`);
+
+      for (let i = 0; i < batches.length; i += CONCURRENCY) {
+        const currentBatches = batches.slice(i, i + CONCURRENCY);
+
+        await Promise.all(currentBatches.map(async (batch, index) => {
+          const batchIdx = i + index + 1;
+          try {
+            await axios.post(
+              "https://www.wixapis.com/stores/v3/bulk/products/create",
+              { products: batch },
+              {
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-wix-api-key": process.env.WIX_API_KEY,
+                },
+              }
+            );
+            console.log(`Batch ${batchIdx}/${batches.length} synced successfully.`);
+          } catch (err) {
+            console.error(`Error syncing batch ${batchIdx}:`, err.response?.data || err.message);
+          }
+        }));
+      }
+      console.log("Wix V3 Sync background process completed.");
+    };
+
+    // Trigger background process
+    processInBg(formattedProducts).catch(err => console.error("Critical error in background sync:", err));
+
+    res.status(202).json({
+      message: "Wix V3 Sync started in the background",
       totalProducts: formattedProducts.length,
-      batches: results,
+      estimatedBatches: Math.ceil(formattedProducts.length / 100),
     });
   } catch (error) {
-    console.error("Error in syncInventoriesV3:", error);
-    res.status(500).json({ message: "Server error while syncing inventories to Wix V3" });
+    console.error("Error in syncInventoriesV3 initiation:", error);
+    res.status(500).json({ message: "Server error while initiating Wix V3 sync" });
   }
 };
 
