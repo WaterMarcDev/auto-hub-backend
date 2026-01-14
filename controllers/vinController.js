@@ -82,6 +82,55 @@ const getVinDetails = async (req, res) => {
     // Persist VIN details into CarIntake (create draft or update existing by VIN)
     const vinDetails = response.data.Results[0];
 
+    // Helper to parse GVWR string into min/max lbs
+    const parseGVWR = (gvwr) => {
+      if (!gvwr) return null;
+      // Expected formats:
+      // "Class 1: 6,000 lb or less (2,722 kg or less)"
+      // "Class 2E: 6,001 - 7,000 lb (2,722 - 3,175 kg)"
+      try {
+        const text = String(gvwr).toLowerCase();
+        // Remove commas 
+        const clean = text.replace(/,/g, "");
+
+        // Extract the lb part (usually before "kg" or at the start)
+        // Regex to finding numbers followed by "lb"
+        // Case 1: "X - Y lb"
+        const rangeMatch = clean.match(/(\d+)\s*-\s*(\d+)\s*lb/);
+        if (rangeMatch) {
+          return {
+            min: parseInt(rangeMatch[1]),
+            max: parseInt(rangeMatch[2]),
+          };
+        }
+
+        // Case 2: "Y lb or less" -> 0 - Y
+        const lessMatch = clean.match(/(\d+)\s*lb\s*or\s*less/);
+        if (lessMatch) {
+          return {
+            min: 0,
+            max: parseInt(lessMatch[1]),
+          };
+        }
+
+        // Case 3: "Greater than Y lb" -> Y - MAX_SAFE_INTEGER
+        const greaterMatch = clean.match(/greater\s*than\s*(\d+)\s*lb/);
+        if (greaterMatch) {
+          return {
+            min: parseInt(greaterMatch[1]),
+            max: Number.MAX_SAFE_INTEGER,
+          };
+        }
+
+        return null;
+      } catch (e) {
+        console.warn("Failed to parse GVWR:", gvwr, e);
+        return null;
+      }
+    };
+
+    const gvwrRange = parseGVWR(vinDetails?.GVWR);
+
     // Map VIN API fields to our carDetails shape (used as fallbacks)
     const mappedFromVin = {
       vin: vinNumber,
@@ -103,9 +152,18 @@ const getVinDetails = async (req, res) => {
       engineVariant:
         vinDetails?.EngineModel || vinDetails?.engine_code || undefined,
       chassisNo: vinNumber,
-      weight: vinDetails?.GVWR || "",
+      // weight: vinDetails?.GVWR || "", // Don't pre-fill raw GVWR string directly
       engine: vinDetails?.DisplacementL || undefined,
     };
+
+    // Attach parsed range to vinDetails for frontend/backend validation
+    if (vinDetails) {
+      vinDetails.gvwrRange = vinDetails.GVWR; // persist raw string
+      if (gvwrRange) {
+        vinDetails.weightMin = gvwrRange.min;
+        vinDetails.weightMax = gvwrRange.max;
+      }
+    }
     // If a CarIntake exists, merge mapped VIN values into carDetails (without
     // overwriting non-empty existing fields), persist vinDetails and merged
     // carDetails, and return the populated document. If none exists, create
