@@ -3,7 +3,6 @@ const Customer = require("../models/customer");
 const createCustomer = async (req, res) => {
   try {
     const {
-      type,
       firstName,
       lastName,
       mobileNo,
@@ -15,7 +14,6 @@ const createCustomer = async (req, res) => {
     } = req.body;
 
     const newCustomer = new Customer({
-      type,
       firstName,
       lastName,
       mobileNo,
@@ -42,10 +40,6 @@ const getAllCustomers = async (req, res) => {
 
     const filter = {};
     filter.isDeleted = { $ne: true };
-
-    if (req.query.type) {
-      filter.type = req.query.type;
-    }
 
     if (req.query.search) {
       const searchRegex = new RegExp(req.query.search, "i");
