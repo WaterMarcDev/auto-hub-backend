@@ -452,10 +452,10 @@ const exportInventories = async (req, res) => {
         price: 0,
         currency: "USD",
         additionalInfoSections: [
-          {
-            "title": "Storage recommendations",
-            "description": "<p>To preserve...</p>"
-          }
+          { "title": "Description", "description": "" },
+          { "title": "Fitment", "description": "" },
+          { "title": "Source Vehicle", "description": sourceVehicleHtml },
+          { "title": "Return and Refund Policy", "description": "" },
         ]
       };
     });
@@ -467,6 +467,173 @@ const exportInventories = async (req, res) => {
   }
 };
 
+const syncInventoriesV3 = async (req, res) => {
+  try {
+    const axios = require("axios");
+    const inventories = await Inventory.aggregate([
+      // Join with Make
+      {
+        $lookup: {
+          from: "makes",
+          localField: "make",
+          foreignField: "_id",
+          as: "make",
+        },
+      },
+      { $unwind: { path: "$make", preserveNullAndEmptyArrays: true } },
+
+      // Join with Model
+      {
+        $lookup: {
+          from: "models",
+          localField: "model",
+          foreignField: "_id",
+          as: "model",
+        },
+      },
+      { $unwind: { path: "$model", preserveNullAndEmptyArrays: true } },
+
+      // Join with Trim
+      {
+        $lookup: {
+          from: "trims",
+          localField: "trim",
+          foreignField: "_id",
+          as: "trim",
+        },
+      },
+      { $unwind: { path: "$trim", preserveNullAndEmptyArrays: true } },
+
+      // Join with Tag
+      {
+        $lookup: {
+          from: "tags",
+          localField: "_id",
+          foreignField: "inventoryId",
+          as: "tag",
+        },
+      },
+      { $unwind: { path: "$tag", preserveNullAndEmptyArrays: true } },
+
+      // Join with CarIntake by VIN
+      {
+        $lookup: {
+          from: "carintakes",
+          localField: "vin",
+          foreignField: "vin",
+          as: "carIntake",
+        },
+      },
+      { $unwind: { path: "$carIntake", preserveNullAndEmptyArrays: true } },
+
+      // Raw projection
+      {
+        $project: {
+          _id: 0,
+          year: { $ifNull: ["$year", ""] },
+          makeName: { $ifNull: ["$make.name", ""] },
+          modelName: { $ifNull: ["$model.name", ""] },
+          trimName: { $ifNull: ["$trim.name", ""] },
+          partName: { $ifNull: ["$partName", ""] },
+          vin: { $ifNull: ["$vin", "N/A"] },
+          weight: { $ifNull: ["$weight", 0] },
+          sku: { $ifNull: ["$tag.barcodeString", null] },
+          cd: { $ifNull: ["$carIntake.carDetails", {}] },
+          vd: { $ifNull: ["$carIntake.vinDetails", {}] },
+        },
+      },
+    ]);
+
+    const formattedProducts = inventories.map(item => {
+      const formattedPartName = toTitleFromCamelCase(item.partName);
+      const cd = item.cd || {};
+      const vd = item.vd || {};
+
+      const val = (...args) => {
+        for (const arg of args) {
+          if (arg && arg !== "N/A" && arg !== "") return arg;
+        }
+        return "N/A";
+      };
+
+      const sourceVehicleHtml = `<ul>
+	<li><p>Year:${val(item.year, vd.ModelYear)}</p></li>
+	<li><p>Make:${val(item.makeName, vd.Make)}</p></li>
+	<li><p>Model:${val(item.modelName, vd.Model)}</p></li>
+	<li><p>Model Type:${val(item.trimName, vd.Trim)}</p></li>
+	<li><p>Body: ${val(cd.bodyClass, vd.BodyClass)}</p></li>
+	<li><p>Door Structure:${val(cd.doorCount, vd.Doors)}</p></li>
+	<li><p>Cylinders:${val(cd.cylinders, vd.EngineCylinders)}</p></li>
+	<li><p>Engine Size:${val(cd.engine, vd.DisplacementL)}</p></li>
+	<li><p>Transmission:${val(cd.transmission, vd.TransmissionStyle)}</p></li>
+	<li><p>Drive Train:${val(cd.drive, vd.DriveType)}</p></li>
+	<li><p>Steering:${val(cd.steering, "POWER")}</p></li>
+	<li><p>Brakes:${val(cd.brakes, vd.BrakeSystemType)}</p></li>
+	<li><p>ABS:${val(cd.abs, "Y")}</p></li>
+	<li><p>Primary Ext Color:${val(cd.color)}</p></li>
+	<li><p>Primary Int Color:${val(cd.interiorColor)}</p></li>
+	<li><p>Seat Mat:${val(cd.seatMaterial)}</p></li>
+	<li><p>Roof Type:${val(cd.roofType)}</p></li>
+	<li><p>Win Regulator:${val(cd.windowRegulator)}</p></li>
+</ul>`;
+
+      return {
+        name: `${item.year} ${item.makeName} ${item.modelName} ${item.trimName} - ${formattedPartName}`.trim(),
+        sku: item.sku,
+        productType: "PHYSICAL",
+        visible: false,
+        brand: item.makeName,
+        weight: item.weight,
+        priceData: {
+          price: 0,
+          currency: "USD"
+        },
+        infoSections: [
+          { title: "Description", plainDescription: "" },
+          { title: "Fitment", plainDescription: "" },
+          { title: "Source Vehicle", plainDescription: sourceVehicleHtml },
+          { title: "Return and Refund Policy", plainDescription: "" },
+        ]
+      };
+    });
+
+    // Batching logic (max 100 per request)
+    const BATCH_SIZE = 100;
+    const results = [];
+    for (let i = 0; i < formattedProducts.length; i += BATCH_SIZE) {
+      const batch = formattedProducts.slice(i, i + BATCH_SIZE);
+      try {
+        const response = await axios.post(
+          "https://www.wixapis.com/stores/v3/bulk/products/create",
+          { products: batch },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "x-wix-api-key": process.env.WIX_API_KEY,
+            },
+          }
+        );
+        results.push({ batch: i / BATCH_SIZE + 1, status: "success", data: response.data });
+      } catch (err) {
+        console.error(`Error syncing batch ${i / BATCH_SIZE + 1}:`, err.response?.data || err.message);
+        results.push({
+          batch: i / BATCH_SIZE + 1,
+          status: "error",
+          error: err.response?.data || err.message,
+        });
+      }
+    }
+
+    res.status(200).json({
+      message: "Wix V3 Sync completed",
+      totalProducts: formattedProducts.length,
+      batches: results,
+    });
+  } catch (error) {
+    console.error("Error in syncInventoriesV3:", error);
+    res.status(500).json({ message: "Server error while syncing inventories to Wix V3" });
+  }
+};
 
 
 module.exports = {
@@ -475,5 +642,6 @@ module.exports = {
   getPartsMasterList,
   getAllInventories,
   exportInventories,
+  syncInventoriesV3,
 };
 
