@@ -173,8 +173,32 @@ const createCarIntake = async (req, res) => {
           }
           return undefined;
         })(),
-        weight:
-          formData.weight !== undefined ? String(formData.weight) : undefined,
+        weight: (() => {
+          const w = formData.weight;
+          if (w === undefined || w === "") return undefined;
+
+          // Check if we have VIN details to validate against
+          const vinDetails = formData.vinDetails || {};
+          const min = vinDetails.weightMin;
+          const max = vinDetails.weightMax;
+
+          const numW = parseFloat(w);
+
+          if (!Number.isNaN(numW)) {
+            if (min !== undefined && numW < min) {
+              throw new Error(
+                `Weight ${numW} lbs is below the valid range for this vehicle Class (< ${min}).`
+              );
+            }
+            if (max !== undefined && numW > max) {
+              throw new Error(
+                `Weight ${numW} lbs is above the valid range for this vehicle Class (> ${max}).`
+              );
+            }
+            return String(numW); // Store as string as per schema, but normalized
+          }
+          return String(w);
+        })(),
         dimensions: formData.dimensions || undefined,
         description: formData.description || undefined,
         carDetailsUploadedBy: req.user?._id,
@@ -526,7 +550,37 @@ const updateCarIntake = async (req, res) => {
     cdFields.forEach((f) => {
       if (carIntakeData[f] !== undefined) {
         carIntake.carDetails = carIntake.carDetails || {};
-        carIntake.carDetails[f] = carIntakeData[f];
+
+        if (f === "weight") {
+          const w = carIntakeData[f];
+          if (w !== "") {
+            const numW = parseFloat(w);
+            // Check existing vinDetails on the record
+            const vinDetails = carIntake.vinDetails || {};
+            const min = vinDetails.weightMin;
+            const max = vinDetails.weightMax;
+
+            if (!Number.isNaN(numW)) {
+              if (min !== undefined && numW < min) {
+                throw new Error(
+                  `Weight ${numW} lbs is below the valid range for this vehicle Class (< ${min}).`
+                );
+              }
+              if (max !== undefined && numW > max) {
+                throw new Error(
+                  `Weight ${numW} lbs is above the valid range for this vehicle Class (> ${max}).`
+                );
+              }
+              carIntake.carDetails[f] = String(numW);
+            } else {
+              carIntake.carDetails[f] = w;
+            }
+          } else {
+            carIntake.carDetails[f] = w;
+          }
+        } else {
+          carIntake.carDetails[f] = carIntakeData[f];
+        }
         anyCd = true;
       }
     });
@@ -1711,9 +1765,9 @@ const bulkUploadScraped = async (req, res) => {
           transactionDateStr,
           generatedBy: req.user
             ? {
-              id: req.user._id,
-              name: req.user.first_name || req.user.name || "",
-            }
+                id: req.user._id,
+                name: req.user.first_name || req.user.name || "",
+              }
             : null,
         };
 
