@@ -451,12 +451,25 @@ const exportInventories = async (req, res) => {
         brand: item.makeName,
         price: 0,
         currency: "USD",
-        additionalInfoSections: [
-          { title: "Description", description: "" },
-          { title: "Fitment", description: "" },
-          { title: "Source Vehicle", description: sourceVehicleHtml },
-          { title: "Return and Refund Policy", description: "" },
-        ]
+        additionalInfoSections:
+        {
+          description: {
+            title: "Description",
+            description: ""
+          },
+          fitment: {
+            title: "Fitment",
+            description: ""
+          },
+          source_vehicle: {
+            title: "Source Vehicle",
+            description: sourceVehicleHtml
+          },
+          return_and_refund_policy: {
+            title: "Return and Refund Policy",
+            description: ""
+          }
+        }
       };
     });
 
