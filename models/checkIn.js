@@ -11,6 +11,11 @@ const checkInSchema = new mongoose.Schema({
     ref: "Customer",
     required: [true, "Customer reference is required"],
   },
+  type: {
+    type: String,
+    enum: ["seller", "buyer", "both"],
+    required: [true, "Check-in type is required"],
+  },
   numberOfPersons: {
     type: Number,
   },

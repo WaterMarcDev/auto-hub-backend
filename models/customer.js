@@ -2,11 +2,6 @@ const mongoose = require("mongoose");
 
 const CustomerSchema = new mongoose.Schema(
   {
-    type: {
-      type: String,
-      enum: ["seller", "buyer"],
-      required: true,
-    },
     firstName: {
       type: String,
       required: [true, "First name is required"],
