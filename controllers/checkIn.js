@@ -10,6 +10,7 @@ exports.create = async (req, res) => {
   try {
     const {
       customer,
+      type,
       transaction: transactionData,
       numberOfPersons,
       employeeSignature,
@@ -17,6 +18,8 @@ exports.create = async (req, res) => {
 
     if (!customer)
       return res.status(400).json({ message: "customer is required" });
+    if (!type)
+      return res.status(400).json({ message: "type is required" });
     if (!transactionData)
       return res.status(400).json({ message: "transaction data is required" });
 
@@ -48,6 +51,7 @@ exports.create = async (req, res) => {
 
     const checkIn = new CheckIn({
       customer,
+      type,
       transaction: trx._id,
       numberOfPersons,
       employeeSignature,
@@ -87,7 +91,12 @@ exports.getAll = async (req, res) => {
       // Simpler approach: find customer IDs matching search, then filter.
       const custRegex = new RegExp(search, "i");
       const matchingCustomers = await Customer.find({
-        $or: [{ name: custRegex }, { email: custRegex }, { phone: custRegex }],
+        $or: [
+          { firstName: custRegex },
+          { lastName: custRegex },
+          { email: custRegex },
+          { mobileNo: custRegex },
+        ],
       }).select("_id");
       const custIds = matchingCustomers.map((c) => c._id);
 
