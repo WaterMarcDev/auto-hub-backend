@@ -4,6 +4,7 @@ const Transaction = require("../models/Transaction");
 const xlsx = require("xlsx");
 const fs = require("fs");
 const path = require("path");
+const EntryFee = require("../models/EntryFee");
 
 // Helper to normalize image values: accept string or object, return string (prefer url then filename)
 const normalizeImageValue = (val) => {
@@ -1085,6 +1086,7 @@ const printPaymentSlip = async (req, res) => {
         : null,
       // Prefer inline base64 logo when available; otherwise template will fall back to /assets/logo-sm1.png
       logoSrc: logoDataUri || "/assets/logo-sm1.png",
+      adjustedEntryFee: (await EntryFee.findOne().sort({ createdAt: -1 }))?.entryFee || 2.0,
     };
 
     // If client requests PDF or raw HTML, we can extend later. For now render HTML
@@ -1289,6 +1291,7 @@ const printAllDocuments = async (req, res) => {
       logoSrc: logoDataUri || "/assets/logo-sm1.png",
       documentDataUri, // Dynamic document image
       documentTitle, // Dynamic document title
+      adjustedEntryFee: (await EntryFee.findOne().sort({ createdAt: -1 }))?.entryFee || 2.0,
     };
 
     // Render combined template

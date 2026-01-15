@@ -144,11 +144,11 @@
           {% endif %}
           {# determine net (payment total) as gross - tax; prefer paymentSlip.netAmount -> transaction.netAmount -> compute #}
           {% if paymentSlip and (paymentSlip.netAmount is not none) %}
-            {% set netDerived = paymentSlip.netAmount %}
+            {% set netDerived = paymentSlip.netAmount + (adjustedEntryFee or 0) %}
           {% elseif transaction and (transaction.netAmount is not none) %}
-            {% set netDerived = transaction.netAmount %}
+            {% set netDerived = transaction.netAmount + (adjustedEntryFee or 0) %}
           {% else %}
-            {% set netDerived = (baseAmount + taxAmount) %}
+            {% set netDerived = (baseAmount + taxAmount) + (adjustedEntryFee or 0) %}
           {% endif %}
         {% else %}
           {% set baseAmount = null %}
@@ -200,6 +200,9 @@
             {% if baseAmount is not null %}
               <div class="line"><div class="k">Subtotal</div><div class="v total">{{ baseAmount | usCurrency }}</div></div>
               <div class="line"><div class="k">Taxes ({{ (taxPercent * 100) | round(3) }}%)</div><div class="v">{{ taxAmount | usCurrency }}</div></div>
+              {% if adjustedEntryFee %}
+                <div class="line"><div class="k">Adjusted entry fee</div><div class="v">{{ adjustedEntryFee | usCurrency }}</div></div>
+              {% endif %}
               <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
               {# Show Payment Total and Amount Paid as net amount after tax deduction, balance zero #}
               <div class="line"><div class="k">Payment Total</div><div class="v total">{{ netDerived | usCurrency }}</div></div>
