@@ -578,29 +578,38 @@ const syncInventoriesV3 = async (req, res) => {
 </ul>`;
 
       return {
-        name: `${item.year} ${item.makeName} ${item.modelName} ${item.trimName} - ${formattedPartName}`.trim(),
-        sku: item.sku,
-        productType: "PHYSICAL",
-        visible: false,
-        brand: item.makeName,
-        weight: item.weight,
-        priceData: {
-          price: 0,
-          currency: "USD"
-        },
-        infoSections: [
-          { title: "Description", plainDescription: "" },
-          { title: "Fitment", plainDescription: "" },
-          { title: "Source Vehicle", plainDescription: sourceVehicleHtml },
-          { title: "Return and Refund Policy", plainDescription: "" },
-        ]
+        product: {
+          name: `${item.year} ${item.makeName} ${item.modelName} ${item.trimName} - ${formattedPartName}`.trim(),
+          productType: "PHYSICAL",
+          visible: false,
+          brand: item.makeName,
+          variantsInfo: {
+            variants: [{
+              sku: item.sku || "",
+              price: {
+                actualPrice: {
+                  amount: "0.00"
+                }
+              },
+              physicalProperties: {
+                weight: item.weight || 0
+              }
+            }]
+          },
+          infoSections: [
+            { title: "Description", plainDescription: " ", uniqueName: "description" },
+            { title: "Fitment", plainDescription: " ", uniqueName: "fitment" },
+            { title: "Source Vehicle", plainDescription: sourceVehicleHtml, uniqueName: "source-vehicle" },
+            { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
+          ]
+        }
       };
     });
 
     // Background Execution for batches
     const processInBg = async (products) => {
-      const BATCH_SIZE = 100;
-      const CONCURRENCY = 3; // Process 3 batches at a time
+      const BATCH_SIZE = 25; // Wix V3 limits total info sections to 100 per bulk request (4 per product * 25 = 100)
+      const CONCURRENCY = 2; // Process 2 batches at a time to stay safe with rate limits
       const batches = [];
 
       for (let i = 0; i < products.length; i += BATCH_SIZE) {
@@ -617,11 +626,15 @@ const syncInventoriesV3 = async (req, res) => {
           try {
             await axios.post(
               "https://www.wixapis.com/stores/v3/bulk/products/create",
-              { products: batch },
+              {
+                products: batch,
+                returnEntity: false
+              },
               {
                 headers: {
                   "Content-Type": "application/json",
-                  "x-wix-api-key": process.env.WIX_API_KEY,
+                  "Authorization": process.env.WIX_API_KEY,
+                  "wix-site-id": process.env.WIX_SITE_ID,
                 },
               }
             );
@@ -640,7 +653,7 @@ const syncInventoriesV3 = async (req, res) => {
     res.status(202).json({
       message: "Wix V3 Sync started in the background",
       totalProducts: formattedProducts.length,
-      estimatedBatches: Math.ceil(formattedProducts.length / 100),
+      estimatedBatches: Math.ceil(formattedProducts.length / 25),
     });
   } catch (error) {
     console.error("Error in syncInventoriesV3 initiation:", error);
