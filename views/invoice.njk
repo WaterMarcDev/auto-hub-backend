@@ -187,6 +187,11 @@
             <div class="line"><div class="k">Taxes</div><div class="v">${{ (invoiceDoc and invoiceDoc.taxAmount) or (transaction and transaction.taxAmount) or 0 | round(2) }}</div></div>
             <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
             <div class="line"><div class="k">Total</div><div class="v total">${{ (invoiceDoc and invoiceDoc.total) or (transaction and transaction.netAmount) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
+            {% if adjustedEntryFee %}
+              <div class="line"><div class="k">Adjusted entry fee</div><div class="v">${{ adjustedEntryFee | round(2) }}</div></div>
+              {% set finalTotal = ((invoiceDoc and invoiceDoc.total) or (transaction and transaction.netAmount) or (transaction and transaction.amount) or 0) + adjustedEntryFee %}
+              <div class="line"><div class="k">Grand Total</div><div class="v total">${{ finalTotal | round(2) }}</div></div>
+            {% endif %}
             <div class="line"><div class="k">Amount Paid</div><div class="v">${{ (elementSell and transaction and transaction.netAmount) or (invoiceDoc and invoiceDoc.amountPaid) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
             <div style="padding:12px">
               {% if elementSell %}
