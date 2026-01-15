@@ -1,6 +1,7 @@
 const Invoice = require("../models/Invoice");
 const Transaction = require("../models/Transaction");
 const CheckIn = require("../models/checkIn");
+const EntryFee = require("../models/EntryFee");
 const path = require("path");
 const fs = require("fs");
 
@@ -78,6 +79,7 @@ const printInvoice = async (req, res) => {
       invoicePadded,
       generatedAt: new Date(),
       logoSrc: logoDataUri || "/assets/logo-sm1.png",
+      adjustedEntryFee: (await EntryFee.findOne().sort({ createdAt: -1 }))?.entryFee || 2.0,
     });
   } catch (err) {
     console.error("Print invoice error:", err);
