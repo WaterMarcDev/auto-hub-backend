@@ -215,6 +215,9 @@ app.use("/api/invoices", require("./routes/invoice.routes"));
 // Wix integration routes
 app.use("/api/wix", require("./routes/wix.routes"));
 
+// Entry Fee routes
+app.use("/api/entry-fee", require("./routes/entryFee.routes"));
+
 // Serve uploaded files statically
 app.use("/uploads", express.static("uploads"));
 
