@@ -230,14 +230,28 @@
     </div>
 
     <!-- Page 2: Title Certificate -->
-    <div class="sheet title-certificate-page" role="document">
-      <div class="container">
-        <div class="title-certificate-title">{{ documentTitle }}</div>
-        {% if documentDataUri %}
-          <img src="{{ documentDataUri }}" alt="{{ documentTitle }}" class="title-certificate-image" />
-        {% endif %}
-      </div>
-    </div>
+    <!-- Dynamic Document Pages -->
+    {% if documents and documents | length %}
+      {% for doc in documents %}
+        <div class="sheet title-certificate-page" role="document" style="{{ 'page-break-after: always' if not loop.last else '' }}">
+          <div class="container">
+            <div class="title-certificate-title">{{ doc.title }}</div>
+            {% if doc.dataUri %}
+              <img src="{{ doc.dataUri }}" alt="{{ doc.title }}" class="title-certificate-image" />
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      {% if documentTitle and documentDataUri %}
+        <div class="sheet title-certificate-page" role="document">
+            <div class="container">
+            <div class="title-certificate-title">{{ documentTitle }}</div>
+            <img src="{{ documentDataUri }}" alt="{{ documentTitle }}" class="title-certificate-image" />
+            </div>
+        </div>
+      {% endif %}
+    {% endif %}
 
     <script>
       (function(){
