@@ -442,6 +442,8 @@ const exportInventories = async (req, res) => {
 </ul>
 `;
 
+      const description = `This ${formattedPartName} is designed specifically for the ${item.year} ${item.makeName} ${item.modelName} ${item.trimName}. It ensures proper fitment, reliable performance, and long-term durability. Manufactured using high-quality materials, it meets or exceeds OEM standards and integrates seamlessly with the vehicle’s existing systems, making it an ideal replacement or upgrade for maintaining optimal functionality and safety.`;
+
       return {
         weight: item.weight,
         name: `${item.year} ${item.makeName} ${item.modelName} ${item.trimName} - ${formattedPartName}`.trim(),
@@ -451,10 +453,10 @@ const exportInventories = async (req, res) => {
         brand: item.makeName,
         price: 0,
         currency: "USD",
-        description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Maecenas id tempor odio. Maecenas vitae arcu aliquet, fringilla turpis lobortis, pellentesque orci. Vestibulum laoreet et lacus.",
+        description: description,
         productInfo: {
           additionalInfoSections: [
-            { "title": "Description", "description": "" },
+            { "title": "Description", "description": description },
             { "title": "Fitment", "description": "" },
             { "title": "Source Vehicle", "description": sourceVehicleHtml },
             { "title": "Return and Refund Policy", "description": "" },
