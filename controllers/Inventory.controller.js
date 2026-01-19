@@ -451,12 +451,15 @@ const exportInventories = async (req, res) => {
         brand: item.makeName,
         price: 0,
         currency: "USD",
-        additionalInfoSections: [
-          { "title": "Description", "description": "" },
-          { "title": "Fitment", "description": "" },
-          { "title": "Source Vehicle", "description": sourceVehicleHtml },
-          { "title": "Return and Refund Policy", "description": "" },
-        ]
+        description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Maecenas id tempor odio. Maecenas vitae arcu aliquet, fringilla turpis lobortis, pellentesque orci. Vestibulum laoreet et lacus.",
+        productInfo: {
+          additionalInfoSections: [
+            { "title": "Description", "description": "" },
+            { "title": "Fitment", "description": "" },
+            { "title": "Source Vehicle", "description": sourceVehicleHtml },
+            { "title": "Return and Refund Policy", "description": "" },
+          ]
+        }
       };
     });
 
@@ -670,4 +673,3 @@ module.exports = {
   exportInventories,
   syncInventoriesV3,
 };
-
