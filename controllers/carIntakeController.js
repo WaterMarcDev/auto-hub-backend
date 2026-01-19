@@ -1206,70 +1206,76 @@ const printAllDocuments = async (req, res) => {
       logoDataUri = null;
     }
 
-    // Handle title certificate - silently skip if missing
-    // Priority: Title Certificate > DL Document > Physical Paper
-    let documentDataUri = null;
-    let documentTitle = "Document";
+    // Handle documents - collect all available documents
+    // Priority order: Title Certificate, DL Document, Physical Paper
+    const documents = [];
+    const docPriorities = [
+      { key: "titleCertificate", title: "Title Certificate" },
+      { key: "driversLicense", title: "Driver's License" },
+      { key: "physicalPaper", title: "Physical Paper" },
+    ];
 
     try {
       const docs = carIntake?.kyc?.documents || {};
-      let docPath = null;
 
-      if (docs.titleCertificate) {
-        docPath = docs.titleCertificate;
-        documentTitle = "Title Certificate";
-      } else if (docs.driversLicense) {
-        docPath = docs.driversLicense; // Corrected from dlDocument
-        documentTitle = "Driver's License";
-      } else if (docs.physicalPaper) {
-        docPath = docs.physicalPaper;
-        documentTitle = "Physical Paper";
-      }
+      for (const { key, title } of docPriorities) {
+        let docPath = docs[key];
+        if (docPath) {
+          // Extract filename from path (could be URL, /uploads/filename.jpg or just filename.jpg)
+          let filename = docPath;
+          // Robust extraction: get everything after the last 'uploads/'
+          if (filename.includes("uploads/")) {
+            filename = filename.substring(filename.lastIndexOf("uploads/") + 8);
+          } else if (filename.includes("/")) {
+            // If just a path without 'uploads/', try basename
+            filename = path.basename(filename);
+          }
 
-      if (docPath) {
-        // Extract filename from path (could be URL, /uploads/filename.jpg or just filename.jpg)
-        let filename = docPath;
-        // Robust extraction: get everything after the last 'uploads/'
-        if (filename.includes("uploads/")) {
-          filename = filename.substring(filename.lastIndexOf("uploads/") + 8);
-        } else if (filename.includes("/")) {
-          // If just a path without 'uploads/', try basename
-          filename = path.basename(filename);
-        }
+          const filePath = path.join(__dirname, "..", "uploads", filename);
 
-        const filePath = path.join(__dirname, "..", "uploads", filename);
+          // Check if file exists before attempting to read
+          if (fs.existsSync(filePath)) {
+            try {
+              const buf = fs.readFileSync(filePath);
+              const ext = path.extname(filename).toLowerCase();
 
-        // Check if file exists before attempting to read
-        if (fs.existsSync(filePath)) {
-          const buf = fs.readFileSync(filePath);
-          const ext = path.extname(filename).toLowerCase();
+              // Determine MIME type based on extension
+              const mimeTypes = {
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".png": "image/png",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+              };
 
-          // Determine MIME type based on extension
-          const mimeTypes = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-          };
+              const mimeType = mimeTypes[ext] || "image/jpeg";
+              const b64 = buf.toString("base64");
+              const dataUri = `data:${mimeType};base64,${b64}`;
 
-          const mimeType = mimeTypes[ext] || "image/jpeg";
-          const b64 = buf.toString("base64");
-          documentDataUri = `data:${mimeType};base64,${b64}`;
-        } else {
-          // File not found - silently continue without title certificate
-          console.warn(
-            `Document file not found: ${filePath} for car intake ${id}`
-          );
+              documents.push({
+                title: title,
+                dataUri: dataUri,
+              });
+            } catch (readErr) {
+              console.warn(
+                `Failed to read document ${filename}:`,
+                readErr.message
+              );
+            }
+          } else {
+            // File not found - silently skip
+            console.warn(
+              `Document file not found: ${filePath} for car intake ${id}`
+            );
+          }
         }
       }
     } catch (e) {
-      // Silently handle any errors reading title certificate - just log for debugging
+      // Silently handle any errors - just log for debugging
       console.warn(
-        "Could not read document for combined print:",
+        "Could not read documents for combined print:",
         e && e.message
       );
-      documentDataUri = null;
     }
 
     // compute padded slip string if paymentSlip found
@@ -1289,8 +1295,7 @@ const printAllDocuments = async (req, res) => {
         : null,
       // Prefer inline base64 logo when available; otherwise template will fall back to /assets/logo-sm1.png
       logoSrc: logoDataUri || "/assets/logo-sm1.png",
-      documentDataUri, // Dynamic document image
-      documentTitle, // Dynamic document title
+      documents, // Array of { title, dataUri }
       adjustedEntryFee: (await EntryFee.findOne().sort({ createdAt: -1 }))?.entryFee || 2.0,
     };
 
