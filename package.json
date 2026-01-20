@@ -30,6 +30,8 @@
     "express": "^5.1.0",
     "express-validator": "^7.2.1",
     "jsonwebtoken": "^9.0.2",
+    "jspdf": "^4.0.0",
+    "jspdf-autotable": "^5.0.7",
     "marked": "^16.4.0",
     "mjml": "^4.15.3",
     "mongoose": "^8.16.0",
