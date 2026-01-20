@@ -76,7 +76,7 @@ const login = async (req, res) => {
       });
     }
 
-    const { email, password } = req.body;
+    const { email, password, rememberMe } = req.body;
 
     // Check if user exists
     const user = await User.findOne({ email });
@@ -94,12 +94,18 @@ const login = async (req, res) => {
     const token = generateToken(user._id);
 
     // Set httpOnly cookie
-    res.cookie("token", token, {
+    const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    };
+
+    // If rememberMe is true, set maxAge to 30 days, otherwise it's a session cookie
+    if (rememberMe) {
+      cookieOptions.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+    }
+
+    res.cookie("token", token, cookieOptions);
 
     res.json({
       message: "Login successful",
