@@ -442,7 +442,7 @@ const exportInventories = async (req, res) => {
 </ul>
 `;
 
-      const description = `This ${formattedPartName} is designed specifically for the ${item.year} ${item.makeName} ${item.modelName} ${item.trimName}. It ensures proper fitment, reliable performance, and long-term durability. Manufactured using high-quality materials, it meets or exceeds OEM standards and integrates seamlessly with the vehicle’s existing systems, making it an ideal replacement or upgrade for maintaining optimal functionality and safety.`;
+      const description = `${formattedPartName}, Condition: Used, Part Number: 123456789, Year: ${item.year}, Make: ${item.makeName}, Model: ${item.modelName}, Trim: ${item.trimName}, Body: SUV`;
 
       return {
         weight: item.weight,
