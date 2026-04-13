@@ -8,6 +8,7 @@ const loggerConfig = require("./config/logger");
 const addUserContext = require("./middleware/logging");
 const morgan = require("morgan");
 const path = require("path");
+const junkRequestRoutes = require("./routes/junkPartRequestRoutes");
 require("dotenv").config();
 
 // Connect to MongoDB
@@ -88,9 +89,15 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(addUserContext);
 
+// Add here(shiva)
+app.get("/test-direct", (req, res) => {
+  res.send("Direct route working");
+}); // end here
+
 // Routes
 const fs = require("fs");
 const { marked } = require("marked");
+const JunkPartRequest = require("./models/JunkPartRequest");
 
 // No custom marked renderer configured — rendering uses default behavior
 
@@ -148,6 +155,12 @@ app.get("/api/status", (req, res) => {
 
 // Auth routes
 app.use("/api/auth", require("./routes/auth"));
+
+// Junk Request Routes : added by shiva
+app.use("/api/junk-request", junkRequestRoutes);
+
+// Auth routes
+app.use("/api/auth", require("./routes/auth"));   //end here
 
 // User routes
 app.use("/api/users", require("./routes/users"));
@@ -266,3 +279,4 @@ app.listen(PORT, () => {
     console.error("Failed to start VIN cron job:", err.message || err);
   }
 });
+
