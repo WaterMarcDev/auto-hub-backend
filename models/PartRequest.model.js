@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const junkPartRequestSchema = new mongoose.Schema(
+const PartRequestSchema = new mongoose.Schema(
     {
         name: String,
         phone: String,
@@ -23,4 +23,4 @@ const junkPartRequestSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-module.exports = mongoose.model("JunkPartRequest", junkPartRequestSchema);
+module.exports = mongoose.model("PartRequest", PartRequestSchema);
