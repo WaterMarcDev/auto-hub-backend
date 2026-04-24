@@ -29,10 +29,10 @@ const junkCarSchema = new mongoose.Schema(
         engineOrVin: {
             type: String,
         },
-        status: {
-            type: String,
-            default: "pending",
-        },
+        // status: {
+        //     type: String,
+        //     default: "pending",
+        // },
     },
     { timestamps: true }
 );
