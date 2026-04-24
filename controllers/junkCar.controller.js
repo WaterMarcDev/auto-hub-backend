@@ -64,7 +64,7 @@ exports.updateJunkCarStatus = async (req, res) => {
 
         const updated = await JunkCar.findByIdAndUpdate(
             id,
-            { status },
+            {$set: { status: status } },
             { new: true }
         );
 
