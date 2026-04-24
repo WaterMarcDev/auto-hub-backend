@@ -22,11 +22,11 @@ exports.createJunkCarRequest = async (req, res) => {
             engineOrVin: engineOrVin || "none",
         });
 
-        // res.status(201).json({
-        //     success: true,
-        //     // message: "Junk car request submitted successfully",
-        //     data: newRequest,
-        // });
+        res.status(201).json({
+            success: true,
+            // message: "Junk car request submitted successfully",
+            data: newRequest,
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({
