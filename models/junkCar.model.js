@@ -29,7 +29,7 @@ const junkCarSchema = new mongoose.Schema(
         engineOrVin: {
             type: String,
         },
-        Status: {
+        status: {
             type: String,
             default: "pending",
         },
