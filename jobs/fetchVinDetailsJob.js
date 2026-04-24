@@ -63,8 +63,10 @@ async function processBatch() {
   console.log(`[VIN-CRON] Starting batch: fetch up to ${BATCH_SIZE} VINs`);
 
   // Find CarIntake documents that either have no vinDetails or have missing carDetails
+  // Added by shiva
   const query = {
-    vin: { $exists: true, $ne: null, $ne: "" },
+    vin: { $regex: /^[A-HJ-NPR-Z0-9]{17}$/i },
+    manualVinMode: { $ne: true },
     isDeleted: { $ne: true },
     $or: [
       { vinDetails: { $exists: false } },
@@ -73,6 +75,19 @@ async function processBatch() {
       { $expr: { $lt: [{ $size: { $objectToArray: "$carDetails" } }, 1] } },
     ],
   };
+  
+  
+  
+  // const query = {
+  //   vin: { $exists: true, $ne: null, $ne: "" },
+  //   isDeleted: { $ne: true },
+  //   $or: [
+  //     { vinDetails: { $exists: false } },
+  //     { vinDetails: null },
+  //     { carDetails: { $exists: false } },
+  //     { $expr: { $lt: [{ $size: { $objectToArray: "$carDetails" } }, 1] } },
+  //   ],
+  // };
 
   const docs = await CarIntake.find(query).limit(BATCH_SIZE).lean();
 

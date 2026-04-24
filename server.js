@@ -8,7 +8,10 @@ const loggerConfig = require("./config/logger");
 const addUserContext = require("./middleware/logging");
 const morgan = require("morgan");
 const path = require("path");
-const junkRequestRoutes = require("./routes/junkPartRequestRoutes");
+const partRequestRoutes = require("./routes/PartRequestRoutes");
+const junkCarRoutes = require("./routes/junkCar.routes");
+const { swaggerUi, specs } = require("./config/swagger");  // by shiva
+
 require("dotenv").config();
 
 // Connect to MongoDB
@@ -63,7 +66,9 @@ njEnv.addFilter("usCurrency", function (val, fallback = "-$0.00") {
 
 const allowlist = [
   "http://localhost:5173",
+  "http://localhost:3000",
   "http://192.168.1.4:5173",
+  "http://192.168.1.4:3000",
   "https://wmshostings.us",
   "https://www.wmshostings.us",
   "https://autohubexpress.us",
@@ -92,12 +97,16 @@ app.use(addUserContext);
 // Add here(shiva)
 app.get("/test-direct", (req, res) => {
   res.send("Direct route working");
-}); // end here
+});
+
+// Swagger UI
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
+// end here
 
 // Routes
 const fs = require("fs");
 const { marked } = require("marked");
-const JunkPartRequest = require("./models/JunkPartRequest");
+const partRequestmodels = require("./models/PartRequest.model");
 
 // No custom marked renderer configured — rendering uses default behavior
 
@@ -156,11 +165,14 @@ app.get("/api/status", (req, res) => {
 // Auth routes
 app.use("/api/auth", require("./routes/auth"));
 
-// Junk Request Routes : added by shiva
-app.use("/api/junk-request", junkRequestRoutes);
+// Part Request Routes : added by shiva
+app.use("/api/part-request", partRequestRoutes);
+
+// JunkCarRequest Routes: added by shiva
+app.use("/api/junk-car", junkCarRoutes);
 
 // Auth routes
-app.use("/api/auth", require("./routes/auth"));   //end here
+// app.use("/api/auth", require("./routes/auth"));   //end
 
 // User routes
 app.use("/api/users", require("./routes/users"));

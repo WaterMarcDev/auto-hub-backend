@@ -128,20 +128,60 @@ const createCarIntake = async (req, res) => {
 
     const formData = req.body;
 
+    // added by shiva
+    formData.vin = String(formData.vin || "").trim().toUpperCase();
+
+    // auto detect manual VIN
+    formData.manualVinMode = 
+      formData.manualVinMode === true ||
+      formData.manualVinMode === "true" ||
+      formData.vin.length < 17;
+
+      // safe defaults
+      formData.year = formData.year ? Number(formData.year) : undefined;
+
+      formData.make = formData.make?.toString().trim() || undefined;
+      formData.model = formData.model?.toString().trim() || undefined;
+      formData.trim = formData.trim?.toString().trim() || undefined;
+      formData.color = formData.color?.toString().trim() || undefined;
+      formData.bodyClass = formData.bodyClass?.toString().trim() || undefined;
+      formData.fuelType = formData.fuelType?.toString().trim() || undefined;
+
+      // normalize drive
+      const allowedDrive = ["2WD", "4WD", "AWD", "FWD"];
+      if (!allowedDrive.includes(formData.drive)) {
+        formData.drive = "FWD";
+      }
+
+      // normalize transmission
+      const allowedTransmission = ["Automatic", "Manual"];
+      if (!allowedTransmission.includes(formData.transmission)) {
+        formData.transmission = "Automatic";
+      }
+      // end here
+
     // Seller is now ObjectId from Customer
     let sellerId = formData.sellerId || formData.seller;
 
     // Validate sellerId
-    if (!sellerId) {
+    // added by shiva
+    if (sellerId && !/^[0-9a-fA-F]{24}$/.test(sellerId)) {
       return res
         .status(400)
-        .json({ error: "Missing seller (customer) ObjectId" });
-    }
+        .json({ error: "Invalid seller ObjectId format" });
+    } // end here
+    
+    
+    // if (!sellerId) {
+    //   return res
+    //     .status(400)
+    //     .json({ error: "Missing seller (customer) ObjectId" });
+    // }
 
     // Optionally, check if sellerId is a valid ObjectId
-    if (!/^[0-9a-fA-F]{24}$/.test(sellerId)) {
-      return res.status(400).json({ error: "Invalid seller ObjectId format" });
-    }
+    // if (!/^[0-9a-fA-F]{24}$/.test(sellerId)) {
+    //   return res.status(400).json({ error: "Invalid seller ObjectId format" });
+    // }
 
     // Prepare car intake data (map flat form fields into nested step objects expected by model)
     const carIntakeData = {
@@ -289,7 +329,7 @@ const createCarIntake = async (req, res) => {
       },
 
       kyc: {
-        seller: sellerId,
+        seller: sellerId || undefined,    // undefined by shiva
         sellingDate: formData.sellingDate || undefined,
         pickupType: formData.pickupType || undefined,
         documents: formData.documents || {},
@@ -307,7 +347,8 @@ const createCarIntake = async (req, res) => {
         paymentDescription: formData.paymentDescription || undefined,
         paymentBy: req.user?._id,
       },
-      seller: sellerId,
+      seller: sellerId || undefined,    // undefined added by shiva
+      manualVinMode: formData.manualVinMode,  // added by shiva
       createdBy: req.user._id,
     };
 
@@ -343,7 +384,7 @@ const createCarIntake = async (req, res) => {
 
     const populatedCarIntake = await CarIntake.findById(carIntake._id)
       .populate(
-        "seller",
+        "kyc.seller",   // added by shiva "kyc."
         "firstName lastName email mobileNo driversLicense description"
       )
       .populate("createdBy", "first_name last_name email");
@@ -352,13 +393,22 @@ const createCarIntake = async (req, res) => {
       message: "Car intake created successfully",
       carIntake: populatedCarIntake,
     });
-  } catch (error) {
-    console.error("Create car intake error:", error);
-    res.status(500).json({
-      error: "Server error during car intake creation",
-      details: error.message,
+  } catch (error) {    // added by shiva
+  console.error("CREATE ERROR FULL:", error);
+
+  if (error.errors) {
+    Object.keys(error.errors).forEach((key) => {
+      console.error(key, "=>", error.errors[key].message);
     });
   }
+  // end here
+
+  return res.status(400).json({
+    success: false,
+    error: "Car intake creation failed",
+    details: error.message,
+  });
+}
 };
 
 // @desc    Get all car intakes
@@ -718,6 +768,7 @@ const updateCarIntake = async (req, res) => {
       "status",
       "isActive",
       "createdBy",
+      "manualVinMode",   // added by shiva
     ];
     Object.keys(carIntakeData).forEach((k) => {
       if (allowedTopLevel.includes(k)) {
@@ -827,7 +878,7 @@ const updateCarIntake = async (req, res) => {
 
     const updatedCarIntake = await CarIntake.findById(carIntake._id)
       .populate(
-        "seller",
+        "kyc.seller",
         "firstName lastName email mobileNo driversLicense description"
       )
       .populate("createdBy", "first_name last_name email");
@@ -1471,6 +1522,7 @@ const bulkUploadCarIntakes = async (req, res) => {
         // Prepare car intake data
         const carIntakeData = {
           vin: normalizedVin,
+          manualVinMode: req.body.manualVinMode,    // added by shiva
           carDetails: {
             year: year ? parseInt(year) : undefined,
             make: make ? make.toString().trim() : undefined,
