@@ -6,7 +6,7 @@ const carIntakeSchema = new mongoose.Schema(
     vin: {
       type: String,
       required: [true, "VIN is required"],
-      unique: true,
+      // index: true,     // added by shiva from unique to index
       uppercase: true,
       trim: true,
     },
@@ -51,12 +51,12 @@ const carIntakeSchema = new mongoose.Schema(
       },
       drive: {
         type: String,
-        enum: ["2WD", "4WD", "AWD", "FWD"],
+        enum: ["2WD", "4WD", "AWD", "FWD", "RWD"],
         trim: true,
       },
       transmission: {
         type: String,
-        enum: ["Automatic", "Manual"],
+        enum: ["Automatic", "Manual", "CVT"],
         trim: true,
       },
       scrapYardName: {
@@ -184,6 +184,12 @@ const carIntakeSchema = new mongoose.Schema(
       paymentDescription: { type: String, trim: true },
       paymentBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     },
+
+    // added by shiva
+    manualVinMode: {
+      type: Boolean,
+      default: false,
+    }, // end here
     // Status Tracking
     status: {
       type: String,

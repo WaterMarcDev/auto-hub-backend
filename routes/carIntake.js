@@ -73,6 +73,40 @@ router.post("/bulk-upload-scraped", auth, bulkUploadScraped);
 // @route   POST /api/car-intake
 // @desc    Create new car intake
 // @access  Private
+
+// added by shiva
+/**
+ * @swagger
+ * /api/car-intake:
+ *   post:
+ *     summary: Create new car intake
+ *     tags: [Car Intake]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               vin:
+ *                 type: string
+ *               manualVinMode:
+ *                 type: boolean
+ *                 example: false
+ *                 description: Enable manual VIN mode for short VIN entries
+ *               year:
+ *                 type: integer
+ *               make:
+ *                 type: string
+ *               model:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Car intake created successfully
+ */
+// end here
 router.post("/", auth, upload.any(), createCarIntake);
 
 // @route   GET /api/car-intake
@@ -98,6 +132,31 @@ router.get("/:id/print-all-documents", auth, printAllDocuments);
 // @route   PUT /api/car-intake/:id
 // @desc    Update car intake
 // @access  Private
+
+// added by shiva
+/**
+ * @swagger
+ * /api/car-intake/{id}:
+ *   put:
+ *     summary: Update car intake
+ *     tags: [Car Intake]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               manualVinMode:
+ *                 type: boolean
+ */
+// end here
 router.put("/:id", auth, updateCarIntake);
 
 // @route   PATCH /api/car-intake/:id/status
