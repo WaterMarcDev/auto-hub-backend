@@ -62,26 +62,17 @@ exports.updateJunkCarStatus = async (req, res) => {
         const { id } = req.params;
         const { status } = req.body;
 
-        const junkCar = await JunkCar.findById(id);
-
-        if (!junkCar) {
-            return res.status(404).json({
-                success: false,
-                message: "Request not found"
-            });
-        }
-
-        junkCar.status = status;
-        await junkCar.save();
+        const updated = await JunkCar.findByIdAndUpdate(
+            { _id: id },
+            {$set: { status } },
+            { new: true }
+        );
 
         res.json({
             success: true,
-            data: junkCar,
+            data: updated,
         });
     } catch (err) {
-        res.status(500).json({
-            success: false,
-            message: err.message
-        });
+        res.status(500).json({ success: false, message: err.message });
     }
 };
