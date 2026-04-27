@@ -12,11 +12,28 @@ exports.createJunkCarRequest = async (req, res) => {
             engineOrVin,
         } = req.body;
 
+        // added by shiva
+        let parsedYear = null;
+
+        if (year) {
+            const yearStr = year.toString().trim();
+
+            if (!/^\d{4}$/.test(yearStr)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Year must be exactly 4 digits"
+                });
+            }
+
+            parsedYear = parseInt(yearStr, 10);
+        }
+        //end here
+
         const newRequest = await JunkCar.create({
             name: name || "none",
             email: email || "none",
             phone: phone || "none",
-            year: year || null,
+            year: parsedYear,
             make: make || "none",
             model: model || "none",
             engineOrVin: engineOrVin || "none",

@@ -8,7 +8,7 @@ const PartRequestSchema = new mongoose.Schema(
 
         make: String,
         model: String,
-        year: String,
+        year: Number,
 
         partName: String,
         condition: String,

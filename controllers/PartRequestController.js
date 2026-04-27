@@ -31,6 +31,23 @@ exports.createRequest = async (req, res) => {
             });
         } // end here
 
+        // added by shiva
+        let parsedYear = null;
+
+        if (req.body.year) {
+            const yearStr = req.body.year.toString().trim();
+
+            if (!/^\d{4}$/.test(yearStr)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Year must be exactly 4 digits",
+                });
+            }
+
+            parsedYear = parseInt(yearStr, 10);
+        }
+        //end here
+
         const request = new PartRequest({
             ...req.body,
             email: req.body.email || "none",   // if email not provided then value will be none
