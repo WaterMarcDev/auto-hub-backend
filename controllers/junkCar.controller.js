@@ -1,5 +1,9 @@
 const JunkCar = require("../models/junkCar.model");
 
+// Added by shiva
+const CarIntake = require("../models/carInTake.model");
+// end here
+
 exports.createJunkCarRequest = async (req, res) => {
     try {
         const{
@@ -85,6 +89,46 @@ exports.updateJunkCarStatus = async (req, res) => {
             { new: true }
         );
 
+        // Added by shiva
+        if (status && status.toLowerCase() === "completed" && updated) {
+            try {
+                console.log("STATUS:", status);
+                console.log("UPDATED DATA:", updated);
+
+                const vinValue =
+                    updated.engineOrVin &&
+                    updated.engineOrVin !== "none" &&
+                    updated.engineOrVin.trim().length > 5
+                        ? updated.engineOrVin.toUpperCase()
+                        : `JUNK${Date.now()}`;
+
+                console.log("VIN VALUE:", vinValue);
+
+                const existing = await CarIntake.findOne({ vin: vinValue });
+
+                if (!existing) {
+                    await CarIntake.create({
+                        vin: vinValue,
+                        carDetails: {
+                            year: updated.year || null,
+                            make: updated.make || "",
+                            model: updated.model || "",
+                            trim: "Junk Car",
+                            description: `Auto added from Junk Car Request`,
+                    },
+
+                    status: "intake",
+                });
+            
+                console.log("Car Intake Created Successfully");
+            } else {
+                console.log("Duplicate VIN - Skipped");
+            }
+        } catch (error) {
+            console.log("Car Intake Error:", error);
+        }            
+    }
+        // end here
         res.json({
             success: true,
             data: updated,
