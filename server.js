@@ -11,6 +11,8 @@ const path = require("path");
 const partRequestRoutes = require("./routes/PartRequestRoutes");
 const junkCarRoutes = require("./routes/junkCar.routes");
 const { swaggerUi, specs } = require("./config/swagger");  // by shiva
+const http = require("http");                                // real time update by shiva
+const { Server } = require("socket.io");                     // by shiva
 
 require("dotenv").config();
 
@@ -19,6 +21,25 @@ connectDB();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Create Server + Socket by shiva
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+  },
+});
+
+//  make io available in controllers
+app.set("io", io);
+
+// debug connection
+io.on("connection", (socket) => {
+  console.log("🟢 Socket connected:", socket.id);
+});
+// end here
+
 
 // Configure Nunjucks templating (views in backend/views) and get environment
 const njEnv = nunjucks.configure(path.join(__dirname, "views"), {
@@ -66,6 +87,7 @@ njEnv.addFilter("usCurrency", function (val, fallback = "-$0.00") {
 
 const allowlist = [
   "http://localhost:5173",
+  "http://127.0.0.1:5173",  //added by shiva
   "http://localhost:3000",
   "http://192.168.1.4:5173",
   "http://192.168.1.4:3000",
@@ -74,6 +96,8 @@ const allowlist = [
   "https://autohubexpress.us",
   "https://www.autohubexpress.us",
 ];
+
+
 const corsOptionsDelegate = (req, callback) => {
   const origin = req.header("Origin");
   const isAllowed = origin && allowlist.includes(origin);
@@ -86,13 +110,18 @@ const corsOptionsDelegate = (req, callback) => {
 // app.options("/{*path}", cors(corsOptionsDelegate)); // preflight
 app.use(cors(corsOptionsDelegate));
 
-
 app.use(morgan("dev"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(addUserContext);
+
+//added by shiva
+const emailRoutes = require("./routes/email.routes");
+app.use("/api/email", emailRoutes);
+//end here
+
 
 // Add here(shiva)
 app.get("/test-direct", (req, res) => {
@@ -244,7 +273,8 @@ app.use("/api/wix", require("./routes/wix.routes"));
 app.use("/api/entry-fee", require("./routes/entryFee.routes"));
 
 // Serve uploaded files statically
-app.use("/uploads", express.static("uploads"));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
 
 app.use("/assets", express.static(path.join(__dirname, "assets")));
 
@@ -271,7 +301,7 @@ app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   // Start the VIN cron job unless explicitly disabled
   try {

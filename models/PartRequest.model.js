@@ -14,11 +14,28 @@ const PartRequestSchema = new mongoose.Schema(
         condition: String,
         message: String,
 
+        remark: {
+            type: String,
+            default: "",
+        },
+
+        source: {
+            type: String,
+            enum: ["Online", "Offline"],
+            default: "Online"
+        },
+
         status: {
             type: String,
-            enum: ["Pending", "In Progress", "Completed"],
+            enum: ["Pending", "In Progress", "Completed", "Rejected"],
             default: "Pending"
+        },
+        // added by shiva
+        fulfilledBy: {
+            type: String,
+            default: null
         }
+        // end here
     },
     { timestamps: true }
 );

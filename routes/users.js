@@ -15,6 +15,7 @@ const {
   deleteUser,
   createUser,
   resetPassword,
+  getStaffUsers,   // added by shiva
 } = require("../controllers/userController");
 const { auth, requireAdmin, permit } = require("../middleware/auth");
 
@@ -42,6 +43,9 @@ router.use(auth);
  */
 //end here
 router.get("/", permit("admin", "manager"), getUsers);
+
+// Handled By Route by shiva
+router.get("/staff", permit("admin", "manager"), getStaffUsers);
 
 // @route   POST /api/users
 // @desc    Create new user

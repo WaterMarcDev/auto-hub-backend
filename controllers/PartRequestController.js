@@ -52,6 +52,7 @@ exports.createRequest = async (req, res) => {
             ...req.body,
             email: req.body.email || "none",   // if email not provided then value will be none
             phone: req.body.phone || "none",   // if phone not provided then value will be none
+            source: req.body.source || "Online"  // default value of source
         });
 
         await request.save();
@@ -62,10 +63,10 @@ exports.createRequest = async (req, res) => {
             data: request
         });
     } catch (error) {
-        console.error(error);
+        console.error("CREATE PART REQUEST ERROR:", error);
         res.status(500).json({
             success: false,
-            message: "Server Error"
+            message: error.message
         });
     }
 };
@@ -95,10 +96,71 @@ exports.getAllRequests = async (req, res) => {
     }
 };
 
+// Added by shiva : Source
+exports.updatePartRequestSource = async (req, res) => {
+    try {
+
+        const { id } = req.params;
+        const { source } = req.body;
+
+        const updated = await PartRequest.findByIdAndUpdate(
+            id,
+            { source },
+            { new: true }
+        );
+
+        res.json({
+            success: true,
+            data: updated,
+        });
+
+    } catch (error) {
+
+        res.status(500).json({
+            success: false,
+            message: "Error updating source"
+        });
+    }
+};
+// end here
+
+// Update Remark by shiva
+exports.updatePartRequestRemark = async (req, res) => {
+
+    try {
+
+        console.log("REMARK BODY:", req.body);
+        console.log("PARAM ID:", req.params.id);
+
+        const { remark } = req.body;
+
+        const updated =
+            await PartRequest.findByIdAndUpdate(
+                req.params.id,
+                { remark },
+                { new: true }
+            );
+
+        res.status(200).json({
+            success: true,
+            data: updated,
+        });
+
+    } catch (error) {
+
+        res.status(500).json({
+            success: false,
+            message: error.message,
+        });
+    }
+};
+// end here
+
+
 exports.updateStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
+        const { status  } = req.body; 
 
         const request = await PartRequest.findByIdAndUpdate(
             id,
