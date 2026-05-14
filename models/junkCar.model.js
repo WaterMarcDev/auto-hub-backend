@@ -29,10 +29,37 @@ const junkCarSchema = new mongoose.Schema(
         engineOrVin: {
             type: String,
         },
+        remark: {
+            type: String,
+            default: "",
+        },
         status: {
             type: String,
             default: "pending",
         },
+        source: {
+            type: String,
+            enum: ["Online", "Offline"],
+            default: "Online",
+        },
+
+        // added by shiva paymentStatus
+        paymentStatus: {
+        type: String,
+        enum: ["Not Paid", "Cash", "Online"],
+        default: "Not Paid",
+        },
+        movedToIntake: {
+        type: Boolean,
+        default: false,
+        },
+        // Assigned to or Handled by
+        assignedTo: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null,
+        },
+        // end here
     },
     { timestamps: true }
 );
