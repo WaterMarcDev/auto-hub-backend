@@ -2,6 +2,7 @@ const Transaction = require("../models/Transaction");
 const CarIntake = require("../models/carInTake.model");
 const Seller = require("../models/Seller");
 const { validationResult } = require("express-validator");
+const JunkCar = require("../models/junkCar.model");
 
 // @desc    Create new transaction
 // @route   POST /api/transactions
@@ -192,6 +193,49 @@ const updateTransactionStatus = async (req, res) => {
         "seller",
         "firstName lastName email mobileNo driversLicense description"
       );
+
+    // paymentStatus for junk car by shiva
+    if (status === "completed") {
+
+      const junk = await JunkCar.findById(transaction.junkCar);
+
+      if (junk) {
+        junk.paymentStatus = "Paid";
+        junk.status = "completed";
+
+        await junk.save();
+
+        console.log("JunkCar marked as completed after payment");
+
+        const vinValue =
+          junk.engineOrVin &&
+          junk.engineOrVin !== "none" &&
+          junk.engineOrVin.trim().length > 5
+            ? junk.engineOrVin.toUpperCase()
+            : `JUNK${Date.now()}`;
+
+        const existing = await CarIntake.findOne({ vin: vinValue });
+
+        if (!existing) {
+          await CarIntake.create({
+            vin: vinValue,
+            carDetails: {
+              year: junk.year || null,
+              make: junk.make || "",
+              model: junk.model || "",
+              trim: "Junk Car",
+              description: "Auto added after payment completion"
+            },
+            status: "intake",
+          });
+
+          console.log("Car Intake Created Successfully ✅");
+        } else {
+          console.log("Duplicate VIN - Skipped");
+        }
+      }
+    }
+    // end here
 
     if (!transaction) {
       return res.status(404).json({ error: "Transaction not found" });

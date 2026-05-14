@@ -3,7 +3,7 @@ const cron = require("node-cron");
 const CarIntake = require("../models/carInTake.model");
 
 // Config - can be overridden via env
-const SCHEDULE = process.env.VIN_CRON_SCHEDULE || "* * * * *"; // every minute by default
+const SCHEDULE = process.env.VIN_CRON_SCHEDULE || "*/5 * * * *"; // every 5minutes by default to prevent warnings , updated by shiva  
 const BATCH_SIZE = parseInt(process.env.VIN_CRON_BATCH_SIZE || "100", 10);
 const VIN_API_URL =
   process.env.VIN_API_URL ||
@@ -153,9 +153,24 @@ async function processBatch() {
 function startCron() {
   console.log(`[VIN-CRON] Scheduling with cron expression: ${SCHEDULE}`);
   // Run on schedule
-  const task = cron.schedule(SCHEDULE, () => {
-    processBatch().catch((err) => console.error("[VIN-CRON] Batch error", err));
-  });
+  // added by shiva: Making CRON Lightweight 
+  const task = cron.schedule(SCHEDULE, async () => {
+  try {
+    console.log("🟢 CRON START:", new Date().toISOString());
+
+    await processBatch();
+
+    console.log("✅ CRON END:", new Date().toISOString());
+  } catch (err) {
+    console.error("❌ CRON ERROR:", err);
+  }
+});
+// end here
+  
+  
+  // const task = cron.schedule(SCHEDULE, () => {
+  //   processBatch().catch((err) => console.error("[VIN-CRON] Batch error", err));
+  // });
 
   // Also run once immediately on startup
   processBatch().catch((err) =>
