@@ -7,14 +7,19 @@
  */
 // end here
 
-
 const express = require("express");
 const router = express.Router();
+const { auth } = require("../middleware/auth");    // added by shiva
+
 
 const {
     createJunkCarRequest,
     getAllJunkCars,
     updateJunkCarStatus,
+    updateJunkCarPaymentStatus,
+    updateJunkCarSource,
+    assignJunkCarStaff,   // added by shiva
+    updateJunkCarRemark,  // added by shiva
 } = require("../controllers/junkCar.controller");
 
 //Create request
@@ -96,6 +101,20 @@ router.get("/", getAllJunkCars);
  *         description: Status updated successfully
  */
 // end here
-router.patch("/:id/status", updateJunkCarStatus);
+
+// Remark route: By shiva
+router.patch("/:id/remark", auth, updateJunkCarRemark);
+
+router.patch("/:id/status", auth, updateJunkCarStatus);
+
+// Source route by shiva
+router.patch("/:id/source", updateJunkCarSource);
+
+// AssignJunkCarStaff route by shiva
+router.patch("/:id/assign", assignJunkCarStaff);
+
+// Junkcar paymentStatus by shiva route
+router.patch("/:id/payment-status", auth, updateJunkCarPaymentStatus);
+
 
 module.exports = router;

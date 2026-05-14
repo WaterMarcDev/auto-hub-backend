@@ -17,7 +17,9 @@ const { deleteRequest } = require("../controllers/PartRequestController");
 const {
     createRequest,
     getAllRequests,
-    updateStatus
+    updateStatus,
+    updatePartRequestSource,
+    updatePartRequestRemark
 } = require("../controllers/PartRequestController");
 
 // const PartRequest = require("../models/PartRequest");
@@ -135,5 +137,17 @@ router.put("/:id", updateStatus);
  */
 //end here
 router.delete("/:id", deleteRequest);
+
+// Source route by shiva
+router.patch("/:id/source", updatePartRequestSource);
+
+// Remark route by shiva
+router.patch("/:id/remark", (req, res, next) => {
+
+    console.log("REMARK ROUTE HIT");
+
+    next();
+
+}, updatePartRequestRemark);
 
 module.exports = router;

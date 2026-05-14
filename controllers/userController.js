@@ -200,6 +200,29 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// Handled By -> Added by shiva
+const getStaffUsers = async (req, res) => {
+  try {
+
+    const staffUsers = await User.find({
+      role: { $regex: /^staff$/i },
+    }).select("_id first_name last_name email role");
+
+    res.json({
+      success: true,
+      data: staffUsers,
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+// end here
+
 module.exports = {
   getUsers,
   getUserById,
@@ -207,4 +230,5 @@ module.exports = {
   deleteUser,
   createUser,
   resetPassword,
+  getStaffUsers,  //added by shiva
 };
