@@ -495,6 +495,7 @@ const getCarIntakes = async (req, res) => {
         "firstName lastName email mobileNo driversLicense description"
       )
       .populate("createdBy", "first_name last_name email")
+      .populate("scrapedBy", "first_name last_name email")
       .sort({ updatedAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -967,6 +968,82 @@ const updateCarIntakeStatus = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
+
+
+// “Move to Ready-to-Scrap” API by shiva
+const moveToReadyToScrap = async (req, res) => {
+  try {
+    const updated = await CarIntake.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          status: "ready-to-scrap",
+        },
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Car not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Car moved to Ready to Scrap",
+      data: updated,
+    })
+  } catch (error) {
+    console.error("Ready-to-Scrap Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// moveToScrapped function by shiva
+const moveToScrapped = async (req, res) => {
+
+  try {
+    const { id } = req.params;
+    const { scrapRemarks } = req.body;     // scrapremarks added by shiva
+
+    const updated = await CarIntake.findByIdAndUpdate(
+      id,
+      {
+        status: "scraped",
+
+        // Save logged-in scrapper
+        scrapedBy: req.user.id,
+
+        // save scrap date
+        scrapDate: new Date(),
+
+        // save scrap remarks from request body
+        scrapRemarks,
+      },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      data: updated,
+    });
+  } catch (error) {
+    console.error("Move To Scrapped Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+// end here
+
 
 // @desc    Get car intake statistics
 // @route   GET /api/car-intake/stats
@@ -1913,4 +1990,6 @@ module.exports = {
   bulkUploadScraped,
   printPaymentSlip,
   printAllDocuments,
+  moveToReadyToScrap,     // added by shiva
+  moveToScrapped,        // added by shiva
 };

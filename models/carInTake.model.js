@@ -203,6 +203,7 @@ const carIntakeSchema = new mongoose.Schema(
         "payment-done",
         "part-added-to-inventory",
         "car-added-to-inventory",
+        "ready-to-scrap",        // added by shiva
         "elements-scraped",
         "scraped",
         "sold",
@@ -224,6 +225,7 @@ const carIntakeSchema = new mongoose.Schema(
     scrapedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     // When the car was scraped (set when status becomes 'scraped')
     scrapDate: { type: Date },
+    scrapRemarks: { type: String, default: "", },     // added by shiva for scrap remarks
 
     // Metadata
     isActive: {
