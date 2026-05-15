@@ -10,6 +10,8 @@ const {
   updateCarIntake,
   deleteCarIntake,
   updateCarIntakeStatus,
+  moveToReadyToScrap,        //added by shiva
+  moveToScrapped,           //added by shiva
   getCarIntakeStats,
   bulkUploadCarIntakes,
   bulkUploadScraped,
@@ -163,6 +165,12 @@ router.put("/:id", auth, updateCarIntake);
 // @desc    Update car intake status
 // @access  Private
 router.patch("/:id/status", auth, updateCarIntakeStatus);
+
+// ReadyToScrap route by shiva
+router.patch("/:id/ready-to-scrap", auth, moveToReadyToScrap);
+
+// Move to Scrapped route by shiva
+router.patch("/:id/move-to-scrapped", auth, moveToScrapped);
 
 // @route   DELETE /api/car-intake/:id
 // @desc    Delete car intake
