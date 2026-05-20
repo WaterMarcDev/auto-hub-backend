@@ -21,6 +21,15 @@ const CRMEmailSchema = new mongoose.Schema(
         type: String,
         required: true,
     },
+
+    // Attachments to view the unploaded images by shiva
+    attachments: [
+      {
+        filename: String,
+        url: String,
+      },
+    ],
+  // end here
   },
   {
     timestamps: { createdAt: "created_at", updatedAt: false },

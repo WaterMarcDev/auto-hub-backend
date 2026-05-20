@@ -1,5 +1,9 @@
 const CRMEmail = require("../models/CRMEmail.model");
 
+// attachments update by shiva
+const fs = require("fs");
+const path = require("path");
+
 
 // handleInboundEmail by shiva
 const handleInboundEmail = async (req, res) => {
@@ -11,13 +15,43 @@ const handleInboundEmail = async (req, res) => {
     const raw = req.body.from;
     const emailOnly = raw.match(/<(.+)>/)?.[1] || raw;
 
+    // attachments handling by shiva
+    let attachments = [];
+
+    const attachmentInfo =
+      req.body["attachment-info"];  // SendGrid's attachment metadata
+    
+      if(attachmentInfo) {
+        try {
+          const parsedInfo = JSON.parse(attachmentInfo);
+
+          for (const key in parsedInfo) {
+
+            const file = parsedInfo[key];
+
+            const uploadedFile = req.files?.find(f => f.fieldname === key);
+            if (uploadedFile) {
+              attachments.push({
+                filename: uploadedFile.originalname,
+                url: `${process.env.BACKEND_URL}/uploads/${uploadedFile.filename}`
+              });
+            }
+
+        }
+      } catch (err) {
+        console.error("Attachment parse error:", err);
+      }
+    }
+    // end here
+
     const email = await CRMEmail.create({
       sender_email: req.body.from,
       subject: req.body.subject,
-      body: req.body.text || req.body.html,
+      body: req.body.text || req.body.html || "",
       thread_id: emailOnly,
       status: "unread",
       created_at: new Date(),
+      attachments, // save attachment info by shiva
     });
 
     // For real time by shiva

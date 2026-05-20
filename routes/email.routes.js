@@ -57,7 +57,7 @@ router.post("/test-email", testCreateEmail);
 router.get("/all", getEmails);   //added by shiva
 
 // inbound route
-router.post("/inbound", upload.none(), handleInboundEmail);  //added upload.none() by shiva
+router.post("/inbound", upload.any(), handleInboundEmail);  //added upload.none() by shiva
 
 // sendReply email route
 router.post("/reply", upload.array("attachments"), sendReply);   // update with-> upload.array("attachments"),

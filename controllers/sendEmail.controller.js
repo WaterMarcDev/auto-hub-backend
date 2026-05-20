@@ -1,7 +1,7 @@
 console.log("API KEY:", process.env.SENDGRID_API_KEY);
 console.log(
-   "BASE URL:",
-   process.env.BASE_URL
+    "BASE URL:",
+    process.env.BASE_URL
 );  // debug for BASE_URL
 const CRMEmail = require("../models/CRMEmail.model");
 const sgMail = require("@sendgrid/mail");
@@ -101,26 +101,27 @@ const sendReply = async (req, res) => {
         const emailOnly = raw.match(/<(.+)>/)?.[1] || raw;
 
         await CRMEmail.create({
-            sender_email: "support@autohubexpress.us",
-            subject: formattedSubject,
-            body: `
-        ${message},
-        ${attachments.length > 0
-                    ? `
+            sender_email:
+                "support@autohubexpress.us",
 
-        Attachments:
-        ${attachments
-                        .map(file => `📎 ${file.filename}|||${file.url}`)
-                        .join("\n")}
-        `
-                    : ""
-                }
-            `,
+            subject:
+                formattedSubject,
 
-            status: "read",
+            body:
+                message,
 
-            thread_id: emailOnly,
-        })
+            attachments:
+                attachments.map(file => ({
+                    filename: file.filename,
+                    url: file.url
+                })),
+
+            status:
+                "read",
+
+            thread_id:
+                emailOnly,
+        });
 
         res.json({ success: true });
     } catch (err) {
@@ -189,7 +190,7 @@ const forwardEmail = async (req, res) => {
             }));
 
         console.log("FORWARD ATTACHMENTS:", attachments);   // debug
-        
+
 
 
 
@@ -295,57 +296,63 @@ const forwardEmail = async (req, res) => {
                     formattedForwardSubject,
 
                 body: `
-                Forwarded To:
-                ${to}
+                    Forwarded To:
+                    ${to}
 
-                ${message || ""}
-
-                ${attachments.length > 0
-                        ? `
-                Attachments:
-                ${attachments
-                            .map(file => `📎 ${file.filename}|||${file.url}`)
-                            .join("\n")}
-                `
-                        : ""
-                    }
+                    ${message || ""}
                 `,
+
+                attachments:
+                    attachments.map(file => ({
+                        filename: file.filename,
+                        url: file.url
+                    })),
+                // Attachments:
+                //     ${
+                //         attachments
+                //             .map(file => `📎 ${file.filename}|||${file.url}`)
+                //             .join("\n")
+                //     }
+                // `
+                //         : ""
+                //     }
+                // `,
 
                 status: "read",
 
                 thread_id:
-                    originalEmail?.thread_id,
+                originalEmail?.thread_id,
             });
 
-        // Real time emit by shiva
-        const io = req.app.get("io");
+    // Real time emit by shiva
+    const io = req.app.get("io");
 
-        if (io) {
+    if (io) {
 
-            io.emit("new_email", {
-                email: savedForward,
-                unread: false,
-            });
-        }
-        // end here
-        // end here
-
-        res.json({
-            success: true
-        });
-
-    } catch (err) {
-
-        console.error(
-            "FORWARD ERROR:",
-            err
-        );
-
-        res.status(500).json({
-            error:
-                "Failed to forward email"
+        io.emit("new_email", {
+            email: savedForward,
+            unread: false,
         });
     }
+    // end here
+    // end here
+
+    res.json({
+        success: true
+    });
+
+} catch (err) {
+
+    console.error(
+        "FORWARD ERROR:",
+        err
+    );
+
+    res.status(500).json({
+        error:
+            "Failed to forward email"
+    });
+}
 };
 // end here
 
