@@ -9,8 +9,10 @@ const path = require("path");
 const handleInboundEmail = async (req, res) => {
   try {
     console.log("📩 INBOUND EMAIL RECEIVED");
-
-    console.log(req.body); // DEBUG
+    
+    console.log("BODY:", req.body); // DEBUG
+    console.log("HEADERS:", req.headers);    // DEBUG
+    console.log("FILES:", req.files);
 
     const raw = req.body.from;
     const emailOnly = raw.match(/<(.+)>/)?.[1] || raw;
