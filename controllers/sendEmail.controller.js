@@ -85,8 +85,8 @@ const sendReply = async (req, res) => {
 
         await sgMail.send({
             to,
-            from: "support@autohubexpress.us",    //must be verified in SendGrid
-            replyTo: "support@autohubexpress.us",   // update new domain by shiva  mail removed
+            from: "support@mail.autohubexpress.us",    //must be verified in SendGrid
+            replyTo: "support@mail.autohubexpress.us",   // update new domain by shiva  mail removed
             subject: formattedSubject,
             html: message
                 .split("\n")
@@ -102,7 +102,7 @@ const sendReply = async (req, res) => {
 
         await CRMEmail.create({
             sender_email:
-                "support@autohubexpress.us",
+                "support@mail.autohubexpress.us",
 
             subject:
                 formattedSubject,
@@ -231,8 +231,8 @@ const forwardEmail = async (req, res) => {
         await sgMail.send({
 
             to,
-            from: "support@autohubexpress.us",
-            replyTo: "support@autohubexpress.us",      // update new domain by shiva  mail removed
+            from: "support@mail.autohubexpress.us",
+            replyTo: "support@mail.autohubexpress.us",      // update new domain by shiva  mail removed
             subject: formattedForwardSubject,
             attachments,   // added by shiva
 
@@ -290,7 +290,7 @@ const forwardEmail = async (req, res) => {
             await CRMEmail.create({
 
                 sender_email:
-                    "support@autohubexpress.us",
+                    "support@mail.autohubexpress.us",
 
                 subject:
                     formattedForwardSubject,
