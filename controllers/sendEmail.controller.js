@@ -223,7 +223,7 @@ const forwardEmail = async (req, res) => {
 
                 // url:
                 //     `${process.env.BASE_URL}/uploads/${file.filename}`
-            }));
+            }));  
 
         console.log("FORWARD ATTACHMENTS:", attachments);   // debug
 
