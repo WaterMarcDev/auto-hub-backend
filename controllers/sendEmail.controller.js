@@ -144,13 +144,14 @@ const sendReply = async (req, res) => {
             },
 
             html:
-                safeMessage
-                    .split("\n")
-                    .map(line =>
-                        `<p style="margin:0 0 10px;">${line}</p>`
-                    )
-                    .join("") +
-                emailSignature,
+                "<h1>Test Reply</h1>",
+                // safeMessage
+                //     .split("\n")
+                //     .map(line =>
+                //         `<p style="margin:0 0 10px;">${line}</p>`
+                //     )
+                //     .join("") +
+                // emailSignature,
 
             attachments:
                 sgAttachments
