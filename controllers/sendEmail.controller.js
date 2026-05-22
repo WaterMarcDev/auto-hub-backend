@@ -120,7 +120,7 @@ const sendReply = async (req, res) => {
                 .trim();
 
         const formattedSubject =
-            `Re[${count}] ${cleanSubject} `;
+            `Re[${count}] ${cleanSubject}`;
 
         // SEND EMAIL
         await sgMail.send({
@@ -202,13 +202,29 @@ const sendReply = async (req, res) => {
 
     } catch (err) {
 
-        console.error(
-            "SEND ERROR:",
-            err.response?.body || err
-        );
+        console.error("========== SEND REPLY ERROR ==========");
+
+        console.error("MESSAGE:");
+        console.error(err.message);
+
+        console.error("STACK:");
+        console.error(err.stack);
+
+        console.error("SENDGRID:");
+        console.error(err.response?.body);
+
+        console.error("FULL ERROR:");
+        console.error(err);
+        
+        
+        
+        // console.error(
+        //     "SEND ERROR:",
+        //     err.response?.body || err
+        // );
 
         res.status(500).json({
-            error: "Failed to send email"
+            error: err.message || "Failed to send email"
         });
     }
 };
@@ -283,7 +299,7 @@ const forwardEmail = async (req, res) => {
                     file.originalname,
 
                 url:
-                    `${process.env.BASE_URL}/uploads/${file.filename} `
+                    `${process.env.BASE_URL}/uploads/${file.filename}`
             }));
 
         // Clean subject
@@ -296,7 +312,7 @@ const forwardEmail = async (req, res) => {
         const formattedForwardSubject =
             `Fwd[${getForwardCount(
                 originalEmail?.subject || ""
-            )}] ${ cleanSubject }`;
+            )}] ${cleanSubject}`;
 
         // SEND EMAIL
         await sgMail.send({
@@ -417,14 +433,28 @@ ${message}
 
     } catch (err) {
 
-        console.error(
-            "FORWARD ERROR:",
-            err.response?.body || err
-        );
+        console.error("========== FORWARD ERROR ==========");
+
+        console.error("MESSAGE:");
+        console.error(err.message);
+
+        console.error("STACK:");
+        console.error(err.stack);
+
+        console.error("SENDGRID:");
+        console.error(err.response?.body);
+
+        console.error("FULL ERROR:");
+        console.error(err);
+        
+        
+        // console.error(
+        //     "FORWARD ERROR:",
+        //     err.response?.body || err
+        // );
 
         res.status(500).json({
-            error:
-                "Failed to forward email"
+            error: err.message || "Failed to forward email"
         });
     }
 };
