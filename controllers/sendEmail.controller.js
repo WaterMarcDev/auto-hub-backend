@@ -211,7 +211,13 @@ const sendReply = async (req, res) => {
         console.error("STACK:");
         console.error(err.stack);
 
-        console.error("SENDGRID:");
+        console.log(
+            JSON.stringify(
+                err.response?.body,
+                null,
+                2
+            )
+        );
         console.error(err.response?.body);
 
         console.error("FULL ERROR:");
