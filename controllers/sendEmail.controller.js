@@ -12,6 +12,9 @@ sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // Reply count by shiva
 function getReplyCount(subject) {
+
+    subject = subject || "";   //added by shiva to prevent hidden runtime crashes.
+
     // Case 1: already in Re[n]
     const match = subject.match(/^Re\[(\d+)\]/);
     if (match) return parseInt(match[1]) + 1;
@@ -27,6 +30,8 @@ function getReplyCount(subject) {
 
 // Forward count by shiva
 function getForwardCount(subject) {
+
+    subject = subject || "";    //added by shiva to prevent hidden runtime crashes.
 
     // Case 1: already Fwd[n]
     const match =
@@ -50,6 +55,9 @@ function getForwardCount(subject) {
 const sendReply = async (req, res) => {
     try {
         const { to, subject, message } = req.body;
+
+        // SAFETY CHECK FOR EMPTY SUBJECTS by shiva
+        const safeSubject = subject || "No Subject";
 
         // Attachment by shiva
         const attachments =
@@ -80,14 +88,27 @@ const sendReply = async (req, res) => {
         //     }));
         // end here
 
-        const count = getReplyCount(subject);    // Reply count
-        const formattedSubject = `Re[${count}]`;
+        const count = getReplyCount(safeSubject);    // Reply count
+
+        const cleanSubject = 
+            safeSubject
+                .replace(/^Re\[\d+\]\s*/i, "")
+                .replace(/^(Re:\s*)+/i, "")
+                .trim();
+        
+        const formattedSubject = `Re[${count}] ${cleanSubject}`;
 
         await sgMail.send({
             to,
-            from: "support@mail.autohubexpress.us",    //must be verified in SendGrid
-            replyTo: "support@mail.autohubexpress.us",   // update new domain by shiva  mail removed
+            from: "support@autohubexpress.us",    //must be verified in SendGrid
+            replyTo: "support@autohubexpress.us",   // update new domain by shiva  mail removed
             subject: formattedSubject,
+            trackingSettings: {
+                clickTracking: {
+                    enable: false,
+                    enableText: false
+                }
+            },
             html: message
                 .split("\n")
                 .map(line => `<p style="margin: 0 0 10px;">${line}</p>`)
@@ -96,13 +117,13 @@ const sendReply = async (req, res) => {
             attachments  // added by shiva
         });
 
-        // save reply in DB
+        // send reply
         const raw = to;
         const emailOnly = raw.match(/<(.+)>/)?.[1] || raw;
 
-        await CRMEmail.create({
+        const savedReply = await CRMEmail.create({
             sender_email:
-                "support@mail.autohubexpress.us",
+                "support@autohubexpress.us",
 
             subject:
                 formattedSubject,
@@ -122,6 +143,21 @@ const sendReply = async (req, res) => {
             thread_id:
                 emailOnly,
         });
+        // Real time emit by shiva
+        const io = req.app.get("io");
+        if (io) {
+            io.emit("new_email", {
+                email: savedReply,
+                unread: false,
+            });
+        }
+        // end here
+
+        // ATTACHMENT FILE CLEANUP by shiva
+        (req.files || []).forEach(file => {
+            fs.unlink(file.path, () => {});
+        });
+        // end here
 
         res.json({ success: true });
     } catch (err) {
@@ -231,10 +267,16 @@ const forwardEmail = async (req, res) => {
         await sgMail.send({
 
             to,
-            from: "support@mail.autohubexpress.us",
-            replyTo: "support@mail.autohubexpress.us",      // update new domain by shiva  mail removed
+            from: "support@autohubexpress.us",
+            replyTo: "support@autohubexpress.us",      // update new domain by shiva  mail removed
             subject: formattedForwardSubject,
             attachments,   // added by shiva
+            trackingSettings: {
+                clickTracking: {
+                    enable: false,
+                    enableText: false
+                }
+            },
 
             html: `
                     <div style="font-family: Arial;">
@@ -290,7 +332,7 @@ const forwardEmail = async (req, res) => {
             await CRMEmail.create({
 
                 sender_email:
-                    "support@mail.autohubexpress.us",
+                    "support@autohubexpress.us",
 
                 subject:
                     formattedForwardSubject,
@@ -321,7 +363,7 @@ const forwardEmail = async (req, res) => {
                 status: "read",
 
                 thread_id:
-                originalEmail?.thread_id,
+                originalEmail?.thread_id || to,
             });
 
     // Real time emit by shiva
@@ -335,6 +377,11 @@ const forwardEmail = async (req, res) => {
         });
     }
     // end here
+    // end here
+    // ATTACHMENT FILE CLEANUP for FORWARD by shiva
+    (req.files || []).forEach(file => {
+        fs.unlink(file.path, () => {});
+    });
     // end here
 
     res.json({
