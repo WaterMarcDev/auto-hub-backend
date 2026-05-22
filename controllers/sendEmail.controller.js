@@ -73,8 +73,8 @@ const sendReply = async (req, res) => {
 
                 disposition: "attachment",
 
-                url:
-                    `${process.env.BASE_URL}/uploads/${file.filename}`
+                // url:
+                //     `${process.env.BASE_URL}/uploads/${file.filename}`
             }));
 
         // const attachments =
@@ -154,9 +154,9 @@ const sendReply = async (req, res) => {
         // end here
 
         // ATTACHMENT FILE CLEANUP by shiva
-        (req.files || []).forEach(file => {
-            fs.unlink(file.path, () => {});
-        });
+        // (req.files || []).forEach(file => {
+        //     fs.unlink(file.path, () => {});
+        // });
         // end here
 
         res.json({ success: true });
@@ -221,9 +221,9 @@ const forwardEmail = async (req, res) => {
                 disposition:
                     "attachment",
 
-                url:
-                    `${process.env.BASE_URL}/uploads/${file.filename}`
-            }));
+                // url:
+                //     `${process.env.BASE_URL}/uploads/${file.filename}`
+            }));  
 
         console.log("FORWARD ATTACHMENTS:", attachments);   // debug
 
@@ -379,9 +379,9 @@ const forwardEmail = async (req, res) => {
     // end here
     // end here
     // ATTACHMENT FILE CLEANUP for FORWARD by shiva
-    (req.files || []).forEach(file => {
-        fs.unlink(file.path, () => {});
-    });
+    // (req.files || []).forEach(file => {
+    //     fs.unlink(file.path, () => {});
+    // });
     // end here
 
     res.json({
