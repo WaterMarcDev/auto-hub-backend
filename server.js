@@ -113,8 +113,7 @@ app.use(cors(corsOptionsDelegate));
 app.use(morgan("dev"));
 
 app.use(express.json());
-const path = require("path");
-
+// Uploads path by shiva
 app.use(
   "/uploads",
   express.static(path.join(__dirname, "uploads"))
