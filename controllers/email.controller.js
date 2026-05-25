@@ -34,7 +34,8 @@ const handleInboundEmail = async (req, res) => {
             const uploadedFile = req.files?.find(f => f.fieldname === key);
             if (uploadedFile) {
               attachments.push({
-                filename: uploadedFile.originalname,
+                filename: uploadedFile.filename,
+                originalname: uploadedFile.originalname,
                 url: `${process.env.BACKEND_URL}/uploads/${uploadedFile.filename}`
               });
             }
