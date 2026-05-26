@@ -104,7 +104,10 @@ const sendReply = async (req, res) => {
             (req.files || []).map(file => ({
 
                 filename:
-                    file.originalname,
+                    file.filename,
+                
+                    originalname:
+                        file.originalname,
 
                 url:
                     `${process.env.BASE_URL}/uploads/${file.filename}`
@@ -303,7 +306,10 @@ const forwardEmail = async (req, res) => {
             (req.files || []).map(file => ({
 
                 filename:
-                    file.originalname,
+                    file.filename,
+                
+                    originalname:
+                        file.originalname,
 
                 url:
                     `${process.env.BASE_URL}/uploads/${file.filename}`
