@@ -139,8 +139,8 @@ const sendReply = async (req, res) => {
             subject:
                 formattedSubject,
             
-            text:
-                safeMessage,
+            // text:
+            //     safeMessage,
 
 
             trackingSettings: {
@@ -150,19 +150,19 @@ const sendReply = async (req, res) => {
                 }
             },
 
-            html:
-                `
-                <div style="font-family: Arial, sans-serif; line-height:1.6;">
-                    ${
-                        safeMessage
-                            .split("\n")
-                            .map(line => `<p>${line}</p>`)
-                            .join("")
-                    }
+            html: safeMessage,
+                // `
+                // <div style="font-family: Arial, sans-serif; line-height:1.6;">
+                //     ${
+                //         safeMessage
+                //             .split("\n")
+                //             .map(line => `<p>${line}</p>`)
+                //             .join("")
+                //     }
 
-                    ${emailSignature}
-                </div>
-                `,
+                //     ${emailSignature}
+                // </div>
+                // `,
         });
 
         // SAVE IN DB
