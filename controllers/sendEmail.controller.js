@@ -147,17 +147,18 @@ const sendReply = async (req, res) => {
             },
 
             html:
-                "<h1>Test Reply</h1>",
-                // safeMessage
-                //     .split("\n")
-                //     .map(line =>
-                //         `<p style="margin:0 0 10px;">${line}</p>`
-                //     )
-                //     .join("") +
-                // emailSignature,
+                `
+                <div style="font-family: Arial, sans-serif; line-height:1.6;">
+                    ${
+                        safeMessage
+                            .split("\n")
+                            .map(line => `<p>${line}</p>`)
+                            .join("")
+                    }
 
-            attachments:
-                sgAttachments
+                    ${emailSignature}
+                </div>
+                `,
         });
 
         // SAVE IN DB
