@@ -149,6 +149,10 @@ const sendReply = async (req, res) => {
             html: `
                 <div style="font-family: Arial, sans-serif;">
                     ${safeMessage}
+
+                    <br /><br />
+
+                    ${emailSignature}
                 </div>
             `,
                 // "<h1>Test Reply</h1>",
