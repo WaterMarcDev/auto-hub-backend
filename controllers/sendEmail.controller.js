@@ -138,6 +138,10 @@ const sendReply = async (req, res) => {
 
             subject:
                 formattedSubject,
+            
+            text:
+                safeMessage,
+
 
             trackingSettings: {
                 clickTracking: {
