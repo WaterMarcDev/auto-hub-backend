@@ -146,8 +146,12 @@ const sendReply = async (req, res) => {
                 }
             },
 
-            html: 
-                "<h1>Test Reply</h1>",
+            html: `
+                <div style="font-family: Arial, sans-serif;">
+                    ${safeMessage}
+                </div>
+            `,
+                // "<h1>Test Reply</h1>",
         });
 
         // SAVE IN DB
