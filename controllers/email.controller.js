@@ -50,7 +50,7 @@ const handleInboundEmail = async (req, res) => {
     const email = await CRMEmail.create({
       sender_email: req.body.from,
       subject: req.body.subject,
-      body: req.body.text || req.body.html || "",
+      body: req.body.html || req.body.text || "",
       thread_id: emailOnly,
       status: "unread",
       created_at: new Date(),
