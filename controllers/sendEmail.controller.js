@@ -138,10 +138,6 @@ const sendReply = async (req, res) => {
 
             subject:
                 formattedSubject,
-            
-            // text:
-            //     safeMessage,
-
 
             trackingSettings: {
                 clickTracking: {
@@ -150,19 +146,8 @@ const sendReply = async (req, res) => {
                 }
             },
 
-            html: safeMessage,
-                // `
-                // <div style="font-family: Arial, sans-serif; line-height:1.6;">
-                //     ${
-                //         safeMessage
-                //             .split("\n")
-                //             .map(line => `<p>${line}</p>`)
-                //             .join("")
-                //     }
-
-                //     ${emailSignature}
-                // </div>
-                // `,
+            html: 
+                "<h1>Test Reply</h1>",
         });
 
         // SAVE IN DB
