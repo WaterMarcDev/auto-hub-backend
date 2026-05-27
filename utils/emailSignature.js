@@ -19,22 +19,20 @@ const emailSignature = `
         alt="Autohub Express"
         style="
             width:90px;
-            margin-bottom:12px;
+            margin-bottom:4px;
             display:block;
         "
     />
 
-    <br />
 
     <div style="
         font-weight:600;
         color:#334155;
-        margin-top:6px;
+        margin-top:2px;
     ">
         Autohub Express
     </div>
 
-    <br />
 
     <div style="
         display:flex;
@@ -57,13 +55,13 @@ const emailSignature = `
 
     </div>
 
-    <br /><br />
+    <br />
 
     <div style="
         display:flex;
         align-items:flex-start;
         gap:6px;
-        margin-top:10px;
+        margin-top:2px;
     ">
 
         <span>📍</span>
