@@ -17,6 +17,25 @@ const handleInboundEmail = async (req, res) => {
     const raw = req.body.from;
     const emailOnly = raw.match(/<(.+)>/)?.[1] || raw;
 
+    // thread by actual customer email extracted from body:  by shiva
+    let customerEmail = emailOnly;
+
+    if (
+      req.body.subject?.includes("back in stock request")
+    ) {
+      const extractedEmail =
+        (
+          req.body.html || req.body.text || ""
+        ).match(
+          /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+        )?.[0];
+      
+      if (extractedEmail) {
+        customerEmail = extractedEmail;
+      }
+    }
+    // end here
+
     // attachments handling by shiva
     let attachments = [];
 
@@ -48,10 +67,10 @@ const handleInboundEmail = async (req, res) => {
     // end here
 
     const email = await CRMEmail.create({
-      sender_email: req.body.from,
+      sender_email: customerEmail,    // req.body.from
       subject: req.body.subject,
       body: req.body.html || req.body.text || "",
-      thread_id: emailOnly,
+      thread_id: customerEmail,       // emailOnly
       status: "unread",
       created_at: new Date(),
       attachments, // save attachment info by shiva
