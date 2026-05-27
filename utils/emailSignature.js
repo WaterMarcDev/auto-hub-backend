@@ -10,33 +10,43 @@ const emailSignature = `
     line-height:1.6;
 ">
 
+    <img
+        src="https://autohubexpress.us/assets/images/logo-sm.png"
+        alt="Autohub Express"
+        style="
+            width:90px;
+            margin-bottom:12px;
+            display:block;
+        "
+    />
 
-<strong>
-    Best Regards,
-</strong>
+    <strong>
+        Best Regards,
+    </strong>
 
-<br />
+    <br />
 
-Autohub Support
+    Autohub Support
 
-<br />
+    <br />
 
-<a
-    href="mailto:support@autohub.express"
-    style="
-        color:#2563eb;
-        text-decoration:none;
-    "
->
-    support@autohub.express
-</a>
+    <a
+        href="mailto:support@autohub.express"
+        style="
+            color:#2563eb;
+            text-decoration:none;
+        "
+    >
+        support@autohub.express
+    </a>
 
-<br /><br />
+    <br /><br />
 
-242 Monmouth Rd.
+    242 Monmouth Rd.
 
-<br />
-Wrightstown, NJ - 08562
+    <br />
+
+    Wrightstown, NJ - 08562
 
 </div>
 `;
