@@ -175,7 +175,7 @@ const sendReply = async (req, res) => {
                     crmAttachments,
 
                 status:
-                    "read",
+                    "replied",     //read
 
                 thread_id:
                     emailOnly,
