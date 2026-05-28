@@ -1,5 +1,7 @@
 const CRMEmail = require("../models/CRMEmail.model");
 
+const BackInStockRequest = require("../models/BackInStockRequest.model");    // added by shiva
+
 // attachments update by shiva
 const fs = require("fs");
 const path = require("path");
@@ -63,6 +65,81 @@ const handleInboundEmail = async (req, res) => {
       } catch (err) {
         console.error("Attachment parse error:", err);
       }
+    }
+    // end here
+
+    // AUTO SAVE BACK IN STOCK REQUESTS by shiva
+    if (
+      req.body.subject?.toLowerCase()
+        .includes("back in stock")
+    ) {
+
+        const customerEmail =
+          req.body.html?.match(
+            /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+          )?.[0];
+
+        const productName =
+          req.body.html
+            ?.match(
+              /font-size:19px[^>]*>(.*?)<\/span>/i
+            )?.[1]
+
+            ?.replace(/<[^>]+>/g, "")
+
+            ?.trim()
+
+          ||
+
+          req.body.html
+            ?.match(
+              /Product:(.*?)</i
+            )?.[1]
+
+            ?.trim()
+
+          ||
+
+          "Unknow Product";
+
+        const productImage =
+            (
+              req.body.html?.match(
+                /https:\/\/static\.wixstatic\.com[^"]+/i
+              ) || []
+            ) [0] || "";
+
+        if (customerEmail) {
+          const exists =
+            await BackInStockRequest.findOne({
+              customer_email:
+                customerEmail,
+
+              product_name:
+                productName,
+
+              notified: false
+            });
+
+          if (!exists) {
+            await BackInStockRequest.create({
+
+              customer_email:
+                customerEmail,
+
+              product_name:
+                productName,
+
+              product_price:
+                productPrice,
+
+              product_image:
+                productImage
+            });
+
+            console.log("✅ Back in stock request saved");
+          }
+        }
     }
     // end here
 
