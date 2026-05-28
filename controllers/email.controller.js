@@ -84,28 +84,34 @@ const handleInboundEmail = async (req, res) => {
             /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
           )?.[0];
 
+        const cleanHtml =
+          req.body.html || "";
+
         const productName =
-          req.body.html
-            ?.match(
-              /font-size:19px[^>]*>(.*?)<\/span>/i
+          cleanHtml
+            .replace(/\n/g, " ")
+
+            .match(
+              /<img[^>]+alt="([^"]+)"/i
             )?.[1]
-
-            ?.replace(/<[^>]+>/g, "")
-
-            ?.trim()
 
           ||
 
-          req.body.html
-            ?.match(
-              /Product:(.*?)</i
+          cleanHtml
+            .match(
+              /Product:\s*([^<]+)/i
             )?.[1]
-
-            ?.trim()
 
           ||
 
-          "Unknow Product";
+          cleanHtml
+            .match(
+              /font-size[^>]*>([^<]{5,80})</i
+            )?.[1]
+
+          ||
+
+          "Unknown Product";
 
         const productImage =
             (
