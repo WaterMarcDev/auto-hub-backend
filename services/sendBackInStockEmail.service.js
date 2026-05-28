@@ -97,12 +97,16 @@ const sendBackInStockEmail =
             console.log(
                 `✅ Auto email sent to ${request.customer_email}`
             );
+
+            return true;
         } catch (err) {
 
             console.error(
                 "Auto mail error:",
                 err.response?.body || err.message
             );
+
+            return false;
         }
     };
 
