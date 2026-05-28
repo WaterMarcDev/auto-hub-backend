@@ -18,6 +18,11 @@ const handleInboundEmail = async (req, res) => {
 
     const raw = req.body.from;
     const emailOnly = raw.match(/<(.+)>/)?.[1] || raw;
+    const senderName = 
+      raw.split("<")[0]
+        ?.replace(/"/g, "")
+        ?.trim() || "Customer"
+
 
     // thread by actual customer email extracted from body:  by shiva
     let customerEmail = emailOnly;
@@ -156,6 +161,7 @@ const handleInboundEmail = async (req, res) => {
     // end here
 
     const email = await CRMEmail.create({
+      sender_name: senderName,
       sender_email: customerEmail,    // req.body.from
       subject: req.body.subject,
       body: req.body.html || req.body.text || "",
