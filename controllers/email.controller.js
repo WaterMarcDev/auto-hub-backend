@@ -109,6 +109,18 @@ const handleInboundEmail = async (req, res) => {
               ) || []
             ) [0] || "";
 
+        const productPriceMatch =
+            (
+              req.body.text || req.body.html || ""
+            ).match(
+              /\$\d+(\.\d{2})?/i
+            );
+        
+        const productPrice =
+            productPriceMatch
+              ? productPriceMatch[0]
+              : "";
+
         if (customerEmail) {
           const exists =
             await BackInStockRequest.findOne({
