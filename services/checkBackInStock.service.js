@@ -38,13 +38,15 @@ const startBackInStockChecker = () => {
                         `✅ Product in stock: ${request.product_name}`
                     );
 
-                    // Here we will send email
-                    await sendBackInStockEmail(request);    // by shiva from console.log(`📧 Sending mail to ${request.customer_email}`);
+                    const mailSent =
+                        await sendBackInStockEmail(request);
 
-                    //  MARK NOTIFIED
-                    request.notified = true;
+                    if (mailSent) {
 
-                    await request.save();
+                        request.notified = true;
+
+                        await request.save();
+                    }
                 }
             }
         } catch (err) {
