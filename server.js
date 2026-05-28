@@ -13,6 +13,7 @@ const junkCarRoutes = require("./routes/junkCar.routes");
 const { swaggerUi, specs } = require("./config/swagger");  // by shiva
 const http = require("http");                                // real time update by shiva
 const { Server } = require("socket.io");                     // by shiva
+const startBackInStockChecker = require("./services/checkBackInStock.service");    // by shiva
 
 require("dotenv").config();
 
@@ -308,6 +309,9 @@ app.use((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  
+  startBackInStockChecker();   // Added by shiva
+
   // Start the VIN cron job unless explicitly disabled
   try {
     if (
