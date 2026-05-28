@@ -17,7 +17,7 @@ const sendBackInStockEmail =
                     request.customer_email,
 
                 from:
-                    "support@autohub.express",
+                    "support@mail.autohubexpress.us",
                 
                 subject: 
                     `${request.product_name} is Back In Stock`,
