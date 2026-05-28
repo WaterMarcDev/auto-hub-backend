@@ -23,74 +23,65 @@ const sendBackInStockEmail =
                     `${request.product_name} is Back In Stock`,
                 
                 html: `
+                
+                <div style="
+                    font-family:Arial,sans-serif;
+                    color:#334155;
+                    line-height:1.7;
+                    font-size:15px;
+                ">
+                
+                    <p>
+                        Hey,
+                    </p>
+                    
+                    <p>
+                        Good news 🎉
+                    </p>
+                    
+                    <p>
+                        The product you requested is now back in stock.
+                    </p>
+                    
+                    <br />
+                    
+                    <img
+                        src="${request.product_image}"
+                        alt="product"
+                        style="
+                            width:220px;
+                            border-radius:8px;
+                            display:block;
+                            margin-bottom:18px;
+                        "
+                    />
                     
                     <div style="
-                        font-family:Arial,sans-serif;
-                        line-height:1.7;
-                        color:#334155;
+                        margin-bottom:10px;
                     ">
-                    
-                        <h2 style="
-                            color:#0f172a;
-                            margin-bottom:16px;
-                        ">
-                            Good News 🎉
+                        <strong>
+                            Product:
+                        </strong>
                         
-                        </h2>
-                        
-                        <p>
-                            The product you requested
-                            is now back in stock.
-                        </p>
-                        
-                        <div style="
-                            margin-top:18px;
-                            padding:16px;
-                            border:1px solid #e2e8f0;
-                            border-radius:12px;
-                        ">
-                        
-                            <img
-                                src="${request.product_image}"
-                                alt="product"
-                                style="
-                                    width:220px;
-                                    border-radius:10px;
-                                    margin-bottom:12px;
-                                "
-                            />
-                            
-                            <div>
-                                <strong>
-                                    Product:
-                                </strong>
-                                
-                                ${request.product_name}
-                            </div>
-                            
-                            <div style="
-                                margin-top:8px;
-                            ">
-                                <strong>
-                                    Price:
-                                </strong>
-                                
-                                ${request.product_price}
-                            </div>
-                            
-                        </div>
-                        
-                        <p style="
-                            margin-top:20px;
-                        ">
-                            Hurry -
-                            inventory may run out again soon.
-                        </p>
-                        
-                        ${emailSignature}
-                        
+                        ${request.product_name}
                     </div>
                     
+                    <div style="
+                        margin-bottom:18px;
+                    ">
+                        <strong>
+                            Price:
+                        </strong>
+                        
+                        ${request.product_price}
+                    </div>
+                    
+                    <p>
+                        Hurry - inventory may run out again soon.
+                    </p>
+                    
+                    ${emailSignature}
+                </div>
                 `
             });
 
