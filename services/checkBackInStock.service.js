@@ -24,12 +24,12 @@ const startBackInStockChecker = () => {
                 // TEMP DEMO CONDITION
                 // Later we will connect Wix inventory API
 
-                const productIsInStock = 
+                const productIsInStock = true;
 
                     //  testing
-                    request.product_name
-                        ?.toLowerCase()
-                        .includes("air intake");
+                    // request.product_name
+                    //     ?.toLowerCase()
+                    //     .includes("air intake");
                         // end here
 
                 if (productIsInStock) {
