@@ -1,6 +1,7 @@
 const cron = require("node-cron");
 
 const BackInStockRequest = require("../models/BackInStockRequest.model");
+const sendBackInStockEmail = require("./sendBackInStockEmail.service");     // by shiva
 
 // START AUTOMATION
 const startBackInStockChecker = () => {
@@ -38,9 +39,7 @@ const startBackInStockChecker = () => {
                     );
 
                     // Here we will send email
-                    console.log(
-                        `📧 Sending mail to ${request.customer_email}`
-                    );
+                    await sendBackInStockEmail(request);    // by shiva from console.log(`📧 Sending mail to ${request.customer_email}`);
 
                     //  MARK NOTIFIED
                     request.notified = true;
