@@ -355,7 +355,7 @@ const exportInventories = async (req, res) => {
       // Raw projection (NO formatting logic here)
       {
         $project: {
-          _id: 0,
+          _id: 1,
           year: { $ifNull: ["$year", ""] },
           makeName: { $ifNull: ["$make.name", ""] },
           modelName: { $ifNull: ["$model.name", ""] },
@@ -445,6 +445,15 @@ const exportInventories = async (req, res) => {
       const description = `${formattedPartName}, Condition: Used, Part Number: 123456789, Year: ${item.year}, Make: ${item.makeName}, Model: ${item.modelName}, Trim: ${item.trimName}, Body: SUV`;
 
       return {
+        // added by shiva
+        externalId: item._id?.toString(),
+
+        make: item.makeName,
+        model: item.modelName,
+        trim: item.trimName,
+        year: item.year,
+        // end here
+
         weight: item.weight,
         name: `${item.year} ${item.makeName} ${item.modelName} ${item.trimName} - ${formattedPartName}`.trim(),
         sku: item.sku,
