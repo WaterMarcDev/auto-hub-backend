@@ -35,12 +35,24 @@ const syncWithWix = async (req, res) => {
 
     // send wixData in response and mark items as synced
     for (const item of inventoriesToSync) {
-      // item.wixSynced = true;
+      item.wixSynced = true;     //uncommented by shiva
       item.wixSyncedAt = new Date();
       await item.save();
     }
 
-    res.status(200).json({ syncedItems: wixData });
+    // Temp. Debug by shiva
+    console.log("WIX PRODUCTS COUNT:", wixData.length);
+
+    if (wixData.length) {
+      console.log(
+        "FIRST PRODUCT:",
+        JSON.stringify(wixData[0], null, 2)
+      );
+    }
+    // end here
+
+    res.status(200).json(wixData);   // added by shiva
+    // res.status(200).json({ syncedItems: wixData });
   } catch (error) {
     console.error("Error syncing with Wix:", error);
     res
