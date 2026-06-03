@@ -474,6 +474,13 @@ const exportInventories = async (req, res) => {
       };
     });
 
+    // Temp. DEBUG by shiva
+    console.log(
+        "FIRST PRODUCT =>",
+        JSON.stringify(formattedInventories[0], null, 2)
+    );
+    // end here
+
     res.status(200).json(formattedInventories);
   } catch (error) {
     console.error("Error exporting inventories:", error);
