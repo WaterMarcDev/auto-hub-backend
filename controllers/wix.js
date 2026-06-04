@@ -3,11 +3,11 @@ const Inventory = require("../models/Inventory.model");
 const syncWithWix = async (req, res) => {
   try {
     // all inventory where wixSync is true
-    const inventoriesToSync = await Inventory.find({ wixSynced: false })
+    const inventoriesToSync = await Inventory.find({})     // wixSynced: false by shiva
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
-      
+
     console.log("UNSYNCED INVENTORIES:", inventoriesToSync.length);   //temp debug by shiva
     // Prepare data for Wix
     const wixData = inventoriesToSync.map((item) => ({
