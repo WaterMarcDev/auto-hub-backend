@@ -3,7 +3,7 @@ const Inventory = require("../models/Inventory.model");
 const syncWithWix = async (req, res) => {
   try {
     // all inventory where wixSync is true
-    const inventoriesToSync = await Inventory.find({})    // removed wixSynced: false by shiva
+    const inventoriesToSync = await Inventory.find({ wixSynced: false })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
@@ -15,7 +15,8 @@ const syncWithWix = async (req, res) => {
         .trim(),
       sku: item.sku,
       productType: "physical",
-      price: 0,
+      priceData: { price: 0 },
+      // price: 0,
       visible: false,
       slug: `${item.make.name}-${item.model.name}-${
         item.trim.name
@@ -23,19 +24,27 @@ const syncWithWix = async (req, res) => {
         item.year
       }`,
       brand: item.make.name,
+
       customTextFields: [
-        { externalId: item._id.toString() },
-        { make: item.make.name },
-        { model: item.model.name },
-        { trim: item.trim.name },
-        { year: item.year.toString() },
+        { title: "externalId", value: item._id.toString() },
+        { title: "make", value: item.make.name },
+        { title: "model", value: item.model.name },
+        { title: "trim", value: item.trim.name },
+        { title: "year", value: item.year.toString() },
       ],
+      // customTextFields: [
+      //   { externalId: item._id.toString() },
+      //   { make: item.make.name },
+      //   { model: item.model.name },
+      //   { trim: item.trim.name },
+      //   { year: item.year.toString() },
+      // ],
       currency: "USD",
     }));
 
     // send wixData in response and mark items as synced
     for (const item of inventoriesToSync) {
-      item.wixSynced = false;     //uncommented by shiva
+      item.wixSynced = true;     //uncommented by shiva
       item.wixSyncedAt = new Date();
       await item.save();
     }
