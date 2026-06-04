@@ -7,6 +7,8 @@ const syncWithWix = async (req, res) => {
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
+      
+    console.log("UNSYNCED INVENTORIES:", inventoriesToSync.length);   //temp debug by shiva
     // Prepare data for Wix
     const wixData = inventoriesToSync.map((item) => ({
       name: item.partName
