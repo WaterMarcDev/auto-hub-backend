@@ -149,8 +149,14 @@ const createInventory = async (req, res) => {
       resolvedPartShort = generateShortName(partName || "");
     }
 
-    const sku = `${(makeDoc && makeDoc.shortName) || ""}/${(modelDoc && modelDoc.shortName) || ""
-      }/${year || ""}-${resolvedPartShort}/${color || ""}`;
+    // Added by shiva fix SKU template literal bug
+    const makeShort = (makeDoc && makeDoc.shortName) || "";
+    const modelShort = (modelDoc && modelDoc.shortName) || "";
+    const sku = `${makeShort}/${modelShort}/${year || ""}-${resolvedPartShort}/${color || ""}`;
+    // end here
+
+    // const sku = `${(makeDoc && makeDoc.shortName) || ""}/${(modelDoc && modelDoc.shortName) || ""
+    //   }/${year || ""}-${resolvedPartShort}/${color || ""}`;
 
     const inventory = await Inventory.create({
       partName,
