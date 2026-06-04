@@ -17,7 +17,7 @@ const syncWithWix = async (req, res) => {
         .trim(),
       sku: item.sku,
       productType: "physical",
-      priceData: { price: 0 },
+      price: 1,
       // price: 0,
       visible: false,
       slug: `${item.make.name}-${item.model.name}-${
