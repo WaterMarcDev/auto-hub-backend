@@ -44,7 +44,7 @@ const syncWithWix = async (req, res) => {
 
     // send wixData in response and mark items as synced
     for (const item of inventoriesToSync) {
-      item.wixSynced = true;     //uncommented by shiva
+      item.wixSynced = false;     //uncommented by shiva
       item.wixSyncedAt = new Date();
       await item.save();
     }
