@@ -43,11 +43,11 @@ const syncWithWix = async (req, res) => {
     }));
 
     // send wixData in response and mark items as synced
-    for (const item of inventoriesToSync) {
-      item.wixSynced = false;     //uncommented by shiva
-      item.wixSyncedAt = new Date();
-      await item.save();
-    }
+    // for (const item of inventoriesToSync) {
+    //   item.wixSynced = false;     //uncommented by shiva
+    //   item.wixSyncedAt = new Date();
+    //   await item.save();
+    // }
 
     // Temp. Debug by shiva
     console.log("WIX PRODUCTS COUNT:", wixData.length);
