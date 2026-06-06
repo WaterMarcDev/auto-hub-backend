@@ -65,6 +65,12 @@ const inventorySchema = new mongoose.Schema(
     wixSyncedAt: {
       type: Date,
     },
+    // Added by shiva for CRM integration
+    wixProductId: {
+      type: String,
+      default: null,
+    },
+    // end here
     // Soft delete fields
     isDeleted: {
       type: Boolean,
