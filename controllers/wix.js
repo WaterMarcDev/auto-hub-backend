@@ -76,17 +76,26 @@ const syncWithWix = async (req, res) => {
 const markInventorySynced = async (req, res) => {
   try {
 
-    await Inventory.findByIdAndUpdate(
+    const inventory = await Inventory.findByIdAndUpdate(
       req.params.inventoryId,
       {
         wixSynced: true,
         wixSyncedAt: new Date(),
         wixProductId: req.body.wixProductId
-      }
+      },
+      { new: true }
     );
 
+    if (!inventory) {
+      return res.status(404).json({
+        success: false,
+        error: "Inventory not found"
+      });
+    }
+
     return res.status(200).json({
-      success: true
+      success: true,
+      inventoryId: inventory._id,
     });
   } catch (error) {
 
