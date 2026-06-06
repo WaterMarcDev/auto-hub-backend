@@ -72,6 +72,33 @@ const syncWithWix = async (req, res) => {
   }
 };
 
+// Mark Inventory Synced Route by shiva
+const markInventorySynced = async (req, res) => {
+  try {
+
+    await Inventory.findByIdAndUpdate(
+      req.params.inventoryId,
+      {
+        wixSynced: true,
+        wixSyncedAt: new Date(),
+        wixProductId: req.body.wixProductId
+      }
+    );
+
+    return res.status(200).json({
+      success: true
+    });
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+// end here
+
 module.exports = {
   syncWithWix,
+  markInventorySynced,   //added by shiva
 };
