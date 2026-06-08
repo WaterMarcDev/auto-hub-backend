@@ -75,6 +75,10 @@ const syncWithWix = async (req, res) => {
 // Mark Inventory Synced Route by shiva
 const markInventorySynced = async (req, res) => {
   try {
+    console.log("MARK INVENTORY SYNCED CALLED");
+    console.log("INVENTORY ID:", req.params.inventoryId);
+    console.log("WIX PRODUCT ID:", req.body.wixProductId);
+    
 
     const inventory = await Inventory.findByIdAndUpdate(
       req.params.inventoryId,
