@@ -15,7 +15,10 @@ const syncWithWix = async (req, res) => {
         .replace(/([A-Z])/g, " $1")
         .replace(/^./, (str) => str.toUpperCase())
         .trim(),
-      sku: item.sku,
+      sku: item.sku
+        ? item.sku.substring(0, 40)
+        : item._id.toString(),
+
       productType: "physical",
       price: 1,
       // price: 0,
