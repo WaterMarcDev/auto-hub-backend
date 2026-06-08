@@ -4,7 +4,7 @@ const Part = require("../models/Part.model");
 // @route   POST /api/parts
 const createPart = async (req, res) => {
   try {
-    const { name, shortName, unit, weight, dimensions, image, description } =
+    const { name, shortName, category, unit, weight, dimensions, image, description } =
       req.body;
 
     // Check if part with the same name already exists (and not deleted)
@@ -97,7 +97,7 @@ const getPartById = async (req, res) => {
 // @route   PUT /api/parts/:id
 const updatePart = async (req, res) => {
   try {
-    const { name, shortName, unit, weight, dimensions, image, description } =
+    const { name, shortName, category, unit, weight, dimensions, image, description } =
       req.body;
 
     // Only update if not deleted
@@ -111,6 +111,7 @@ const updatePart = async (req, res) => {
       {
         name,
         shortName,
+        category,
         unit,
         weight,
         dimensions,
