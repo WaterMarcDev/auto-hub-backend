@@ -11,6 +11,14 @@ const partSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+
+    // Added by shiva
+    category: {
+      type: String,
+      trim: true,
+      default: "Uncategorized",
+    },
+    // end here
     unit: {
       type: String,
       trim: true,

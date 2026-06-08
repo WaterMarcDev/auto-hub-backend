@@ -18,6 +18,7 @@ const createPart = async (req, res) => {
     const part = await Part.create({
       name,
       shortName,
+      category,
       unit,
       weight,
       dimensions,
