@@ -54,6 +54,11 @@ const inventorySchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    category: {
+      type: String,
+      trim: true,
+      default: "Uncategorized",
+    },
     image: {
       type: String,
       default: null,
