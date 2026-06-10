@@ -129,6 +129,22 @@ const createInventory = async (req, res) => {
 
     // Resolve partShortName server-side. Prefer an existing Part.shortName, fall back to name, else generate.
     let resolvedPartShort = "";
+    
+    // Resolves resolvedPartShort : added by shiva
+    let category = "Uncategorized";
+
+    try {
+      const partDoc = await Part.findOne({
+        name: new RegExp(`^${partName}$`, "i"),
+      });
+
+      if (partDoc?.category) {
+        category = partDoc.category;
+      }
+    } catch (e) {
+      console.log("Category lookup failed:", e);
+    }
+    // end here
 
     let partDoc =  null; //(await Part.findOne({ shortName: partName })) || null;   //added by shiva
     try {
