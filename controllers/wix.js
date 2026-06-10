@@ -35,6 +35,7 @@ const syncWithWix = async (req, res) => {
         item.year
       }`,
       brand: item.make.name,
+      category: item.category,   //added by shiva
 
       customTextFields: [
         { title: "externalId", value: item._id.toString() },
