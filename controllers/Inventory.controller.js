@@ -138,6 +138,8 @@ const createInventory = async (req, res) => {
         name: new RegExp(`^${partName}$`, "i"),
       });
 
+      console.log("PART LOOKUP:", partName, JSON.stringify(partDoc, null, 2));
+
       if (partDoc?.category) {
         category = partDoc.category;
       }
