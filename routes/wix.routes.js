@@ -5,6 +5,14 @@ const { syncInventoriesV3 } = require("../controllers/Inventory.controller");   
 // const { exportInventories, syncInventoriesV3 } = require("../controllers/Inventory.controller");
 const { wixAuth } = require("../middleware/wixAuth");
 
+// NEW export controllers (appended – do not modify above)
+const {
+  exportAndSyncAllParts,
+  exportAndSyncByMake,
+  exportAndSyncByYear,
+  exportAndSyncByModel,
+} = require("../controllers/wix");
+
 // @route   GET /api/wix/sync
 // @desc    Sync inventory with Wix (using export format)
 // @access  Private (Wix authenticated)
@@ -13,4 +21,26 @@ router.get("/parts/sync", wixAuth, syncWithWix);     //added by shiva
 router.patch("/inventory-synced/:inventoryId", wixAuth, markInventorySynced);  //added by shiva
 
 router.get("/parts/sync/v3", wixAuth, syncInventoriesV3);
-module.exports = router;
+
+// ── NEW: Export + mark-synced endpoints ──────────────────────────────────────
+// @route   POST /api/wix/export/parts
+// @desc    Export ALL unsynced parts to Wix format; marks each as synced
+// @access  Private (Wix authenticated)
+router.post("/export/parts", wixAuth, exportAndSyncAllParts);
+
+// @route   POST /api/wix/export/parts/by-make
+// @desc    Export unsynced parts grouped by Make; marks each as synced
+// @access  Private (Wix authenticated)
+router.post("/export/parts/by-make", wixAuth, exportAndSyncByMake);
+
+// @route   POST /api/wix/export/parts/by-year
+// @desc    Export unsynced parts grouped by Year; marks each as synced
+// @access  Private (Wix authenticated)
+router.post("/export/parts/by-year", wixAuth, exportAndSyncByYear);
+
+// @route   POST /api/wix/export/parts/by-model
+// @desc    Export unsynced parts grouped by Model; marks each as synced
+// @access  Private (Wix authenticated)
+router.post("/export/parts/by-model", wixAuth, exportAndSyncByModel);
+
+module.exports = router;
