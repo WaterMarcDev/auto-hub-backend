@@ -129,17 +129,20 @@ const createInventory = async (req, res) => {
 
     // Resolve partShortName server-side. Prefer an existing Part.shortName, fall back to name, else generate.
     let resolvedPartShort = "";
+
+    let partDoc =  null; //(await Part.findOne({ shortName: partName })) || null;   //added by shiva
     try {
       if (partName) {
         // Try exact shortName match first
-        let partDoc = (await Part.findOne({ shortName: partName })) || null;
         if (!partDoc) {
           // Try by name (case-insensitive)
           partDoc = await Part.findOne({
             name: new RegExp(`^${partName}$`, "i"),
           });
         }
-        if (partDoc && partDoc.shortName) resolvedPartShort = partDoc.shortName;
+        if (partDoc && partDoc.shortName) {
+          resolvedPartShort = partDoc.shortName;
+        }
       }
     } catch (e) {
       // ignore lookup errors and fall back to generation
@@ -148,6 +151,8 @@ const createInventory = async (req, res) => {
     if (!resolvedPartShort) {
       resolvedPartShort = generateShortName(partName || "");
     }
+
+    const partCategory = partDoc?.category || "Uncategorized";   // added by shiva
 
     // Added by shiva fix SKU template literal bug
     const makeShort = (makeDoc && makeDoc.shortName) || "";
@@ -160,6 +165,7 @@ const createInventory = async (req, res) => {
 
     const inventory = await Inventory.create({
       partName,
+      category: partCategory,   //added by shiva
       unit,
       cleaned: cleaned || false,
       quality,
