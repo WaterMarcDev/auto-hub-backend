@@ -184,7 +184,11 @@ const mapAndMarkItem = async (item, productIdMap = {}) => {
 
   const price = PART_PRICES[item.partName] || 0;
 
-  console.log(`Part: ${item.partName}, Price: $${price}`);
+  console.log({
+    partName: item.partName,
+    price,
+    vehicle: `${item.year} ${item.make?.name} ${item.model?.name}`,
+});
     
     const vehicleName = [
       item.year,
