@@ -1,4 +1,5 @@
 const Inventory = require("../models/Inventory.model");
+const carInTake = require("../models/carInTake.model");
 
 const syncWithWix = async (req, res) => {
   try {
@@ -145,37 +146,119 @@ const mapAndMarkItem = async (item, productIdMap = {}) => {
     wixProductId,
   });
 
+  const intake = await carInTake.findOne({
+    vin: item.vin,
+  }).lean();
+
+  const cd = intake?.carDetails || {};
+  const vd = intake?.vinDetails || {};
+
+  const val = (...args) => {
+    for (const arg of args) {
+      if (arg && arg !== "N/A" && arg !== "") {
+        return arg;
+      }
+    }
+    return "N/A";
+  };
+
+  const sourceVehicleHtml = `<ul>
+  <li><p>Year:${val(item.year, vd.ModelYear)}</p></li>
+  <li><p>Make:${val(item.make?.name, vd.Make)}</p></li>
+  <li><p>Model:${val(item.model?.name, vd.Model)}</p></li>
+  <li><p>Model Type:${val(item.trim?.name, vd.Trim)}</p></li>
+  <li><p>Body:${val(cd.bodyClass, vd.BodyClass)}</p></li>
+  <li><p>Door Structure:${val(cd.doorCount, vd.Doors)}</p></li>
+  <li><p>Cylinders:${val(cd.cylinders, vd.EngineCylinders)}</p></li>
+  <li><p>Engine Size:${val(cd.engine, vd.DisplacementL)}</p></li>
+  <li><p>Transmission:${val(cd.transmission, vd.TransmissionStyle)}</p></li>
+  <li><p>Drive Train:${val(cd.drive, vd.DriveType)}</p></li>
+  </ul>`;
+
+  const formattedPartName = item.partName
+      .replace(/([A-Z])/g, " $1")
+      .replace(/^./, (str) => str.toUpperCase())
+      .trim();
+    
+    const vehicleName = [
+      item.year,
+      item.make?.name?.toUpperCase(),
+      item.model?.name,
+      item.trim?.name,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    
+    const description =
+      `${formattedPartName}, Condition: Used, Part Number: 123456789, ` +
+      `Year: ${item.year}, Make: ${item.make?.name}, ` +
+        `Model: ${item.model?.name}, Trim: ${item.trim?.name}, Body: SUV`;
+
   return {
     externalId: item._id.toString(),
     wixProductId,
-    name: item.partName
-      .replace(/([A-Z])/g, " $1")
-      .replace(/^./, (str) => str.toUpperCase())
-      .trim(),
+
+    // name: item.partName
+    //   .replace(/([A-Z])/g, " $1")
+    //   .replace(/^./, (str) => str.toUpperCase())
+    //   .trim(),
+
+    make: item.make?.name,
+    model: item.model?.name,
+    trim: item.trim?.name,
+    year: item.year,
+
+    weight: item.weight,
+
+    name: `${vehicleName} - ${formattedPartName}`,
+    
     sku:
       item.sku &&
       !item.sku.includes("${") &&
       item.sku.length <= 40
         ? item.sku.substring(0, 40)
         : item._id.toString(),
-    productType: "physical",
-    price: 1,
+    productType: 1,
     visible: false,
-    slug: `${item.make.name}-${item.model.name}-${
-      item.trim.name
-    }-${item.partName.replace(/([A-Z])/g, "-$1").replace(/^-/, "")}-${
-      item.year
-    }`,
     brand: item.make.name,
     category: item.category,
-    customTextFields: [
-      { title: "externalId", value: item._id.toString() },
-      { title: "make",       value: item.make.name },
-      { title: "model",      value: item.model.name },
-      { title: "trim",       value: item.trim.name },
-      { title: "year",       value: item.year.toString() },
-    ],
+    price: 0,
+    // slug: `${item.make.name}-${item.model.name}-${
+    //   item.trim.name
+    // }-${item.partName.replace(/([A-Z])/g, "-$1").replace(/^-/, "")}-${
+    //   item.year
+    // }`,
+    // customTextFields: [
+    //   { title: "externalId", value: item._id.toString() },
+    //   { title: "make",       value: item.make.name },
+    //   { title: "model",      value: item.model.name },
+    //   { title: "trim",       value: item.trim.name },
+    //   { title: "year",       value: item.year.toString() },
+    // ],
     currency: "USD",
+
+    description,
+
+    productInfo: {
+      additionalInfoSections: [
+        {
+          title: "Description",
+          description,
+        },
+        {
+          title: "Fitment",
+          description: "",
+        },
+        {
+          title: "Source Vehicle",
+          description: sourceVehicleHtml,
+        },
+        {
+          title: "Return and Refund Policy",
+          description: "",
+        },
+      ],
+    },
   };
 };
 
@@ -203,7 +286,7 @@ const exportAndSyncAllParts = async (req, res) => {
       items.map((item) => mapAndMarkItem(item, productIdMap))
     );
 
-    return res.status(200).json({
+    return res.status(200).json({ 
       success: true,
       exported: parts.length,
       parts,
