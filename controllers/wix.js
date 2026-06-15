@@ -1,31 +1,7 @@
 const Inventory = require("../models/Inventory.model");
 const carInTake = require("../models/carInTake.model");
 
-const PART_PRICES = {
-  frontBumper: 250,
-  rearBumper: 200,
-  leftFender: 125,
-  rightFender: 125,
-  leftHeadlights: 125,
-  rightHeadlights: 125,
-  hood: 200,
-  frontLeftDoor: 250,
-  frontRightDoor: 250,
-  rearLeftDoor: 200,
-  rearRightDoor: 200,
-  rims: 115,
-  tyre: 50,
-  acCompressor: 125,
-  alternator: 125,
-  engineControlModule: 125,
-  fuelPump: 175,
-  radiator: 95,
-  fuelTank: 150,
-  battery: 50,
-  dashboard: 500,
-  engine: 1000,
-  transmission: 750
-};
+const PART_PRICES = require("../assets/part_prices.json");
 
 const syncWithWix = async (req, res) => {
   try {
@@ -207,6 +183,8 @@ const mapAndMarkItem = async (item, productIdMap = {}) => {
       .trim();
 
   const price = PART_PRICES[item.partName] || 0;
+
+  console.log(`Part: ${item.partName}, Price: $${price}`);
     
     const vehicleName = [
       item.year,
