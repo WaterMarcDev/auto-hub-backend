@@ -11,6 +11,7 @@ const {
   exportAndSyncByMake,
   exportAndSyncByYear,
   exportAndSyncByModel,
+  exportAndSyncDeduplicated,
 } = require("../controllers/wix");
 
 // @route   GET /api/wix/sync
@@ -43,4 +44,10 @@ router.post("/export/parts/by-year", wixAuth, exportAndSyncByYear);
 // @access  Private (Wix authenticated)
 router.post("/export/parts/by-model", wixAuth, exportAndSyncByModel);
 
-module.exports = router;
+// @route   POST /api/wix/export/parts/deduplicated
+// @desc    Export unsynced parts deduplicated by SKU with quantity;
+//          marks all grouped items as synced, product visible with brand
+// @access  Private (Wix authenticated)
+router.post("/export/parts/deduplicated", wixAuth, exportAndSyncDeduplicated);
+
+module.exports = router;
