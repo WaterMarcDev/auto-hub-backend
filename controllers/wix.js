@@ -425,11 +425,167 @@ const exportAndSyncByModel = async (req, res) => {
   }
 };
 
+// ── 5. Export unsynced parts deduplicated by SKU with quantity ──────────────
+// POST /api/wix/export/parts/deduplicated
+// Groups inventory items by SKU so only ONE Wix product is created per SKU
+// Quantity is set to the number of inventory items sharing that SKU
+// All grouped items are marked as synced and the product is visible
+const exportAndSyncDeduplicated = async (req, res) => {
+  try {
+    const productIdMap = req.body?.productIdMap || {};
+
+    const items = await Inventory.find({ wixSynced: false })
+      .populate("make",  "name")
+      .populate("model", "name")
+      .populate("trim",  "name");
+
+    if (!items.length) {
+      return res.status(200).json({ success: true, exported: 0, parts: [] });
+    }
+
+    // ── Group unsynced items by resolved SKU ──────────────────────────────────
+    const skuGroups = {};
+    for (const item of items) {
+      const sku =
+        item.sku &&
+        !item.sku.includes("${") &&
+        item.sku.length <= 40
+          ? item.sku.substring(0, 40)
+          : item._id.toString();    // fallback: unique ID for items without SKU
+
+      if (!skuGroups[sku]) {
+        skuGroups[sku] = [];
+      }
+      skuGroups[sku].push(item);
+    }
+
+    const parts = [];
+
+    for (const [sku, groupItems] of Object.entries(skuGroups)) {
+      const item = groupItems[0]; // Use first item for all metadata
+
+      // ── Fetch car-intake details (same pattern as mapAndMarkItem) ───────────
+      const intake = await carInTake.findOne({ vin: item.vin }).lean();
+      const cd = intake?.carDetails || {};
+      const vd = intake?.vinDetails || {};
+
+      const val = (...args) => {
+        for (const arg of args) {
+          if (arg && arg !== "N/A" && arg !== "") return arg;
+        }
+        return "N/A";
+      };
+
+      const sourceVehicleHtml = `<ul>
+  <li><p>Year:${val(item.year, vd.ModelYear)}</p></li>
+  <li><p>Make:${val(item.make?.name, vd.Make)}</p></li>
+  <li><p>Model:${val(item.model?.name, vd.Model)}</p></li>
+  <li><p>Model Type:${val(item.trim?.name, vd.Trim)}</p></li>
+  <li><p>Body:${val(cd.bodyClass, vd.BodyClass)}</p></li>
+  <li><p>Door Structure:${val(cd.doorCount, vd.Doors)}</p></li>
+  <li><p>Cylinders:${val(cd.cylinders, vd.EngineCylinders)}</p></li>
+  <li><p>Engine Size:${val(cd.engine, vd.DisplacementL)}</p></li>
+  <li><p>Transmission:${val(cd.transmission, vd.TransmissionStyle)}</p></li>
+  <li><p>Drive Train:${val(cd.drive, vd.DriveType)}</p></li>
+</ul>`;
+
+      const formattedPartName = item.partName
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim();
+
+      const partKey = item.partName
+        .replace(/\s+/g, "")
+        .replace(/^./, (c) => c.toLowerCase());
+
+      const price = PART_PRICES[partKey] || 0;
+
+      const vehicleName = [
+        item.year,
+        item.make?.name?.toUpperCase(),
+        item.model?.name,
+        item.trim?.name,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const description =
+        `${formattedPartName}, Condition: Used, ` +
+        `Year: ${item.year}, Make: ${item.make?.name}, ` +
+        `Model: ${item.model?.name}, Trim: ${item.trim?.name}`;
+
+      const wixProductId =
+        productIdMap[item._id.toString()] || item._id.toString();
+
+      // ── Quantity = number of inventory items sharing this SKU ───────────────
+      const quantity = groupItems.length;
+
+      const product = {
+        externalId: item._id.toString(),
+        wixProductId,
+        make: item.make?.name,
+        model: item.model?.name,
+        trim: item.trim?.name,
+        year: item.year,
+        weight: item.weight,
+        name: `${vehicleName} - ${formattedPartName}`,
+        sku,
+        productType: 1,
+        visible: true,                    // visible so it shows in Inventory & Shipping
+        brand: item.make.name,            // brand populated for the brand section
+        category: item.category,
+        price,
+        quantity,                         // stock quantity for Inventory & Shipping
+        currency: "USD",
+        description,
+        productInfo: {
+          additionalInfoSections: [
+            { title: "Description",     description },
+            { title: "Fitment",         description: "" },
+            { title: "Source Vehicle",  description: sourceVehicleHtml },
+            { title: "Return and Refund Policy", description: "" },
+          ],
+        },
+        // Internal: list of inventory IDs covered by this product (removed before response)
+        _itemIds: groupItems.map((i) => i._id.toString()),
+      };
+
+      parts.push(product);
+    }
+
+    // ── Mark ALL items in each group as synced ─────────────────────────────────
+    for (const part of parts) {
+      for (const itemId of part._itemIds) {
+        const pid = productIdMap[itemId] || part.wixProductId;
+        await Inventory.findByIdAndUpdate(itemId, {
+          wixSynced: true,
+          wixSyncedAt: new Date(),
+          wixProductId: pid,
+        });
+      }
+    }
+
+    // Strip internal _itemIds before sending response
+    const cleanParts = parts.map(({ _itemIds, ...rest }) => rest);
+
+    return res.status(200).json({
+      success: true,
+      exported: cleanParts.length,
+      totalItems: items.length,
+      parts: cleanParts,
+    });
+  } catch (error) {
+    console.error("exportAndSyncDeduplicated error:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 module.exports = {
   syncWithWix,
-  markInventorySynced,         // added by shiva
-  exportAndSyncAllParts,       // new
-  exportAndSyncByMake,         // new
-  exportAndSyncByYear,         // new
-  exportAndSyncByModel,        // new
+  markInventorySynced,            // added by shiva
+  exportAndSyncAllParts,          // new
+  exportAndSyncByMake,            // new
+  exportAndSyncByYear,            // new
+  exportAndSyncByModel,           // new
+  exportAndSyncDeduplicated,      // new – deduplicated by SKU with quantity
 };
