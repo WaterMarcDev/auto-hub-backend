@@ -182,7 +182,11 @@ const mapAndMarkItem = async (item, productIdMap = {}) => {
       .replace(/^./, (str) => str.toUpperCase())
       .trim();
 
-  const price = PART_PRICES[item.partName] || 0;
+  const partKey = item.partName
+    .replace(/\s+/g, "")
+    .replace(/^./, c => c.toLowerCase());
+  
+  const price = PART_PRICES[partKey] || 0;
 
   console.log({
     partName: item.partName,
