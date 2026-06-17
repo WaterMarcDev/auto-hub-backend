@@ -283,7 +283,7 @@ const exportAndSyncAllParts = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const items = await Inventory.find({ wixSynced: false }).limit(20)
+    const items = await Inventory.find({ wixSynced: false }).limit(10)
       .populate("make",  "name")
       .populate("model", "name")
       .populate("trim",  "name");
