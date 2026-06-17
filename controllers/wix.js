@@ -556,7 +556,7 @@ const buildWixProductPayload = (item, sku, quantity, intake, price) => {
 // Groups inventory items by Year + Make + Model + Part Name (NOT by SKU)
 // so only ONE Wix product is created per unique vehicle part combination.
 // Quantity is the total count of all inventory records in the group.
-// Directly creates/updates products in Wix via API.
+// Responds immediately with summary; Wix API calls run in background.
 // Uses product name + brand to determine if a product already exists in Wix.
 const exportAndSyncDeduplicated = async (req, res) => {
   try {
@@ -567,17 +567,24 @@ const exportAndSyncDeduplicated = async (req, res) => {
       "wix-site-id": process.env.WIX_SITE_ID,
     };
 
-    const items = await Inventory.find({ wixSynced: false })
+    // ── Limit: control how many items to process per sync ────────
+    const limit = parseInt(req.query?.limit, 10) || 0;
+    const query = Inventory.find({ wixSynced: false })
       .populate("make",  "name")
       .populate("model", "name")
       .populate("trim",  "name");
+
+    if (limit > 0) {
+      query.limit(limit);
+    }
+
+    const items = await query;
 
     if (!items.length) {
       return res.status(200).json({ success: true, exported: 0, parts: [] });
     }
 
     // ── Group unsynced items by Year + Make + Model + Part Name ──────────────
-    // DO NOT group by SKU - SKU changes every sync and would create duplicates
     const groupMap = {};
     for (const item of items) {
       const key = getGroupKey(item);
@@ -587,63 +594,13 @@ const exportAndSyncDeduplicated = async (req, res) => {
       groupMap[key].push(item);
     }
 
-    // ── Query Wix to find which products already exist ───────────────────────
-    // Build a map from product name → existing Wix product ID
-    // We match by product name (e.g., "2010 LEXUS RX350 - Front Bumper")
-    const nameToWixId = {};
-
-    // Collect all product names we'll be creating/updating
-    const productNames = Object.values(groupMap).map((groupItems) => {
-      const item = groupItems[0];
-      const formattedPartName = item.partName
-        .replace(/([A-Z])/g, " $1")
-        .replace(/^./, (str) => str.toUpperCase())
-        .trim();
-      const vehicleName = [
-        item.year,
-        item.make?.name?.toUpperCase(),
-        item.model?.name,
-        item.trim?.name,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      return `${vehicleName} - ${formattedPartName}`;
-    });
-
-    // Query Wix in batches to find existing products by name
-    const WIX_BATCH_SIZE = 50;
-    for (let i = 0; i < productNames.length; i += WIX_BATCH_SIZE) {
-      const batchNames = productNames.slice(i, i + WIX_BATCH_SIZE);
-      try {
-        const queryResp = await axios.post(
-          "https://www.wixapis.com/stores/v3/products/query",
-          {
-            query: {
-              filter: `{"name": {"$in": ${JSON.stringify(batchNames)}}}`,
-              fields: ["id", "name"],
-            },
-          },
-          { headers: WIX_HEADERS }
-        );
-
-        const existingProducts = queryResp.data?.products || [];
-        for (const prod of existingProducts) {
-          if (prod.name) {
-            nameToWixId[prod.name] = prod.id;
-          }
-        }
-      } catch (queryErr) {
-        console.error("Wix query error for name batch:", queryErr.response?.data || queryErr.message);
-        // Continue - products not found will be created
-      }
-    }
-
-    const parts = [];
+    // ── Build sync payloads from local data (no Wix API calls yet) ──────────
+    // Each entry: { productName, sku, price, quantity, item, intake, sourceVehicleHtml, description, groupItems }
+    const syncPayloads = [];
 
     for (const [groupKey, groupItems] of Object.entries(groupMap)) {
-      const item = groupItems[0]; // Use first item for all metadata
+      const item = groupItems[0];
 
-      // ── Resolve product name ───────────────────────────────────────────────
       const formattedPartName = item.partName
         .replace(/([A-Z])/g, " $1")
         .replace(/^./, (str) => str.toUpperCase())
@@ -659,30 +616,23 @@ const exportAndSyncDeduplicated = async (req, res) => {
         .join(" ");
 
       const productName = `${vehicleName} - ${formattedPartName}`;
-
-      // ── Generate a consistent SKU from the product name ────────────────────
       const sku = generateSku(productName);
 
-      // ── Fetch car-intake details ─────────────────────────────────────────────
       const intake = await carInTake.findOne({ vin: item.vin }).lean();
 
       const partKey = item.partName
         .replace(/\s+/g, "")
         .replace(/^./, (c) => c.toLowerCase());
-
       const price = PART_PRICES[partKey] || 0;
 
-      // ── Quantity = total number of inventory items in this group ──────────
       const totalQuantity = await Inventory.countDocuments({
         make: item.make._id,
         model: item.model._id,
         year: item.year,
-        partName: item.partName
+        partName: item.partName,
       });
-
       const quantity = totalQuantity;
 
-      // ── Build shared content for update/create ───────────────────────────
       const val = (...args) => {
         for (const arg of args) {
           if (arg && arg !== "N/A" && arg !== "") return arg;
@@ -710,159 +660,203 @@ const exportAndSyncDeduplicated = async (req, res) => {
         `Year: ${item.year}, Make: ${item.make?.name}, ` +
         `Model: ${item.model?.name}, Trim: ${item.trim?.name}`;
 
-      // ── Determine if this product already exists in Wix ───────────────────
-      const existingWixId = nameToWixId[productName];
+      syncPayloads.push({
+        productName,
+        sku,
+        price,
+        quantity,
+        item,
+        intake,
+        sourceVehicleHtml,
+        description,
+        formattedPartName,
+        groupItems,
+      });
+    }
 
-      let resolvedWixProductId = existingWixId || item._id.toString();
+    // ── Respond immediately with the prepared data ──────────────────────────
+    const responseParts = syncPayloads.map((p) => ({
+      externalId: p.item._id.toString(),
+      make: p.item.make?.name,
+      model: p.item.model?.name,
+      trim: p.item.trim?.name,
+      year: p.item.year,
+      brand: extractBrandName(p.item),
+      name: p.productName,
+      sku: p.sku,
+      productType: 1,
+      visible: true,
+      category: p.item.category,
+      price: p.price,
+      quantity: p.quantity,
+      quantityInStock: p.quantity,
+      currency: "USD",
+      description: p.description,
+      productInfo: {
+        additionalInfoSections: [
+          { title: "Description", description: p.description },
+          { title: "Fitment", description: " " },
+          { title: "Source Vehicle", description: p.sourceVehicleHtml },
+          { title: "Return and Refund Policy", description: " " },
+        ],
+      },
+    }));
 
-      try {
-        if (existingWixId) {
-          // ── Update existing Wix product: increment its inventory ────────────
-          // First, get the current stock from Wix
-          let currentQty = 0;
-          try {
-            const getResp = await axios.get(
-              `https://www.wixapis.com/stores/v3/products/${existingWixId}`,
-              { headers: WIX_HEADERS }
-            );
-            currentQty = getResp.data?.product?.stock?.quantity || 0;
-          } catch (getErr) {
-            console.log(`Could not fetch current quantity for ${existingWixId}, starting from 0`);
-          }
+    const totalItems = items.length;
+    const exportedCount = responseParts.length;
 
-          const newQuantity =  quantity;
-          console.log(`Updating Wix product ${existingWixId} ("${productName}") quantity from ${currentQty} to ${newQuantity}`);
+    // Send response first — background Wix sync continues after
+    res.status(200).json({
+      success: true,
+      exported: exportedCount,
+      totalItems,
+      parts: responseParts,
+    });
 
-          await axios.patch(
-            `https://www.wixapis.com/stores/v3/products/${existingWixId}`,
+    // ── Background: sync with Wix API (runs after response is sent) ────────
+    try {
+      console.log(`[WIX BACKGROUND] Starting Wix sync for ${exportedCount} product groups (${totalItems} items)...`);
+
+      // Build name → existing Wix ID map by querying Wix
+      const nameToWixId = {};
+      const productNames = syncPayloads.map((p) => p.productName);
+      const WIX_BATCH_SIZE = 50;
+
+      for (let i = 0; i < productNames.length; i += WIX_BATCH_SIZE) {
+        const batchNames = productNames.slice(i, i + WIX_BATCH_SIZE);
+        try {
+          const queryResp = await axios.post(
+            "https://www.wixapis.com/stores/v3/products/query",
             {
-              product: {
-                name: productName,
-                productType: "PHYSICAL",
-                visible: true,
-                brand: extractBrandName(item),
-                stock: {
-                  quantity: newQuantity,
-                  unlimited: false,
-                  trackQuantity: true,
-                  quantityInStock: newQuantity,
-                  trackInventory: true,
-                  inventoryAndShipping: {
-                    trackInventory: true,
-                    onlineStoreInventory: newQuantity,
-                  },
-                },
-                variantsInfo: {
-                  variants: [
-                    {
-                      sku,
-                      price: {
-                        actualPrice: {
-                          amount: String(price.toFixed(2)),
-                        },
-                      },
-                      physicalProperties: {
-                        weight: item.weight || 0,
-                      },
-                    },
-                  ],
-                },
-                infoSections: [
-                  { title: "Description", plainDescription: description, uniqueName: "description" },
-                  { title: "Fitment", plainDescription: " ", uniqueName: "fitment" },
-                  { title: "Source Vehicle", plainDescription: sourceVehicleHtml, uniqueName: "source-vehicle" },
-                  { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
-                ],
+              query: {
+                filter: `{"name": {"$in": ${JSON.stringify(batchNames)}}}`,
+                fields: ["id", "name"],
               },
             },
             { headers: WIX_HEADERS }
           );
-          console.log(`Successfully updated Wix product ${existingWixId}`);
-          resolvedWixProductId = existingWixId;
-        } else {
-          // ── Create new product in Wix ────────────────────────────────────────
-          const wixPayload = buildWixProductPayload(item, sku, quantity, intake, price);
-
-          console.log(`Creating Wix product "${productName}" with quantity ${quantity}`);
-          const createResp = await axios.post(
-            "https://www.wixapis.com/stores/v3/products",
-            wixPayload,
-            { headers: WIX_HEADERS }
-          );
-
-          const newWixId = createResp.data?.product?.id;
-          if (newWixId) {
-            console.log(`Successfully created Wix product ${newWixId}`);
-            resolvedWixProductId = newWixId;
-            nameToWixId[productName] = newWixId;
+          const existingProducts = queryResp.data?.products || [];
+          for (const prod of existingProducts) {
+            if (prod.name) nameToWixId[prod.name] = prod.id;
           }
+        } catch (queryErr) {
+          console.error("[WIX BACKGROUND] Query error for name batch:", queryErr.response?.data || queryErr.message);
         }
-      } catch (wixErr) {
-        console.error(`Wix API error for "${productName}":`, wixErr.response?.data || wixErr.message);
-        // Continue processing other products even if one fails
       }
 
-      const brand = extractBrandName(item);
+      // Process each group: update if exists, create if new
+      let syncedCount = 0;
+      let errorCount = 0;
 
-      const product = {
-        externalId: item._id.toString(),
-        wixProductId: resolvedWixProductId,
-        make: item.make?.name,
-        model: item.model?.name,
-        trim: item.trim?.name,
-        year: item.year,
-        brand,
-        name: productName,
-        sku,
-        productType: 1,
-        visible: true,
-        category: item.category,
-        price,
-        quantity,
-        quantityInStock: quantity,
-        currency: "USD",
-        description: `${formattedPartName}, Condition: Used, ` +
-          `Year: ${item.year}, Make: ${item.make?.name}, ` +
-          `Model: ${item.model?.name}, Trim: ${item.trim?.name}`,
-        productInfo: {
-          additionalInfoSections: [
-            { title: "Description", description },
-            { title: "Fitment", description: " " },
-            { title: "Source Vehicle", description: sourceVehicleHtml },
-            { title: "Return and Refund Policy", description: " " },
-          ],
-        },
-        // Internal: list of inventory IDs covered by this product (removed before response)
-        _itemIds: groupItems.map((i) => i._id.toString()),
-      };
+      for (const p of syncPayloads) {
+        const existingWixId = nameToWixId[p.productName];
+        let resolvedWixProductId = existingWixId || p.item._id.toString();
 
-      parts.push(product);
-    }
+        try {
+          if (existingWixId) {
+            // Update existing product
+            let currentQty = 0;
+            try {
+              const getResp = await axios.get(
+                `https://www.wixapis.com/stores/v3/products/${existingWixId}`,
+                { headers: WIX_HEADERS }
+              );
+              currentQty = getResp.data?.product?.stock?.quantity || 0;
+            } catch (getErr) {
+              console.log(`[WIX BACKGROUND] Could not fetch current qty for ${existingWixId}`);
+            }
 
-    // ── Mark ALL items in each group as synced ─────────────────────────────────
-    for (const part of parts) {
-      for (const itemId of part._itemIds) {
-        const pid = nameToWixId[part.name] || part.wixProductId;
-        await Inventory.findByIdAndUpdate(itemId, {
-          wixSynced: true,
-          wixSyncedAt: new Date(),
-          wixProductId: pid,
-        });
+            const newQuantity = p.quantity;
+            console.log(`[WIX BACKGROUND] Updating "${p.productName}" qty ${currentQty} → ${newQuantity}`);
+
+            await axios.patch(
+              `https://www.wixapis.com/stores/v3/products/${existingWixId}`,
+              {
+                product: {
+                  name: p.productName,
+                  productType: "PHYSICAL",
+                  visible: true,
+                  brand: extractBrandName(p.item),
+                  stock: {
+                    quantity: newQuantity,
+                    unlimited: false,
+                    trackQuantity: true,
+                    quantityInStock: newQuantity,
+                    trackInventory: true,
+                    inventoryAndShipping: {
+                      trackInventory: true,
+                      onlineStoreInventory: newQuantity,
+                    },
+                  },
+                  variantsInfo: {
+                    variants: [
+                      {
+                        sku: p.sku,
+                        price: { actualPrice: { amount: String(p.price.toFixed(2)) } },
+                        physicalProperties: { weight: p.item.weight || 0 },
+                      },
+                    ],
+                  },
+                  infoSections: [
+                    { title: "Description", plainDescription: p.description, uniqueName: "description" },
+                    { title: "Fitment", plainDescription: " ", uniqueName: "fitment" },
+                    { title: "Source Vehicle", plainDescription: p.sourceVehicleHtml, uniqueName: "source-vehicle" },
+                    { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
+                  ],
+                },
+              },
+              { headers: WIX_HEADERS }
+            );
+            console.log(`[WIX BACKGROUND] Updated ${existingWixId}`);
+            resolvedWixProductId = existingWixId;
+          } else {
+            // Create new product
+            const wixPayload = buildWixProductPayload(p.item, p.sku, p.quantity, p.intake, p.price);
+            console.log(`[WIX BACKGROUND] Creating "${p.productName}" qty ${p.quantity}`);
+
+            const createResp = await axios.post(
+              "https://www.wixapis.com/stores/v3/products",
+              wixPayload,
+              { headers: WIX_HEADERS }
+            );
+
+            const newWixId = createResp.data?.product?.id;
+            if (newWixId) {
+              console.log(`[WIX BACKGROUND] Created ${newWixId}`);
+              resolvedWixProductId = newWixId;
+              nameToWixId[p.productName] = newWixId;
+            }
+          }
+
+          // Mark all group items as synced
+          for (const gItem of p.groupItems) {
+            const pid = nameToWixId[p.productName] || resolvedWixProductId;
+            await Inventory.findByIdAndUpdate(gItem._id, {
+              wixSynced: true,
+              wixSyncedAt: new Date(),
+              wixProductId: pid,
+            });
+          }
+
+          syncedCount++;
+        } catch (wixErr) {
+          errorCount++;
+          console.error(`[WIX BACKGROUND] Wix API error for "${p.productName}":`, wixErr.response?.data || wixErr.message);
+        }
       }
+
+      console.log(`[WIX BACKGROUND] Sync complete: ${syncedCount} success, ${errorCount} errors.`);
+    } catch (bgError) {
+      console.error("[WIX BACKGROUND] Background sync failed:", bgError);
     }
-
-    // Strip internal _itemIds before sending response
-    const cleanParts = parts.map(({ _itemIds, ...rest }) => rest);
-
-    return res.status(200).json({
-      success: true,
-      exported: cleanParts.length,
-      totalItems: items.length,
-      parts: cleanParts,
-    });
   } catch (error) {
-    console.error("exportAndSyncDeduplicated error:", error);
-    return res.status(500).json({ success: false, error: error.message });
+    // If response has already been sent, just log; otherwise send error response
+    if (res.headersSent) {
+      console.error("exportAndSyncDeduplicated error (after response sent):", error);
+    } else {
+      console.error("exportAndSyncDeduplicated error:", error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
   }
 };
 
