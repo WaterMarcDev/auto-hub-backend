@@ -510,49 +510,43 @@ const buildWixProductPayload = (item, sku, quantity, intake, price) => {
 
   return {
     product: {
-      name: `${vehicleName} - ${formattedPartName}`
-    }
-    // product: {
-    //   name: `${vehicleName} - ${formattedPartName}`,
-    //   productType: "PHYSICAL",
-    //   visible: true,
-    //   // brand,
-    //   variantsInfo: {
-    //     variants: [
-    //       {
-    //         sku,
-    //         price: {
-    //           actualPrice: {
-    //             amount: String(price.toFixed(2)),
-    //           },
-    //         },
-    //         physicalProperties: {
-    //           weight: item.weight || 0,
-    //         },
-    //       },
-    //     ],
-    //   },
-      // infoSections: [
-      //   { title: "Description", plainDescription: description, uniqueName: "description" },
-      //   { title: "Fitment", plainDescription: " ", uniqueName: "fitment" },
-      //   { title: "Source Vehicle", plainDescription: sourceVehicleHtml, uniqueName: "source-vehicle" },
-      //   { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
-      // ],
-      // Stock/quantity for inventory tracking - maps to Inventory & Shipping > Online Store Inventory
-      // stock: {
-      //   quantity,
-      //   unlimited: false,
-      //   trackQuantity: true,
-      //   quantityInStock: quantity,
-      //   trackInventory: true,
-      //   inventoryAndShipping: {
-      //     trackInventory: true,
-      //     onlineStoreInventory: quantity,
-      //   },
-      // },
-
-
-    // },
+      name: `${vehicleName} - ${formattedPartName}`,
+      productType: "PHYSICAL",
+      visible: true,
+      brand,
+      stock: {
+        quantity,
+        unlimited: false,
+        trackQuantity: true,
+        quantityInStock: quantity,
+        trackInventory: true,
+        inventoryAndShipping: {
+          trackInventory: true,
+          onlineStoreInventory: quantity,
+        },
+      },
+      variantsInfo: {
+        variants: [
+          {
+            sku,
+            price: {
+              actualPrice: {
+                amount: String(price.toFixed(2)),
+              },
+            },
+            physicalProperties: {
+              weight: item.weight || 0,
+            },
+          },
+        ],
+      },
+      infoSections: [
+        { title: "Description", plainDescription: description, uniqueName: "description" },
+        { title: "Fitment", plainDescription: " ", uniqueName: "fitment" },
+        { title: "Source Vehicle", plainDescription: sourceVehicleHtml, uniqueName: "source-vehicle" },
+        { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
+      ],
+    },
   };
 };
 
@@ -734,7 +728,7 @@ const exportAndSyncDeduplicated = async (req, res) => {
             "https://www.wixapis.com/stores/v3/products/query",
             {
               query: {
-                filter: `{"name": {"$in": ${JSON.stringify(batchNames)}}}`,
+                filter: { name: { $in: batchNames } },
                 fields: ["id", "name"],
               },
             },
@@ -790,17 +784,17 @@ const exportAndSyncDeduplicated = async (req, res) => {
                   productType: "PHYSICAL",
                   visible: true,
                   brand: extractBrandName(p.item),
-                  // stock: {
-                  //   quantity: newQuantity,
-                  //   unlimited: false,
-                  //   trackQuantity: true,
-                  //   quantityInStock: newQuantity,
-                  //   trackInventory: true,
-                  //   inventoryAndShipping: {
-                  //     trackInventory: true,
-                  //     onlineStoreInventory: newQuantity,
-                  //   },
-                  // },
+                  stock: {
+                    quantity: newQuantity,
+                    unlimited: false,
+                    trackQuantity: true,
+                    quantityInStock: newQuantity,
+                    trackInventory: true,
+                    inventoryAndShipping: {
+                      trackInventory: true,
+                      onlineStoreInventory: newQuantity,
+                    },
+                  },
                   variantsInfo: {
                     variants: [
                       {
