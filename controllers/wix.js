@@ -536,17 +536,17 @@ const buildWixProductPayload = (item, sku, quantity, intake, price) => {
         { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
       ],
       // Stock/quantity for inventory tracking - maps to Inventory & Shipping > Online Store Inventory
-      stock: {
-        quantity,
-        unlimited: false,
-        trackQuantity: true,
-        quantityInStock: quantity,
-        trackInventory: true,
-        inventoryAndShipping: {
-          trackInventory: true,
-          onlineStoreInventory: quantity,
-        },
-      },
+      // stock: {
+      //   quantity,
+      //   unlimited: false,
+      //   trackQuantity: true,
+      //   quantityInStock: quantity,
+      //   trackInventory: true,
+      //   inventoryAndShipping: {
+      //     trackInventory: true,
+      //     onlineStoreInventory: quantity,
+      //   },
+      // },
     },
   };
 };
