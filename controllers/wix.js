@@ -682,6 +682,34 @@ const exportAndSyncDeduplicated = async (req, res) => {
 
       const quantity = totalQuantity;
 
+      // ── Build shared content for update/create ───────────────────────────
+      const val = (...args) => {
+        for (const arg of args) {
+          if (arg && arg !== "N/A" && arg !== "") return arg;
+        }
+        return "N/A";
+      };
+
+      const cd = intake?.carDetails || {};
+      const vd = intake?.vinDetails || {};
+
+      const sourceVehicleHtml = `<ul>
+      <li><p>Year:${val(item.year, vd.ModelYear)}</p></li>
+      <li><p>Make:${val(item.make?.name, vd.Make)}</p></li>
+      <li><p>Model:${val(item.model?.name, vd.Model)}</p></li>
+      <li><p>Model Type:${val(item.trim?.name, vd.Trim)}</p></li>
+      <li><p>Body:${val(cd.bodyClass, vd.BodyClass)}</p></li>
+      <li><p>Door Structure:${val(cd.doorCount, vd.Doors)}</p></li>
+      <li><p>Cylinders:${val(cd.cylinders, vd.EngineCylinders)}</p></li>
+      <li><p>Engine Size:${val(cd.engine, vd.DisplacementL)}</p></li>
+      <li><p>Transmission:${val(cd.transmission, vd.TransmissionStyle)}</p></li>
+      <li><p>Drive Train:${val(cd.drive, vd.DriveType)}</p></li>
+      </ul>`;
+
+      const description = `${formattedPartName}, Condition: Used, ` +
+        `Year: ${item.year}, Make: ${item.make?.name}, ` +
+        `Model: ${item.model?.name}, Trim: ${item.trim?.name}`;
+
       // ── Determine if this product already exists in Wix ───────────────────
       const existingWixId = nameToWixId[productName];
 
@@ -719,6 +747,10 @@ const exportAndSyncDeduplicated = async (req, res) => {
                   trackQuantity: true,
                   quantityInStock: newQuantity,
                   trackInventory: true,
+                  inventoryAndShipping: {
+                    trackInventory: true,
+                    onlineStoreInventory: newQuantity,
+                  },
                 },
                 variantsInfo: {
                   variants: [
@@ -735,6 +767,12 @@ const exportAndSyncDeduplicated = async (req, res) => {
                     },
                   ],
                 },
+                infoSections: [
+                  { title: "Description", plainDescription: description, uniqueName: "description" },
+                  { title: "Fitment", plainDescription: " ", uniqueName: "fitment" },
+                  { title: "Source Vehicle", plainDescription: sourceVehicleHtml, uniqueName: "source-vehicle" },
+                  { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
+                ],
               },
             },
             { headers: WIX_HEADERS }
@@ -788,10 +826,10 @@ const exportAndSyncDeduplicated = async (req, res) => {
           `Model: ${item.model?.name}, Trim: ${item.trim?.name}`,
         productInfo: {
           additionalInfoSections: [
-            { title: "Description", description: "" },
-            { title: "Fitment", description: "" },
-            { title: "Source Vehicle", description: "" },
-            { title: "Return and Refund Policy", description: "" },
+            { title: "Description", description },
+            { title: "Fitment", description: " " },
+            { title: "Source Vehicle", description: sourceVehicleHtml },
+            { title: "Return and Refund Policy", description: " " },
           ],
         },
         // Internal: list of inventory IDs covered by this product (removed before response)
