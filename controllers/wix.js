@@ -283,7 +283,7 @@ const exportAndSyncAllParts = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const items = await Inventory.find({ wixSynced: false })
+    const items = await Inventory.find({ wixSynced: false }).limit(20)
       .populate("make",  "name")
       .populate("model", "name")
       .populate("trim",  "name");
@@ -427,25 +427,41 @@ const exportAndSyncByModel = async (req, res) => {
 
 /**
  * Extracts the best available brand/manufacturer name from an inventory item
- * and its associated car intake data, falling back through multiple sources.
+ * and its associated car intake data.
  */
-const extractBrandName = (item, intake) => {
-  const cd = intake?.carDetails || {};
-  const vd = intake?.vinDetails || {};
-
-  // Priority order: item.make.name > VIN make > carDetails.make
-  const brand =
-    item.make?.name ||
-    vd.Make ||
-    cd.make ||
-    "Unknown";
-
-  return brand;
+const extractBrandName = (item) => {
+  return (item.make?.name || "Unknown").toUpperCase();
 };
 
 /**
- * Builds the Wix API product payload with quantity and brand for a given
- * deduplicated SKU group.
+ * Generates a stable, unique grouping key based on Year + Brand + Model + Part Name.
+ * Products with the same key are considered identical and aggregated into one Wix product.
+ */
+const getGroupKey = (item) => {
+  const year = item.year || "0000";
+  const make = (item.make?.name || "Unknown").toUpperCase();
+  const model = (item.model?.name || "Unknown").toUpperCase();
+  const partName = item.partName
+    .replace(/\s+/g, "")
+    .replace(/^./, (c) => c.toLowerCase());
+  return `${year}-${make}-${model}-${partName}`;
+};
+
+/**
+ * Generates a consistent readable SKU from the product name for Wix.
+ */
+const generateSku = (productName) => {
+  return productName
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .substring(0, 40);
+};
+
+/**
+ * Builds the Wix API product payload for a deduplicated product group.
+ * Sets quantity, brand, price, and inventory tracking fields.
  */
 const buildWixProductPayload = (item, sku, quantity, intake, price) => {
   const cd = intake?.carDetails || {};
@@ -490,7 +506,7 @@ const buildWixProductPayload = (item, sku, quantity, intake, price) => {
     `Year: ${item.year}, Make: ${item.make?.name}, ` +
     `Model: ${item.model?.name}, Trim: ${item.trim?.name}`;
 
-  const brand = extractBrandName(item, intake);
+  const brand = extractBrandName(item);
 
   return {
     product: {
@@ -519,26 +535,37 @@ const buildWixProductPayload = (item, sku, quantity, intake, price) => {
         { title: "Source Vehicle", plainDescription: sourceVehicleHtml, uniqueName: "source-vehicle" },
         { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
       ],
-      // Stock/quantity for inventory tracking
+      // Stock/quantity for inventory tracking - maps to Inventory & Shipping > Online Store Inventory
       stock: {
         quantity,
         unlimited: false,
+        trackQuantity: true,
+        quantityInStock: quantity,
+        trackInventory: true,
+        inventoryAndShipping: {
+          trackInventory: true,
+          onlineStoreInventory: quantity,
+        },
       },
     },
   };
 };
 
-// ── 5. Export unsynced parts deduplicated by SKU with quantity ──────────────
+// ── 5. Export unsynced parts deduplicated by Brand + Part Name with quantity ─
 // POST /api/wix/export/parts/deduplicated
-// Groups inventory items by SKU so only ONE Wix product is created per SKU
-// Quantity is set to the total aggregated quantity for that product
-// All grouped items are marked as synced and the product is visible
-// Directly creates/updates products in Wix via API
-// Uses SKU to determine if a product already exists in Wix (create vs update)
+// Groups inventory items by Year + Make + Model + Part Name (NOT by SKU)
+// so only ONE Wix product is created per unique vehicle part combination.
+// Quantity is the total count of all inventory records in the group.
+// Directly creates/updates products in Wix via API.
+// Uses product name + brand to determine if a product already exists in Wix.
 const exportAndSyncDeduplicated = async (req, res) => {
   try {
     const axios = require("axios");
-    const productIdMap = req.body?.productIdMap || {};
+    const WIX_HEADERS = {
+      "Content-Type": "application/json",
+      "Authorization": process.env.WIX_API_KEY,
+      "wix-site-id": process.env.WIX_SITE_ID,
+    };
 
     const items = await Inventory.find({ wixSynced: false })
       .populate("make",  "name")
@@ -549,65 +576,92 @@ const exportAndSyncDeduplicated = async (req, res) => {
       return res.status(200).json({ success: true, exported: 0, parts: [] });
     }
 
-    // ── Group unsynced items by resolved SKU ──────────────────────────────────
-    const skuGroups = {};
+    // ── Group unsynced items by Year + Make + Model + Part Name ──────────────
+    // DO NOT group by SKU - SKU changes every sync and would create duplicates
+    const groupMap = {};
     for (const item of items) {
-      const sku =
-        item.sku &&
-        !item.sku.includes("${") &&
-        item.sku.length <= 40
-          ? item.sku.substring(0, 40)
-          : item._id.toString();    // fallback: unique ID for items without SKU
-
-      if (!skuGroups[sku]) {
-        skuGroups[sku] = [];
+      const key = getGroupKey(item);
+      if (!groupMap[key]) {
+        groupMap[key] = [];
       }
-      skuGroups[sku].push(item);
+      groupMap[key].push(item);
     }
 
-    // ── Query Wix to find which SKUs already exist ────────────────────────────
-    // Build a map: SKU → existing Wix product ID (if any)
-    const skuToWixId = {};
-    const skus = Object.keys(skuGroups);
+    // ── Query Wix to find which products already exist ───────────────────────
+    // Build a map from product name → existing Wix product ID
+    // We match by product name (e.g., "2010 LEXUS RX350 - Front Bumper")
+    const nameToWixId = {};
 
-    // Query Wix in batches to find existing products by SKU
-    const WIX_BATCH_SIZE = 100;
-    for (let i = 0; i < skus.length; i += WIX_BATCH_SIZE) {
-      const batchSkus = skus.slice(i, i + WIX_BATCH_SIZE);
+    // Collect all product names we'll be creating/updating
+    const productNames = Object.values(groupMap).map((groupItems) => {
+      const item = groupItems[0];
+      const formattedPartName = item.partName
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim();
+      const vehicleName = [
+        item.year,
+        item.make?.name?.toUpperCase(),
+        item.model?.name,
+        item.trim?.name,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return `${vehicleName} - ${formattedPartName}`;
+    });
+
+    // Query Wix in batches to find existing products by name
+    const WIX_BATCH_SIZE = 50;
+    for (let i = 0; i < productNames.length; i += WIX_BATCH_SIZE) {
+      const batchNames = productNames.slice(i, i + WIX_BATCH_SIZE);
       try {
         const queryResp = await axios.post(
           "https://www.wixapis.com/stores/v3/products/query",
           {
             query: {
-              filter: `{"sku": {"$in": ${JSON.stringify(batchSkus)}}}`,
-              fields: ["id", "sku"],
+              filter: `{"name": {"$in": ${JSON.stringify(batchNames)}}}`,
+              fields: ["id", "name"],
             },
           },
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": process.env.WIX_API_KEY,
-              "wix-site-id": process.env.WIX_SITE_ID,
-            },
-          }
+          { headers: WIX_HEADERS }
         );
 
         const existingProducts = queryResp.data?.products || [];
         for (const prod of existingProducts) {
-          if (prod.sku) {
-            skuToWixId[prod.sku] = prod.id;
+          if (prod.name) {
+            nameToWixId[prod.name] = prod.id;
           }
         }
       } catch (queryErr) {
-        console.error("Wix query error for SKU batch:", queryErr.response?.data || queryErr.message);
+        console.error("Wix query error for name batch:", queryErr.response?.data || queryErr.message);
         // Continue - products not found will be created
       }
     }
 
     const parts = [];
 
-    for (const [sku, groupItems] of Object.entries(skuGroups)) {
+    for (const [groupKey, groupItems] of Object.entries(groupMap)) {
       const item = groupItems[0]; // Use first item for all metadata
+
+      // ── Resolve product name ───────────────────────────────────────────────
+      const formattedPartName = item.partName
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim();
+
+      const vehicleName = [
+        item.year,
+        item.make?.name?.toUpperCase(),
+        item.model?.name,
+        item.trim?.name,
+      ]
+        .filter(Boolean)
+        .join(" ");
+
+      const productName = `${vehicleName} - ${formattedPartName}`;
+
+      // ── Generate a consistent SKU from the product name ────────────────────
+      const sku = generateSku(productName);
 
       // ── Fetch car-intake details ─────────────────────────────────────────────
       const intake = await carInTake.findOne({ vin: item.vin }).lean();
@@ -618,74 +672,99 @@ const exportAndSyncDeduplicated = async (req, res) => {
 
       const price = PART_PRICES[partKey] || 0;
 
-      // ── Quantity = total number of inventory items sharing this SKU ──────────
-      const quantity = groupItems.length;
+      // ── Quantity = total number of inventory items in this group ──────────
+      const totalQuantity = await Inventory.countDocuments({
+        make: item.make._id,
+        model: item.model._id,
+        year: item.year,
+        partName: item.partName
+      });
 
-      // ── Build the Wix API product payload with quantity and brand ────────────
-      const wixPayload = buildWixProductPayload(item, sku, quantity, intake, price);
+      const quantity = totalQuantity;
 
-      // ── Determine if this SKU already exists in Wix ─────────────────────────
-      // If the SKU was found in Wix → UPDATE the existing product
-      // Otherwise → CREATE a new product
-      const existingWixId = skuToWixId[sku];
+      // ── Determine if this product already exists in Wix ───────────────────
+      const existingWixId = nameToWixId[productName];
 
       let resolvedWixProductId = existingWixId || item._id.toString();
 
       try {
         if (existingWixId) {
-          // ── Update existing Wix product ──────────────────────────────────────
-          console.log(`Updating Wix product ${existingWixId} (SKU: ${sku}) with quantity ${quantity}`);
+          // ── Update existing Wix product: increment its inventory ────────────
+          // First, get the current stock from Wix
+          let currentQty = 0;
+          try {
+            const getResp = await axios.get(
+              `https://www.wixapis.com/stores/v3/products/${existingWixId}`,
+              { headers: WIX_HEADERS }
+            );
+            currentQty = getResp.data?.product?.stock?.quantity || 0;
+          } catch (getErr) {
+            console.log(`Could not fetch current quantity for ${existingWixId}, starting from 0`);
+          }
+
+          const newQuantity =  quantity;
+          console.log(`Updating Wix product ${existingWixId} ("${productName}") quantity from ${currentQty} to ${newQuantity}`);
+
           await axios.patch(
             `https://www.wixapis.com/stores/v3/products/${existingWixId}`,
             {
               product: {
-                ...wixPayload.product,
-                // Include stock update
+                name: productName,
+                productType: "PHYSICAL",
+                visible: true,
+                brand: extractBrandName(item),
                 stock: {
-                  quantity,
+                  quantity: newQuantity,
                   unlimited: false,
+                  trackQuantity: true,
+                  quantityInStock: newQuantity,
+                  trackInventory: true,
+                },
+                variantsInfo: {
+                  variants: [
+                    {
+                      sku,
+                      price: {
+                        actualPrice: {
+                          amount: String(price.toFixed(2)),
+                        },
+                      },
+                      physicalProperties: {
+                        weight: item.weight || 0,
+                      },
+                    },
+                  ],
                 },
               },
             },
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": process.env.WIX_API_KEY,
-                "wix-site-id": process.env.WIX_SITE_ID,
-              },
-            }
+            { headers: WIX_HEADERS }
           );
           console.log(`Successfully updated Wix product ${existingWixId}`);
+          resolvedWixProductId = existingWixId;
         } else {
           // ── Create new product in Wix ────────────────────────────────────────
-          console.log(`Creating Wix product (SKU: ${sku}) with quantity ${quantity}`);
+          const wixPayload = buildWixProductPayload(item, sku, quantity, intake, price);
+
+          console.log(`Creating Wix product "${productName}" with quantity ${quantity}`);
           const createResp = await axios.post(
             "https://www.wixapis.com/stores/v3/products",
             wixPayload,
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": process.env.WIX_API_KEY,
-                "wix-site-id": process.env.WIX_SITE_ID,
-              },
-            }
+            { headers: WIX_HEADERS }
           );
 
-          // Capture the newly created Wix product ID
           const newWixId = createResp.data?.product?.id;
           if (newWixId) {
             console.log(`Successfully created Wix product ${newWixId}`);
             resolvedWixProductId = newWixId;
-            // Store the mapping so we can reference it when marking synced
-            skuToWixId[sku] = newWixId;
+            nameToWixId[productName] = newWixId;
           }
         }
       } catch (wixErr) {
-        console.error(`Wix API error for SKU ${sku}:`, wixErr.response?.data || wixErr.message);
+        console.error(`Wix API error for "${productName}":`, wixErr.response?.data || wixErr.message);
         // Continue processing other products even if one fails
       }
 
-      const brand = extractBrandName(item, intake);
+      const brand = extractBrandName(item);
 
       const product = {
         externalId: item._id.toString(),
@@ -694,28 +773,17 @@ const exportAndSyncDeduplicated = async (req, res) => {
         model: item.model?.name,
         trim: item.trim?.name,
         year: item.year,
-        weight: item.weight,
-        name: `${[
-          item.year,
-          item.make?.name?.toUpperCase(),
-          item.model?.name,
-          item.trim?.name,
-        ].filter(Boolean).join(" ")} - ${item.partName
-          .replace(/([A-Z])/g, " $1")
-          .replace(/^./, (str) => str.toUpperCase())
-          .trim()}`,
+        brand,
+        name: productName,
         sku,
         productType: 1,
         visible: true,
-        brand,
         category: item.category,
         price,
         quantity,
+        quantityInStock: quantity,
         currency: "USD",
-        description: `${item.partName
-          .replace(/([A-Z])/g, " $1")
-          .replace(/^./, (str) => str.toUpperCase())
-          .trim()}, Condition: Used, ` +
+        description: `${formattedPartName}, Condition: Used, ` +
           `Year: ${item.year}, Make: ${item.make?.name}, ` +
           `Model: ${item.model?.name}, Trim: ${item.trim?.name}`,
         productInfo: {
@@ -736,8 +804,7 @@ const exportAndSyncDeduplicated = async (req, res) => {
     // ── Mark ALL items in each group as synced ─────────────────────────────────
     for (const part of parts) {
       for (const itemId of part._itemIds) {
-        // Use the SKU-to-WixId map to get the correct Wix product ID for this SKU
-        const pid = skuToWixId[part.sku] || part.wixProductId;
+        const pid = nameToWixId[part.name] || part.wixProductId;
         await Inventory.findByIdAndUpdate(itemId, {
           wixSynced: true,
           wixSyncedAt: new Date(),
@@ -768,5 +835,5 @@ module.exports = {
   exportAndSyncByMake,            // new
   exportAndSyncByYear,            // new
   exportAndSyncByModel,           // new
-  exportAndSyncDeduplicated,      // new – deduplicated by SKU with quantity
+  exportAndSyncDeduplicated,      // new – deduplicated by Year+Make+Model+PartName with quantity
 };
