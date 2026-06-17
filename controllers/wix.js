@@ -510,31 +510,34 @@ const buildWixProductPayload = (item, sku, quantity, intake, price) => {
 
   return {
     product: {
-      name: `${vehicleName} - ${formattedPartName}`,
-      productType: "PHYSICAL",
-      visible: true,
-      brand,
-      variantsInfo: {
-        variants: [
-          {
-            sku,
-            price: {
-              actualPrice: {
-                amount: String(price.toFixed(2)),
-              },
-            },
-            physicalProperties: {
-              weight: item.weight || 0,
-            },
-          },
-        ],
-      },
-      infoSections: [
-        { title: "Description", plainDescription: description, uniqueName: "description" },
-        { title: "Fitment", plainDescription: " ", uniqueName: "fitment" },
-        { title: "Source Vehicle", plainDescription: sourceVehicleHtml, uniqueName: "source-vehicle" },
-        { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
-      ],
+      name: `${vehicleName} - ${formattedPartName}`
+    }
+    // product: {
+    //   name: `${vehicleName} - ${formattedPartName}`,
+    //   productType: "PHYSICAL",
+    //   visible: true,
+    //   // brand,
+    //   variantsInfo: {
+    //     variants: [
+    //       {
+    //         sku,
+    //         price: {
+    //           actualPrice: {
+    //             amount: String(price.toFixed(2)),
+    //           },
+    //         },
+    //         physicalProperties: {
+    //           weight: item.weight || 0,
+    //         },
+    //       },
+    //     ],
+    //   },
+      // infoSections: [
+      //   { title: "Description", plainDescription: description, uniqueName: "description" },
+      //   { title: "Fitment", plainDescription: " ", uniqueName: "fitment" },
+      //   { title: "Source Vehicle", plainDescription: sourceVehicleHtml, uniqueName: "source-vehicle" },
+      //   { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
+      // ],
       // Stock/quantity for inventory tracking - maps to Inventory & Shipping > Online Store Inventory
       // stock: {
       //   quantity,
@@ -547,7 +550,9 @@ const buildWixProductPayload = (item, sku, quantity, intake, price) => {
       //     onlineStoreInventory: quantity,
       //   },
       // },
-    },
+
+
+    // },
   };
 };
 
@@ -785,17 +790,17 @@ const exportAndSyncDeduplicated = async (req, res) => {
                   productType: "PHYSICAL",
                   visible: true,
                   brand: extractBrandName(p.item),
-                  stock: {
-                    quantity: newQuantity,
-                    unlimited: false,
-                    trackQuantity: true,
-                    quantityInStock: newQuantity,
-                    trackInventory: true,
-                    inventoryAndShipping: {
-                      trackInventory: true,
-                      onlineStoreInventory: newQuantity,
-                    },
-                  },
+                  // stock: {
+                  //   quantity: newQuantity,
+                  //   unlimited: false,
+                  //   trackQuantity: true,
+                  //   quantityInStock: newQuantity,
+                  //   trackInventory: true,
+                  //   inventoryAndShipping: {
+                  //     trackInventory: true,
+                  //     onlineStoreInventory: newQuantity,
+                  //   },
+                  // },
                   variantsInfo: {
                     variants: [
                       {
