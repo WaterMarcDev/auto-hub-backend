@@ -142,11 +142,11 @@ const mapAndMarkItem = async (item, productIdMap = {}) => {
     productIdMap[item._id.toString()] || item._id.toString();
 
   // Mark synced in DB
-  await Inventory.findByIdAndUpdate(item._id, {
-    wixSynced: true,
-    wixSyncedAt: new Date(),
-    wixProductId,
-  });
+  // await Inventory.findByIdAndUpdate(item._id, {
+  //   wixSynced: true,
+  //   wixSyncedAt: new Date(),
+  //   wixProductId,
+  // });
 
   const intake = await carInTake.findOne({
     vin: item.vin,
@@ -743,6 +743,14 @@ const exportAndSyncDeduplicated = async (req, res) => {
           console.error("[WIX BACKGROUND] Query error for name batch:", queryErr.response?.data || queryErr.message);
         }
       }
+      console.log(
+        "[WIX BACKGROUND] EXISTING PRODUCTS FOUND:",
+        Object.keys(nameToWixId).length
+      );
+
+      console.log("[WIX BACKGROUND] PRODUCT NAMES:",
+        Object.keys(nameToWixId)
+      );
 
       // Process each group: update if exists, create if new
       let syncedCount = 0;
