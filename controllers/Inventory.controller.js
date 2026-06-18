@@ -181,6 +181,23 @@ const createInventory = async (req, res) => {
     // const sku = `${(makeDoc && makeDoc.shortName) || ""}/${(modelDoc && modelDoc.shortName) || ""
     //   }/${year || ""}-${resolvedPartShort}/${color || ""}`;
 
+    // Prevent duplicate inventory records by checking if an identical item already exists
+    const existingInventory = await Inventory.findOne({
+      vin,
+      partName: { $regex: new RegExp(`^${partName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") },
+      // make: makeId,
+      // model: modelId,
+      // trim: trimId,
+      // year,
+    });
+
+    if (existingInventory) {
+      return res.status(200).json({
+        message: "Inventory item already exists",
+        data: existingInventory,
+      });
+    }
+
     const inventory = await Inventory.create({
       partName,
       category: partCategory,   //added by shiva
@@ -713,6 +730,61 @@ const syncInventoriesV3 = async (req, res) => {
 };
 
 
+/**
+ * Deduplicate Inventory — removes duplicate Inventory records
+ * that share the same partName (case-insensitive) + make + model + trim + year + vin.
+ * Keeps only the oldest record per group.
+ * POST /api/inventory/deduplicate
+ */
+const deduplicateInventory = async (req, res) => {
+  try {
+    const duplicates = await Inventory.aggregate([
+      {
+        $group: {
+          _id: {
+            partName: { $toLower: "$partName" },
+            make: "$make",
+            model: "$model",
+            trim: "$trim",
+            year: "$year",
+            vin: "$vin",
+          },
+          count: { $sum: 1 },
+          ids: { $push: "$_id" },
+        },
+      },
+      { $match: { count: { $gt: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    let totalRemoved = 0;
+    const removed = [];
+
+    for (const group of duplicates) {
+      const [, ...removeIds] = group.ids; // keep first, remove rest
+      const result = await Inventory.deleteMany({ _id: { $in: removeIds } });
+      totalRemoved += result.deletedCount;
+      removed.push({
+        key: `${group._id.partName} | ${group._id.make} | ${group._id.model}`,
+        removed: result.deletedCount,
+      });
+    }
+
+    const remaining = await Inventory.countDocuments();
+
+    return res.status(200).json({
+      success: true,
+      duplicateGroupsFound: duplicates.length,
+      totalRemoved,
+      remaining,
+      details: removed,
+    });
+  } catch (error) {
+    console.error("Error deduplicating inventory:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 module.exports = {
   createInventory,
   getInventoryByVIN,
@@ -720,4 +792,5 @@ module.exports = {
   getAllInventories,
   exportInventories,
   syncInventoriesV3,
+  deduplicateInventory,
 };

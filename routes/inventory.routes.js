@@ -17,6 +17,7 @@ const {
   getPartsMasterList,
   getAllInventories,
   exportInventories,
+  deduplicateInventory,
 } = require("../controllers/Inventory.controller");
 
 // by shiva
@@ -104,5 +105,8 @@ router.get("/parts", auth, getPartsMasterList);
  */
 //end here
 router.get("/", auth, getAllInventories);
+
+// POST /api/inventory/deduplicate — removes duplicate inventory records
+router.post("/deduplicate", auth, deduplicateInventory);
 
 module.exports = router;
