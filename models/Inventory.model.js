@@ -89,6 +89,18 @@ const inventorySchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Prevent parts from being inserted twice by shiva
+inventorySchema.index(
+  {
+    vin: 1,
+    partName: 1
+  },
+  {
+    unique: true
+  }
+);
+
 const Inventory = mongoose.model("Inventory", inventorySchema);
 
 module.exports = Inventory;
