@@ -3,6 +3,80 @@ const carInTake = require("../models/carInTake.model");
 
 const PART_PRICES = require("../assets/part_prices.json");
 
+// Connecting wix inventory and collection by shiva
+
+const axios = require("axios");
+
+const WIX_BASE_URL = "https://www.wixapis.com";
+
+const WIX_HEADERS = {
+  "Content-Type": "application/json",
+
+  // Existing Wix token
+  Authorization: process.env.WIX_API_KEY,
+
+  "wix-meta-site-id": process.env.WIX_SITE_ID,
+
+};
+
+// Call the Wix Velo HTTP function. by shiva
+// This runs inside the Wix site, so it has the required Wix site context.
+const syncProductFieldsThroughVelo = async ({
+  productId,
+  brand,
+  category,
+  quantity,
+}) => {
+  const veloUrl = `${String(process.env.WIX_VELO_BASE_URL || "").replace(
+    /\/$/,
+    ""
+  )}/_functions/partSync`;
+
+  console.log("[WIX BACKGROUND] Velo config:", {
+    url: veloUrl,
+    hasSecret: Boolean(process.env.PART_SYNC_SECRET),
+    secretLength: process.env.PART_SYNC_SECRET?.length || 0,
+  });
+
+  const response = await axios.post(
+    veloUrl,
+    {
+      secret: process.env.PART_SYNC_SECRET,
+      productId,
+      brand,
+      category,
+      quantity,
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+      },
+      timeout: 30000,
+    }
+  );
+
+  if (!response.data?.success) {
+    throw new Error(
+      response.data?.error || "Wix Velo part-sync returned an error"
+    );
+  }
+
+  return response.data;
+};
+// end here
+
+
+// Wix CMS Products collection fields from your screenshots
+const WIX_PRODUCT_COLLECTION_ID = "Stores/Products";
+
+const WIX_FIELDS_IDS = {
+  quantityInStock: "quantityInStock",
+  collections: "collections",
+  brand: "brand",
+  inventoryItem: "inventoryItem",
+};
+// end here
+
 const syncWithWix = async (req, res) => {
   try {
     // all inventory where wixSync is true
@@ -18,10 +92,10 @@ const syncWithWix = async (req, res) => {
         .replace(/([A-Z])/g, " $1")
         .replace(/^./, (str) => str.toUpperCase())
         .trim(),
-      sku: 
+      sku:
         item.sku &&
-        !item.sku.includes("${") &&
-        item.sku.length <= 40
+          !item.sku.includes("${") &&
+          item.sku.length <= 40
           ? item.sku.substring(0, 40)
           : item._id.toString(),
       // item.sku
@@ -32,11 +106,9 @@ const syncWithWix = async (req, res) => {
       price: 1,
       // price: 0,
       visible: false,
-      slug: `${item.make.name}-${item.model.name}-${
-        item.trim.name
-      }-${item.partName.replace(/([A-Z])/g, "-$1").replace(/^-/, "")}-${
-        item.year
-      }`,
+      slug: `${item.make.name}-${item.model.name}-${item.trim.name
+        }-${item.partName.replace(/([A-Z])/g, "-$1").replace(/^-/, "")}-${item.year
+        }`,
       brand: item.make.name,
       category: item.category,   //added by shiva
 
@@ -92,7 +164,7 @@ const markInventorySynced = async (req, res) => {
     console.log("PATCH BODY:", req.body);
     console.log("INVENTORY ID:", req.params.inventoryId);
     console.log("WIX PRODUCT ID:", req.body.wixProductId);
-    
+
 
     const inventory = await Inventory.findByIdAndUpdate(
       req.params.inventoryId,
@@ -178,35 +250,35 @@ const mapAndMarkItem = async (item, productIdMap = {}) => {
   </ul>`;
 
   const formattedPartName = item.partName
-      .replace(/([A-Z])/g, " $1")
-      .replace(/^./, (str) => str.toUpperCase())
-      .trim();
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (str) => str.toUpperCase())
+    .trim();
 
   const partKey = item.partName
     .replace(/\s+/g, "")
     .replace(/^./, c => c.toLowerCase());
-  
+
   const price = PART_PRICES[partKey] || 0;
 
   console.log({
     partName: item.partName,
     price,
     vehicle: `${item.year} ${item.make?.name} ${item.model?.name}`,
-});
-    
-    const vehicleName = [
-      item.year,
-      item.make?.name?.toUpperCase(),
-      item.model?.name,
-      item.trim?.name,
-    ]
-      .filter(Boolean)
-      .join(" ");
-    
-    const description =
-      `${formattedPartName}, Condition: Used, Part Number: 123456789, ` +
-      `Year: ${item.year}, Make: ${item.make?.name}, ` +
-        `Model: ${item.model?.name}, Trim: ${item.trim?.name}, Body: SUV`;
+  });
+
+  const vehicleName = [
+    item.year,
+    item.make?.name?.toUpperCase(),
+    item.model?.name,
+    item.trim?.name,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const description =
+    `${formattedPartName}, Condition: Used, Part Number: 123456789, ` +
+    `Year: ${item.year}, Make: ${item.make?.name}, ` +
+    `Model: ${item.model?.name}, Trim: ${item.trim?.name}, Body: SUV`;
 
   return {
     externalId: item._id.toString(),
@@ -225,11 +297,11 @@ const mapAndMarkItem = async (item, productIdMap = {}) => {
     weight: item.weight,
 
     name: `${vehicleName} - ${formattedPartName}`,
-    
+
     sku:
       item.sku &&
-      !item.sku.includes("${") &&
-      item.sku.length <= 40
+        !item.sku.includes("${") &&
+        item.sku.length <= 40
         ? item.sku.substring(0, 40)
         : item._id.toString(),
     productType: 1,
@@ -284,9 +356,9 @@ const exportAndSyncAllParts = async (req, res) => {
     const productIdMap = req.body?.productIdMap || {};
 
     const items = await Inventory.find({ wixSynced: false }).limit(10)
-      .populate("make",  "name")
+      .populate("make", "name")
       .populate("model", "name")
-      .populate("trim",  "name");
+      .populate("trim", "name");
 
     if (!items.length) {
       return res.status(200).json({
@@ -300,7 +372,7 @@ const exportAndSyncAllParts = async (req, res) => {
       items.map((item) => mapAndMarkItem(item, productIdMap))
     );
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
       exported: parts.length,
       parts,
@@ -318,9 +390,9 @@ const exportAndSyncByMake = async (req, res) => {
     const productIdMap = req.body?.productIdMap || {};
 
     const items = await Inventory.find({ wixSynced: false })
-      .populate("make",  "name")
+      .populate("make", "name")
       .populate("model", "name")
-      .populate("trim",  "name");
+      .populate("trim", "name");
 
     if (!items.length) {
       return res.status(200).json({ success: true, exported: 0, groups: {} });
@@ -356,9 +428,9 @@ const exportAndSyncByYear = async (req, res) => {
     const productIdMap = req.body?.productIdMap || {};
 
     const items = await Inventory.find({ wixSynced: false })
-      .populate("make",  "name")
+      .populate("make", "name")
       .populate("model", "name")
-      .populate("trim",  "name");
+      .populate("trim", "name");
 
     if (!items.length) {
       return res.status(200).json({ success: true, exported: 0, groups: {} });
@@ -394,9 +466,9 @@ const exportAndSyncByModel = async (req, res) => {
     const productIdMap = req.body?.productIdMap || {};
 
     const items = await Inventory.find({ wixSynced: false })
-      .populate("make",  "name")
+      .populate("make", "name")
       .populate("model", "name")
-      .populate("trim",  "name");
+      .populate("trim", "name");
 
     if (!items.length) {
       return res.status(200).json({ success: true, exported: 0, groups: {} });
@@ -514,17 +586,17 @@ const buildWixProductPayload = (item, sku, quantity, intake, price) => {
       productType: "PHYSICAL",
       visible: true,
       brand,
-      stock: {
-        quantity,
-        unlimited: false,
-        trackQuantity: true,
-        quantityInStock: quantity,
-        trackInventory: true,
-        inventoryAndShipping: {
-          trackInventory: true,
-          onlineStoreInventory: quantity,
-        },
-      },
+      // stock: {
+      //   quantity,
+      //   unlimited: false,
+      //   trackQuantity: true,
+      //   quantityInStock: quantity,
+      //   trackInventory: true,
+      //   inventoryAndShipping: {
+      //     trackInventory: true,
+      //     onlineStoreInventory: quantity,
+      //   },
+      // },
       variantsInfo: {
         variants: [
           {
@@ -557,21 +629,84 @@ const buildWixProductPayload = (item, sku, quantity, intake, price) => {
 // Quantity is the total count of all inventory records in the group.
 // Responds immediately with summary; Wix API calls run in background.
 // Uses product name + brand to determine if a product already exists in Wix.
+
+// Helper Function to update wix by shiva
+const updateWixCmsProductFields = async ({
+  wixProductId,
+  quantity,
+  brand,
+  collectionIds = [],
+  wixInventoryItemId,
+}) => {
+  if (!wixProductId) {
+    throw new Error("wixProductId is required for CMS update");
+  }
+
+  const data = {
+    _id: wixProductId,
+
+    // Your Wix CMS custom field
+    [WIX_FIELDS_IDS.quantityInStock]: Number(quantity || 0),
+
+    // Your Wix CMS custom Brand Field
+    [WIX_FIELDS_IDS.brand]: brand || "",
+
+    // Your Wix CMS Multi-Reference Collections field
+    [WIX_FIELDS_IDS.collections]: collectionIds,
+
+    // Wix Inventory Item reference field
+    [WIX_FIELDS_IDS.inventoryItem]: wixInventoryItemId || null,
+
+  };
+
+  await axios.patch(
+    `${WIX_BASE_URL}/wix-data/v2/items/${encodeURIComponent(
+      WIX_PRODUCT_COLLECTION_ID
+    )}/${wixProductId}`,
+    {
+      dataItem: {
+        data,
+      },
+    },
+    {
+      headers: WIX_HEADERS,
+    }
+  );
+};
+// end here  
+
+// Add Category -> wWix Collection Mapping by shiva
+const WIX_COLLECTION_MAP = {
+  Engine: "PUT_ENGINE_COLLECTION_ID_HERE",
+  Braking: "PUT_BRAKING_COLLECTION_ID_HERE",
+  "Electrical Parts": "PUT_ELECTRICAL_PARTS_COLLECTION_ID_HERE",
+  Accessories: "PUT_ACCESSORIES_COLLECTION_ID_HERE",
+  "Exterior Parts": "PUT_EXTERIOR_PARTS_COLLECTION_ID_HERE",
+};
+
+const getWixCollectionIds = (category) => {
+  const collectionId = WIX_COLLECTION_MAP[category];
+
+  return collectionId ? [collectionId] : [];
+};
+// end here
+
+
 const exportAndSyncDeduplicated = async (req, res) => {
   try {
-    const axios = require("axios");
-    const WIX_HEADERS = {
-      "Content-Type": "application/json",
-      "Authorization": process.env.WIX_API_KEY,
-      "wix-site-id": process.env.WIX_SITE_ID,
-    };
+    // const axios = require("axios");
+    // const WIX_HEADERS = {
+    //   "Content-Type": "application/json",
+    //   "Authorization": process.env.WIX_API_KEY,
+    //   "wix-site-id": process.env.WIX_SITE_ID,
+    // };
 
     // ── Limit: control how many items to process per sync ────────
     const limit = parseInt(req.query?.limit, 10) || 0;
     const query = Inventory.find({ wixSynced: false })
-      .populate("make",  "name")
+      .populate("make", "name")
       .populate("model", "name")
-      .populate("trim",  "name");
+      .populate("trim", "name");
 
     if (limit > 0) {
       query.limit(limit);
@@ -579,13 +714,37 @@ const exportAndSyncDeduplicated = async (req, res) => {
 
     const items = await query;
 
-    if (!items.length) {
+    // Check valid product details or not by shiva
+    const validItems = items.filter((item) => {
+      const isValid =
+        item &&
+        item._id &&
+        item.partName &&
+        item.make?._id &&
+        item.model?._id &&
+        item.trim?._id;
+
+      if (!isValid) {
+        console.warn("[WIX BACKGROUND] Skipping invalid inventory record:", {
+          inventoryId: item?._id?.toString() || null,
+          partName: item?.partName || null,
+          make: item?.make || null,
+          model: item?.model || null,
+          trim: item?.trim || null,
+        });
+      }
+
+      return isValid;
+    });
+    // end here
+
+    if (!validItems.length) {
       return res.status(200).json({ success: true, exported: 0, parts: [] });
     }
 
     // ── Group unsynced items by Year + Make + Model + Part Name ──────────────
     const groupMap = {};
-    for (const item of items) {
+    for (const item of validItems) {
       const key = getGroupKey(item);
       if (!groupMap[key]) {
         groupMap[key] = [];
@@ -629,6 +788,7 @@ const exportAndSyncDeduplicated = async (req, res) => {
         model: item.model._id,
         year: item.year,
         partName: item.partName,
+        isDeleted: false,
       });
       const quantity = totalQuantity;
 
@@ -701,7 +861,7 @@ const exportAndSyncDeduplicated = async (req, res) => {
       },
     }));
 
-    const totalItems = items.length;
+    const totalItems = validItems.length;
     const exportedCount = responseParts.length;
 
     // Send response first — background Wix sync continues after
@@ -717,31 +877,36 @@ const exportAndSyncDeduplicated = async (req, res) => {
       console.log(`[WIX BACKGROUND] Starting Wix sync for ${exportedCount} product groups (${totalItems} items)...`);
 
       // Build name → existing Wix ID map by querying Wix
-      const nameToWixId = {};
-      const productNames = syncPayloads.map((p) => p.productName);
-      const WIX_BATCH_SIZE = 50;
+      // const nameToWixId = {};
+      // const productNames = syncPayloads.map((p) => p.productName);
+      // const WIX_BATCH_SIZE = 50;
 
-      for (let i = 0; i < productNames.length; i += WIX_BATCH_SIZE) {
-        const batchNames = productNames.slice(i, i + WIX_BATCH_SIZE);
-        try {
-          const queryResp = await axios.post(
-            "https://www.wixapis.com/stores/v3/products/query",
-            {
-              query: {
-                filter: { name: { $in: batchNames } },
-                fields: ["id", "name"],
-              },
-            },
-            { headers: WIX_HEADERS }
-          );
-          const existingProducts = queryResp.data?.products || [];
-          for (const prod of existingProducts) {
-            if (prod.name) nameToWixId[prod.name] = prod.id;
-          }
-        } catch (queryErr) {
-          console.error("[WIX BACKGROUND] Query error for name batch:", queryErr.response?.data || queryErr.message);
-        }
-      }
+      // for (let i = 0; i < productNames.length; i += WIX_BATCH_SIZE) {
+      //   const batchNames = productNames.slice(i, i + WIX_BATCH_SIZE);
+      //   try {
+      //     const queryResp = await axios.post(
+      //       "https://www.wixapis.com/stores/v3/products/query",
+      //       {
+      //         query: {
+      //           filter: { name: { $in: batchNames } },
+      //           fields: ["id", "name"],
+      //         },
+      //       },
+      //       { headers: WIX_HEADERS }
+      //     );
+      //     const existingProducts = queryResp.data?.products || [];
+      //     for (const prod of existingProducts) {
+      //       if (prod.name) nameToWixId[prod.name] = prod.id;
+      //     }
+      //   } catch (queryErr) {
+      //     console.error("[WIX BACKGROUND] Query error for name batch:", queryErr.response?.data || queryErr.message);
+      //   }
+      // }
+
+      // Wix Catalog V3 does not support filtering products by name.
+      // CRM records are marked wixSynced only after Wix product + Velo sync succeed.
+      const nameToWixId = {};
+
       console.log(
         "[WIX BACKGROUND] EXISTING PRODUCTS FOUND:",
         Object.keys(nameToWixId).length
@@ -760,84 +925,124 @@ const exportAndSyncDeduplicated = async (req, res) => {
         let resolvedWixProductId = existingWixId || p.item._id.toString();
 
         try {
-          if (existingWixId) {
-            // Update existing product
-            let currentQty = 0;
+          // let pid =
+          //   p.groupItems.find((groupItem) => groupItem.wixProductId)?.wixProductId ||
+          //   existingWixId ||
+          //   null;
+
+          // if (pid) {
+          //   console.log(
+          //     `[WIX BACKGROUND] Syncing existing Wix product ${pid} through Velo`
+          //   );
+
+          //   await syncProductFieldsThroughVelo({
+          //     productId: pid,
+          //     brand: extractBrandName(p.item),
+          //     category: p.item.category,
+          //     quantity: p.quantity,
+          //   });
+
+          //   console.log(`[WIX BACKGROUND] Existing Wix product synced: ${pid}`);
+          // } 
+          let pid =
+            p.groupItems.find(
+              (groupItem) =>
+                  groupItem.wixProductId &&
+              groupItem.wixProductId !== "null" &&
+              groupItem.wixProductId !== "undefined"
+            )?.wixProductId || null;
+          
+          let productWasCreated = false;
+          if (pid) {
             try {
-              const getResp = await axios.get(
-                `https://www.wixapis.com/stores/v3/products/${existingWixId}`,
-                { headers: WIX_HEADERS }
+              console.log(
+                `[WIX BACKGROUND] Syncing existing Wix product ${pid} through Velo`
               );
-              currentQty = getResp.data?.product?.stock?.quantity || 0;
-            } catch (getErr) {
-              console.log(`[WIX BACKGROUND] Could not fetch current qty for ${existingWixId}`);
-            }
 
-            const newQuantity = p.quantity;
-            console.log(`[WIX BACKGROUND] Updating "${p.productName}" qty ${currentQty} → ${newQuantity}`);
+              await syncProductFieldsThroughVelo({
+                productId: pid,
+                brand: extractBrandName(p.item),
+                category: p.item.category,
+                quantity: p.quantity,
+              });
 
-            await axios.patch(
-              `https://www.wixapis.com/stores/v3/products/${existingWixId}`,
-              {
-                product: {
-                  name: p.productName,
-                  productType: "PHYSICAL",
-                  visible: true,
-                  brand: extractBrandName(p.item),
-                  stock: {
-                    quantity: newQuantity,
-                    unlimited: false,
-                    trackQuantity: true,
-                    quantityInStock: newQuantity,
-                    trackInventory: true,
-                    inventoryAndShipping: {
-                      trackInventory: true,
-                      onlineStoreInventory: newQuantity,
-                    },
-                  },
-                  variantsInfo: {
-                    variants: [
-                      {
-                        sku: p.sku,
-                        price: { actualPrice: { amount: String(p.price.toFixed(2)) } },
-                        physicalProperties: { weight: p.item.weight || 0 },
-                      },
-                    ],
-                  },
-                  infoSections: [
-                    { title: "Description", plainDescription: p.description, uniqueName: "description" },
-                    { title: "Fitment", plainDescription: " ", uniqueName: "fitment" },
-                    { title: "Source Vehicle", plainDescription: p.sourceVehicleHtml, uniqueName: "source-vehicle" },
-                    { title: "Return and Refund Policy", plainDescription: " ", uniqueName: "return-policy" },
-                  ],
-                },
-              },
-              { headers: WIX_HEADERS }
-            );
-            console.log(`[WIX BACKGROUND] Updated ${existingWixId}`);
-            resolvedWixProductId = existingWixId;
-          } else {
-            // Create new product
-            const wixPayload = buildWixProductPayload(p.item, p.sku, p.quantity, p.intake, p.price);
-            console.log(`[WIX BACKGROUND] Creating "${p.productName}" qty ${p.quantity}`);
+              console.log(`[WIX BACKGROUND] Existing Wix product synced: ${pid}`);
+            } catch (existingProductError) {
+              const wixErrorMessage =
+                existingProductError.response?.data?.error ||
+                existingProductError.message ||
+                "";
 
-            const createResp = await axios.post(
-              "https://www.wixapis.com/stores/v3/products",
-              wixPayload,
-              { headers: WIX_HEADERS }
-            );
+              const productNotFound =
+                existingProductError.response?.status === 500 &&
+                wixErrorMessage.includes("was not found");
 
-            const newWixId = createResp.data?.product?.id;
-            if (newWixId) {
-              console.log(`[WIX BACKGROUND] Created ${newWixId}`);
-              resolvedWixProductId = newWixId;
-              nameToWixId[p.productName] = newWixId;
+              if (!productNotFound) {
+                throw existingProductError;
+              }
+
+              console.warn(
+                  `[WARN BACKGROUND] Stored Wix ID ${pid} no longer exists in Wix. Creating a new product instead.`
+              );
+
+              pid = null;
             }
           }
+          if (!pid) {
+            const veloBaseUrl = String(process.env.WIX_VELO_BASE_URL || "").replace(
+              /\/$/,
+              ""
+            );
 
-          // Mark all group items as synced
+            if (!veloBaseUrl) {
+              throw new Error("WIX_VELO_BASE_URL is missing in .env");
+            }
+
+            if (!process.env.PART_SYNC_SECRET) {
+              throw new Error("PART_SYNC_SECRET is missing in .env");
+            }
+
+            console.log(
+              `[WIX BACKGROUND] Sending "${p.productName}" to Wix Velo for creation`
+            );
+
+            const veloResponse = await axios.post(
+              `${veloBaseUrl}/_functions/partSync`,
+              {
+                secret: process.env.PART_SYNC_SECRET,
+                productName: p.productName,
+                sku: p.sku,
+                price: Number(p.price || 0),
+                brand: extractBrandName(p.item),
+                category: p.item.category || "Uncategorized",
+                quantity: Number(p.quantity || 0),
+                description: p.description || "",
+              },
+              {
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                timeout: 30000,
+              }
+            );
+
+            const veloData = veloResponse.data;
+
+            if (!veloData?.success || !veloData?.productId) {
+              throw new Error(
+                `Wix Velo create failed: ${veloData?.error || "No productId returned"}`
+              );
+            }
+
+            pid = veloData.productId;
+            productWasCreated = true;
+
+            console.log(`[WIX BACKGROUND] Velo created Wix product ${pid}`);
+          }
+
+          // Mark all CRM inventory records in this group as synced only AFTER
+          // product + Wix Velo fields are both successful.
           for (const gItem of p.groupItems) {
-            const pid = nameToWixId[p.productName] || resolvedWixProductId;
             await Inventory.findByIdAndUpdate(gItem._id, {
               wixSynced: true,
               wixSyncedAt: new Date(),
@@ -848,7 +1053,14 @@ const exportAndSyncDeduplicated = async (req, res) => {
           syncedCount++;
         } catch (wixErr) {
           errorCount++;
-          console.error(`[WIX BACKGROUND] Wix API error for "${p.productName}":`, wixErr.response?.data || wixErr.message);
+          console.error(`[WIX BACKGROUND] Wix API error for "${p.productName}":`, {
+            status: wixErr.response?.status,
+            statusText: wixErr.response?.statusText,
+            data: wixErr.response?.data,
+            headers: wixErr.response?.headers,
+            message: wixErr.message,
+            stack: wixErr.stack,
+          });
         }
       }
 
@@ -867,6 +1079,49 @@ const exportAndSyncDeduplicated = async (req, res) => {
   }
 };
 
+// Get Wix Collections by shiva
+const listWixCollections = async (req, res) => {
+  try {
+    const response = await axios.post(
+      `${WIX_BASE_URL}/stores/v1/collections/query`,
+      {
+        query: {
+          paging: {
+            limit: 100,
+            offset: 0,
+          },
+        },
+      },
+      {
+        headers: WIX_HEADERS,
+      }
+    );
+
+    const collections = (response.data?.collections || []).map((collection) => ({
+      id: collection.id,
+      name: collection.name,
+      slug: collection.slug || "",
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: collections.length,
+      collections,
+    });
+  } catch (error) {
+    console.error(
+      "Wix Stores collections error:",
+      error.response?.data || error.message
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: error.response?.data || error.message,
+    });
+  }
+};
+// end here
+
 module.exports = {
   syncWithWix,
   markInventorySynced,            // added by shiva
@@ -875,4 +1130,5 @@ module.exports = {
   exportAndSyncByYear,            // new
   exportAndSyncByModel,           // new
   exportAndSyncDeduplicated,      // new – deduplicated by Year+Make+Model+PartName with quantity
+  listWixCollections,
 };

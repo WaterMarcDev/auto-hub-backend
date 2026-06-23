@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { syncWithWix, markInventorySynced } = require("../controllers/wix");   // added markInventorySynced by shiva
+const { syncWithWix, markInventorySynced, listWixCollections } = require("../controllers/wix");   // added markInventorySynced by shiva
 const { syncInventoriesV3 } = require("../controllers/Inventory.controller");    //added by shiva
 // const { exportInventories, syncInventoriesV3 } = require("../controllers/Inventory.controller");
 const { wixAuth } = require("../middleware/wixAuth");
@@ -49,5 +49,8 @@ router.post("/export/parts/by-model", wixAuth, exportAndSyncByModel);
 //          marks all grouped items as synced, product visible with brand
 // @access  Private (Wix authenticated)
 router.post("/export/parts/deduplicated", wixAuth, exportAndSyncDeduplicated);
+
+// Get Wix Collections by shiva
+router.get("/collections/list", listWixCollections);
 
 module.exports = router;

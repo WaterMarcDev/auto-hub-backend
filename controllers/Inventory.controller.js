@@ -182,21 +182,21 @@ const createInventory = async (req, res) => {
     //   }/${year || ""}-${resolvedPartShort}/${color || ""}`;
 
     // Prevent duplicate inventory records by checking if an identical item already exists
-    const existingInventory = await Inventory.findOne({
-      vin,
-      partName: { $regex: new RegExp(`^${partName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") },
-      // make: makeId,
-      // model: modelId,
-      // trim: trimId,
-      // year,
-    });
+    // const existingInventory = await Inventory.findOne({
+    //   vin,
+    //   partName: { $regex: new RegExp(`^${partName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") },
+    //   // make: makeId,
+    //   // model: modelId,
+    //   // trim: trimId,
+    //   // year,
+    // });
 
-    if (existingInventory) {
-      return res.status(200).json({
-        message: "Inventory item already exists",
-        data: existingInventory,
-      });
-    }
+    // if (existingInventory) {
+    //   return res.status(200).json({
+    //     message: "Inventory item already exists",
+    //     data: existingInventory,
+    //   });
+    // }
 
     const inventory = await Inventory.create({
       partName,
