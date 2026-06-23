@@ -75,6 +75,15 @@ const inventorySchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    wixInventoryItemId: {
+      type: String,
+      default: null,
+    },
+
+    wixVariantId: {
+      type: String,
+      default: null,
+    },
     // end here
     // Soft delete fields
     isDeleted: {
