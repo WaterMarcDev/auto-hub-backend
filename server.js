@@ -15,7 +15,13 @@ const http = require("http");                                // real time update
 const { Server } = require("socket.io");                     // by shiva
 const startBackInStockChecker = require("./services/checkBackInStock.service");    // by shiva
 
-require("dotenv").config();
+require("dotenv").config({ override: true });   // added override: true by shiva
+
+console.log("[ENV CHECK]", {
+  envFile: path.join(__dirname, ".env"),
+  hasPartSyncSecret: Boolean(process.env.PART_SYNC_SECRET),
+  partSyncSecretLength: process.env.PART_SYNC_SECRET?.length || 0,
+});
 
 // Connect to MongoDB
 connectDB();
