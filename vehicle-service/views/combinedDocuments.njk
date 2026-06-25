@@ -1,0 +1,268 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Combined Documents - {{ invoice.number or '—' }}</title>
+    <style>
+      @page { size: Letter portrait; margin: 0.6in; }
+      html,body{margin:0;padding:0;font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; color:#0f172a; -webkit-print-color-adjust:exact}
+      body{ padding:18px}
+      .sheet{max-width:800px;margin:0 auto;background:#fff;border-radius:6px;box-shadow:0 6px 18px rgba(15,23,42,0.06);overflow:hidden}
+      .container{padding:36px}
+
+      /* Page break for receipt page */
+      .receipt-page{page-break-after: always;}
+
+      /* Header */
+      .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+      .brand{display:flex;gap:16px;align-items:center}
+      /* Make logo area rectangular and let the img control sizing. Remove circular crop so missing images don't show a circle only */
+      .logo{width:auto;min-width:120px;height:auto;border-radius:0;background:transparent;display:flex;align-items:center;justify-content:center;border:0}
+      .logo img{max-width:160px;height:auto;border-radius:0;object-fit:contain;display:block}
+      .company{font-size:14px;font-weight:700}
+      .company .muted{display:block;color:#6b7280;font-weight:500;font-size:12px}
+
+      .invoice-meta{text-align:right}
+      .invoice-meta h2{margin:0;font-size:20px}
+      .invoice-meta .muted{color:#6b7280;font-size:12px}
+
+      hr.sep{border:0;border-top:1px solid #eef4ff;margin:18px 0}
+
+      /* Customer info */
+      .customer{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px}
+      .customer .left{min-width:260px}
+      .section-title{color:#6b7280;font-size:12px;margin-bottom:8px}
+
+      /* Items table */
+      table.items{width:100%;border-collapse:collapse;margin-top:14px}
+      table.items thead th{background:#e7f0fb;color:#0f172a;text-align:left;padding:12px;font-weight:600;border-bottom:1px solid #dfeefb}
+      /* Alignment helpers for both header and body cells */
+      table.items thead th.center, table.items tbody td.center { text-align:center }
+      table.items thead th.right, table.items tbody td.right { text-align:right }
+      /* Use tabular numbers for consistent decimal alignment */
+      table.items tbody td.right { font-variant-numeric: tabular-nums; }
+      table.items tbody td{padding:14px 12px;border-bottom:1px solid #f1f6fb;vertical-align:top}
+      .item-desc{color:#6b7280;font-size:13px}
+
+      /* Totals */
+      .totals{display:flex;justify-content:flex-end;margin-top:18px}
+      .totals .box{width:320px}
+      .totals .line{display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #f1f6fb}
+      .totals .line .k{color:#6b7280}
+      .totals .total{font-weight:700}
+      .balance-pill{display:inline-block;margin-top:12px;background:#eef6ff;padding:12px 16px;border-radius:8px;font-weight:800;color:#06266b;float:right}
+
+      .thanks{margin-top:36px;color:#6b7280;font-size:13px}
+
+      /* Title certificate page */
+      .title-certificate-page{margin-top:36px}
+      .title-certificate-title{font-size:18px;font-weight:700;margin-bottom:24px;text-align:center;color:#0f172a}
+      .title-certificate-image{width:100%;max-width:100%;height:auto;object-fit:contain;display:block;margin:0 auto}
+
+      @media print{
+        body{padding:0}
+        .sheet{box-shadow:none;border-radius:0}
+        .container{padding:18px}
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Page 1: Receipt -->
+    <div class="sheet receipt-page" role="document">
+      <div class="container">
+        <div class="top">
+          <div class="brand">
+            <div class="logo">
+              <img src="{{ logoSrc }}" alt="AutoHub Express" style="max-width:160px;height:auto;border-radius:0;display:block;object-fit:contain"/>
+            </div>
+            <div>
+              <div class="company">{{ 'RTX Recycling Inc' }}</div>
+              <div class="muted">{{ '242 Monmouth Road' }}</div>
+              <div class="muted">{{ 'Wrightstown,' }}</div>
+              <div class="muted">{{ 'New Jersey 08562' }}</div>
+              <div class="muted">{{ 'USA' }}</div>
+              <div class="muted">{{ 'hello@autohub.express' }}</div>
+              <div class="muted">Phone: {{ '+1 609 758 1919' }}</div>
+            </div>
+          </div>
+
+          <div class="invoice-meta">
+            {% set issueDate = (invoice and invoice.issueDate) or (transaction and transaction.createdAt) or carIntake.createdAt or generatedAt %}
+            {% set issueDateStr = '' %}
+            {% if issueDate %}
+              {% if issueDate.toLocaleDateString %}
+                {% set issueDateStr = issueDate.toLocaleDateString('en-US') %}
+              {% else %}
+                {% set issueDateStr = issueDate | usDate %}
+              {% endif %}
+            {% endif %}
+            {# Slip number: prefer paymentSlip.slipNumber -> invoice.number -> fallback #}
+            {% if slipPadded %}
+              <h2>Payment Slip #{{ slipPadded }}</h2>
+            {% else %}
+              <h2>Payment Slip</h2>
+            {% endif %}
+            <div class="muted">Issue Date: {{ issueDateStr }}</div>
+          </div>
+        </div>
+
+        <hr class="sep" />
+
+        <div class="customer">
+          <div class="left">
+            {% set sellerData = seller or (carIntake and carIntake.kyc and carIntake.kyc.seller) %}
+            <div class="section-title">Seller Info:</div>
+            <div style="font-weight:700">{{ sellerData.name or (sellerData.firstName and sellerData.lastName and (sellerData.firstName ~ ' ' ~ sellerData.lastName)) or '—' }}</div>
+            <div class="muted">{{ sellerData.email or '' }}</div>
+            <div class="muted">Phone: {{ sellerData.mobileNo or sellerData.phone or '' }}</div>
+            {% if sellerData.description %}
+              <div class="item-desc" style="margin-top:6px">{{ sellerData.description }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        {# Compute derived amounts when items are missing: prefer transaction.amount for carIntake #}
+        {% if not (items and items | length) %}
+          {# Prefer paymentSlip snapshot when available, otherwise fallback to transaction/invoice #}
+          {% set baseAmount = (paymentSlip and paymentSlip.grossAmount) or (transaction and transaction.amount) or invoice.total or 0 %}
+          {# determine taxPercent: prefer paymentSlip.taxRate -> transaction.taxRate -> default 6.625% #}
+          {% if paymentSlip and (paymentSlip.taxRate is not none) %}
+            {% set taxPercent = paymentSlip.taxRate %}
+          {% elseif transaction and (transaction.taxRate is not none) %}
+            {% set taxPercent = transaction.taxRate %}
+          {% else %}
+            {% set taxPercent = 6.625 / 100 %}
+          {% endif %}
+          {# determine taxAmount: prefer paymentSlip.taxAmount -> transaction.taxAmount -> compute #}
+          {% if paymentSlip and (paymentSlip.taxAmount is not none) %}
+            {% set taxAmount = paymentSlip.taxAmount %}
+          {% elseif transaction and (transaction.taxAmount is not none) %}
+            {% set taxAmount = transaction.taxAmount %}
+          {% else %}
+            {% set taxAmount = baseAmount * taxPercent %}
+          {% endif %}
+          {# determine net (payment total) as gross - tax; prefer paymentSlip.netAmount -> transaction.netAmount -> compute #}
+          {% if paymentSlip and (paymentSlip.netAmount is not none) %}
+            {% set netDerived = paymentSlip.netAmount + (adjustedEntryFee or 0) %}
+          {% elseif transaction and (transaction.netAmount is not none) %}
+            {% set netDerived = transaction.netAmount + (adjustedEntryFee or 0) %}
+          {% else %}
+            {% set netDerived = (baseAmount + taxAmount) + (adjustedEntryFee or 0) %}
+          {% endif %}
+        {% else %}
+          {% set baseAmount = null %}
+          {% set taxPercent = 6.625 / 100 %}
+          {% set taxAmount = invoice.taxes or 0 %}
+          {% set subtotalDerived = invoice.subtotal or 0 %}
+        {% endif %}
+
+        <table class="items" role="table">
+          <thead>
+            <tr>
+              <th style="width:52%">Product or Service</th>
+              <th class="center" style="width:12%">Quantity</th>
+              <th class="right" style="width:18%">Price</th>
+              <th class="right" style="width:18%">Line Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if items and items | length %}
+              {% for it in items %}
+              <tr>
+                <td>
+                  <div style="font-weight:600">{{ it.title or it.name }}</div>
+                  {% if it.description %}
+                    <div class="item-desc">{{ it.description }}</div>
+                  {% endif %}
+                </td>
+                <td class="center">{{ it.qty or it.quantity or 1 }}</td>
+                <td class="right">{{ it.unitPrice | usCurrency }}</td>
+                <td class="right">{{ (it.qty or it.quantity or 1) * (it.unitPrice or it.price or 0) | usCurrency }}</td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td>
+                  <div style="font-weight:600">{{ ( (carIntake.carDetails.make or '') ~ ' ' ~ (carIntake.carDetails.model or '') ~ (carIntake.carDetails.year and (' ' ~ carIntake.carDetails.year) or '') ~ (carIntake.carDetails.trim and (' ' ~ carIntake.carDetails.trim) or '') ) | trim }}</div>
+                  <div class="item-desc">VIN: {{ carIntake.vin or '-' }}{% if carIntake.carDetails.color %} • Color: {{ carIntake.carDetails.color }}{% endif %}</div>
+                </td>
+                <td class="center">1</td>
+                <td class="right">{{ (baseAmount or 0) | usCurrency }}</td>
+                <td class="right">{{ (baseAmount or 0) | usCurrency }}</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+
+        <div class="totals">
+          <div class="box">
+            {% if baseAmount is not null %}
+              <div class="line"><div class="k">Subtotal</div><div class="v total">{{ baseAmount | usCurrency }}</div></div>
+              <div class="line"><div class="k">Taxes ({{ (taxPercent * 100) | round(3) }}%)</div><div class="v">{{ taxAmount | usCurrency }}</div></div>
+              {% if adjustedEntryFee %}
+                <div class="line"><div class="k">Adjusted entry fee</div><div class="v">{{ adjustedEntryFee | usCurrency }}</div></div>
+              {% endif %}
+              <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
+              {# Show Payment Total and Amount Paid as net amount after tax deduction, balance zero #}
+              <div class="line"><div class="k">Payment Total</div><div class="v total">{{ netDerived | usCurrency }}</div></div>
+              <div class="line"><div class="k">Amount Paid</div><div class="v">{{ netDerived | usCurrency }}</div></div>
+              <div style="padding:12px">
+                {% set balance = 0 %}
+                <div class="balance-pill">Balance Due&nbsp;&nbsp;{{ balance | usCurrency }}</div>
+              </div>
+            {% else %}
+              <div class="line"><div class="k">Subtotal</div><div class="v total">{{ invoice.subtotal | usCurrency }}</div></div>
+              <div class="line"><div class="k">Taxes</div><div class="v">{{ invoice.taxes | usCurrency }}</div></div>
+              <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
+              <div class="line"><div class="k">Payment Total</div><div class="v total">{{ invoice.total | usCurrency }}</div></div>
+              <div class="line"><div class="k">Amount Paid</div><div class="v">{{ invoice.amountPaid | usCurrency }}</div></div>
+              <div style="padding:12px">
+                <div class="balance-pill">Balance Due&nbsp;&nbsp;{{ invoice.balanceDue | usCurrency }}</div>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div style="clear:both"></div>
+        
+      </div>
+    </div>
+
+    <!-- Page 2: Title Certificate -->
+    <!-- Dynamic Document Pages -->
+    {% if documents and documents | length %}
+      {% for doc in documents %}
+        <div class="sheet title-certificate-page" role="document" style="{{ 'page-break-after: always' if not loop.last else '' }}">
+          <div class="container">
+            <div class="title-certificate-title">{{ doc.title }}</div>
+            {% if doc.dataUri %}
+              <img src="{{ doc.dataUri }}" alt="{{ doc.title }}" class="title-certificate-image" />
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      {% if documentTitle and documentDataUri %}
+        <div class="sheet title-certificate-page" role="document">
+            <div class="container">
+            <div class="title-certificate-title">{{ documentTitle }}</div>
+            <img src="{{ documentDataUri }}" alt="{{ documentTitle }}" class="title-certificate-image" />
+            </div>
+        </div>
+      {% endif %}
+    {% endif %}
+
+    <script>
+      (function(){
+        try{
+          const params = new URLSearchParams(window.location.search);
+          if (params.get('autoPrint') === '1'){
+            function p(){ try{ window.print() }catch(e){} }
+            if (document.readyState === 'complete') p(); else window.addEventListener('load', p);
+          }
+        }catch(e){}
+      })();
+    </script>
+  </body>
+</html>

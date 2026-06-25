@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:8.0
+    container_name: autohub-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: autohub
+    networks:
+      - autohub-network
+
+  # Auth Service
+  auth-service:
+    build: ./auth-service
+    container_name: autohub-auth
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./auth-service/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/autohub
+      - SERVICE_NAME=auth-service
+    depends_on:
+      - mongodb
+    networks:
+      - autohub-network
+    volumes:
+      - ./auth-service:/app
+      - /app/node_modules
+
+  # Vehicle Service
+  vehicle-service:
+    build: ./vehicle-service
+    container_name: autohub-vehicle
+    ports:
+      - "3002:3002"
+    env_file:
+      - ./vehicle-service/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/autohub
+      - SERVICE_NAME=vehicle-service
+    depends_on:
+      - mongodb
+    networks:
+      - autohub-network
+    volumes:
+      - ./vehicle-service:/app
+      - /app/node_modules
+
+  # Inventory Service
+  inventory-service:
+    build: ./inventory-service
+    container_name: autohub-inventory
+    ports:
+      - "3003:3003"
+    env_file:
+      - ./inventory-service/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/autohub
+      - SERVICE_NAME=inventory-service
+    depends_on:
+      - mongodb
+    networks:
+      - autohub-network
+    volumes:
+      - ./inventory-service:/app
+      - ./uploads:/app/uploads
+      - /app/node_modules
+
+  # Transaction Service
+  transaction-service:
+    build: ./transaction-service
+    container_name: autohub-transaction
+    ports:
+      - "3004:3004"
+    env_file:
+      - ./transaction-service/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/autohub
+      - SERVICE_NAME=transaction-service
+    depends_on:
+      - mongodb
+    networks:
+      - autohub-network
+    volumes:
+      - ./transaction-service:/app
+      - /app/node_modules
+
+  # People Service
+  people-service:
+    build: ./people-service
+    container_name: autohub-people
+    ports:
+      - "3005:3005"
+    env_file:
+      - ./people-service/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/autohub
+      - SERVICE_NAME=people-service
+    depends_on:
+      - mongodb
+    networks:
+      - autohub-network
+    volumes:
+      - ./people-service:/app
+      - /app/node_modules
+
+  # Integration Service
+  integration-service:
+    build: ./integration-service
+    container_name: autohub-integration
+    ports:
+      - "3006:3006"
+    env_file:
+      - ./integration-service/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/autohub
+      - SERVICE_NAME=integration-service
+    depends_on:
+      - mongodb
+    networks:
+      - autohub-network
+    volumes:
+      - ./integration-service:/app
+      - ./uploads:/app/uploads
+      - /app/node_modules
+
+  # Nginx API Gateway
+  nginx:
+    image: nginx:alpine
+    container_name: autohub-gateway
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./uploads:/usr/share/nginx/html/uploads:ro
+      - ./assets:/usr/share/nginx/html/assets:ro
+    depends_on:
+      - auth-service
+      - vehicle-service
+      - inventory-service
+      - transaction-service
+      - people-service
+      - integration-service
+    networks:
+      - autohub-network
+
+networks:
+  autohub-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
