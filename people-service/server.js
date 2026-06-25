@@ -5,6 +5,7 @@ const cookieParser = require("cookie-parser");
 const morgan     = require("morgan");
 const path       = require("path");
 
+const mongoose = require("mongoose");
 const connectDB              = require("../shared/database");
 const { errorHandler, notFound } = require("../shared/errorHandler");
 
@@ -17,7 +18,7 @@ const partRequestRoutes = require("./routes/partRequest.routes");
 const app  = express();
 const PORT = process.env.PORT || 3005;
 
-connectDB();
+connectDB(mongoose);
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(morgan("dev"));

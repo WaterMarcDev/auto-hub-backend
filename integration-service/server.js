@@ -7,6 +7,7 @@ const path         = require("path");
 const http         = require("http");
 const { Server }   = require("socket.io");
 
+const mongoose = require("mongoose");
 const connectDB              = require("../shared/database");
 const { errorHandler, notFound } = require("../shared/errorHandler");
 
@@ -20,7 +21,7 @@ const app    = express();
 const server = http.createServer(app);
 const PORT   = process.env.PORT || 3006;
 
-connectDB();
+connectDB(mongoose);
 
 // Socket.IO for real-time email notifications
 const io = new Server(server, { cors: { origin: "*" } });

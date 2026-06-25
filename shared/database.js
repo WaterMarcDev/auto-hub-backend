@@ -1,6 +1,7 @@
-const mongoose = require("mongoose");
+const defaultMongoose = require("mongoose");
 
-const connectDB = async () => {
+const connectDB = async (mongooseInstance) => {
+  const mongoose = mongooseInstance || defaultMongoose;
   try {
     const conn = await mongoose.connect(
       process.env.MONGODB_URI || "mongodb://localhost:27017/autohub"

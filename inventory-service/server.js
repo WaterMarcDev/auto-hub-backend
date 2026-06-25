@@ -6,6 +6,7 @@ const morgan = require("morgan");
 const nunjucks = require("nunjucks");
 const path = require("path");
 
+const mongoose = require("mongoose");
 const connectDB = require("../shared/database");
 const { errorHandler, notFound } = require("../shared/errorHandler");
 
@@ -19,7 +20,7 @@ const elementRoutes = require("./routes/element.routes");
 const app = express();
 const PORT = process.env.PORT || 3003;
 
-connectDB();
+connectDB(mongoose);
 
 // Views for invoice print routes
 const njEnv = nunjucks.configure(path.join(__dirname, "views"), {

@@ -15,7 +15,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // DB
-connectDB();
+connectDB(mongoose);
 
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
