@@ -1,0 +1,265 @@
+{
+  "info": {
+    "name": "Auto Hub Backend APIs",
+    "description": "Postman Collection for Auto Hub Auth, User, Inventory, People, Transaction, and Vehicle Services",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth Service (Port 3001)",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"john.doe@example.com\",\n  \"password\": \"securepassword123\",\n  \"rememberMe\": true\n}" },
+            "url": { "raw": "http://localhost:3001/api/auth/login", "protocol": "http", "host": ["localhost"], "port": "3001", "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": { "mode": "raw", "raw": "{\n  \"first_name\": \"Jane\",\n  \"last_name\": \"Smith\",\n  \"email\": \"jane@example.com\",\n  \"password\": \"securepassword123\",\n  \"role\": \"staff\"\n}" },
+            "url": { "raw": "http://localhost:3001/api/auth/register", "protocol": "http", "host": ["localhost"], "port": "3001", "path": ["api", "auth", "register"] }
+          }
+        },
+        {
+          "name": "Get Profile",
+          "request": { "method": "GET", "url": { "raw": "http://localhost:3001/api/auth/profile", "protocol": "http", "host": ["localhost"], "port": "3001", "path": ["api", "auth", "profile"] } }
+        },
+        {
+          "name": "Logout",
+          "request": { "method": "POST", "url": { "raw": "http://localhost:3001/api/auth/logout", "protocol": "http", "host": ["localhost"], "port": "3001", "path": ["api", "auth", "logout"] } }
+        }
+      ]
+    },
+    {
+      "name": "User Service (Port 3001)",
+      "item": [
+        {
+          "name": "Get All Users",
+          "request": { "method": "GET", "url": { "raw": "http://localhost:3001/api/users", "protocol": "http", "host": ["localhost"], "port": "3001", "path": ["api", "users"] } }
+        }
+      ]
+    },
+    {
+      "name": "Inventory Service (Port 3003)",
+      "item": [
+        {
+          "name": "Parts",
+          "item": [
+            { "name": "Get All Parts", "request": { "method": "GET", "url": { "raw": "http://localhost:3003/api/part", "protocol": "http", "host": ["localhost"], "port": "3003", "path": ["api", "part"] } } },
+            {
+              "name": "Create Part",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Radiator\",\n  \"category\": \"Engine Cooling\",\n  \"unit\": \"pcs\",\n  \"weight\": 12\n}" },
+                "url": { "raw": "http://localhost:3003/api/part", "protocol": "http", "host": ["localhost"], "port": "3003", "path": ["api", "part"] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Tags",
+          "item": [
+            { "name": "Get All Tags", "request": { "method": "GET", "url": { "raw": "http://localhost:3003/api/tags", "protocol": "http", "host": ["localhost"], "port": "3003", "path": ["api", "tags"] } } },
+            {
+              "name": "Generate Tags",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"count\": 5\n}" },
+                "url": { "raw": "http://localhost:3003/api/tags/generate", "protocol": "http", "host": ["localhost"], "port": "3003", "path": ["api", "tags", "generate"] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inventory",
+          "item": [
+            { "name": "Get All Inventory", "request": { "method": "GET", "url": { "raw": "http://localhost:3003/api/inventory", "protocol": "http", "host": ["localhost"], "port": "3003", "path": ["api", "inventory"] } } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "People Service (Port 3005)",
+      "item": [
+        {
+          "name": "Sellers",
+          "item": [
+            { "name": "Get All Sellers", "request": { "method": "GET", "url": { "raw": "http://localhost:3005/api/sellers", "protocol": "http", "host": ["localhost"], "port": "3005", "path": ["api", "sellers"] } } },
+            {
+              "name": "Create Seller",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Bob\",\n  \"lastName\": \"Builder\",\n  \"email\": \"bob@example.com\",\n  \"mobileNo\": \"1234567890\"\n}" },
+                "url": { "raw": "http://localhost:3005/api/sellers", "protocol": "http", "host": ["localhost"], "port": "3005", "path": ["api", "sellers"] }
+              }
+            },
+            {
+              "name": "Update Seller",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Robert\"\n}" },
+                "url": { "raw": "http://localhost:3005/api/sellers/:id", "protocol": "http", "host": ["localhost"], "port": "3005", "path": ["api", "sellers", ":id"], "variable": [{"key": "id", "value": "REPLACE_ME"}] }
+              }
+            },
+            { "name": "Delete Seller", "request": { "method": "DELETE", "url": { "raw": "http://localhost:3005/api/sellers/:id", "protocol": "http", "host": ["localhost"], "port": "3005", "path": ["api", "sellers", ":id"], "variable": [{"key": "id", "value": "REPLACE_ME"}] } } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Transaction Service (Port 3004)",
+      "item": [
+        {
+          "name": "Entry Fees",
+          "item": [
+            { "name": "Get Entry Fees", "request": { "method": "GET", "url": { "raw": "http://localhost:3004/api/entry-fee", "protocol": "http", "host": ["localhost"], "port": "3004", "path": ["api", "entry-fee"] } } },
+            {
+              "name": "Set Entry Fee",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"entryFee\": 5.50\n}" },
+                "url": { "raw": "http://localhost:3004/api/entry-fee", "protocol": "http", "host": ["localhost"], "port": "3004", "path": ["api", "entry-fee"] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Transactions",
+          "item": [
+            { "name": "Get All Transactions", "request": { "method": "GET", "url": { "raw": "http://localhost:3004/api/transactions", "protocol": "http", "host": ["localhost"], "port": "3004", "path": ["api", "transactions"] } } },
+            {
+              "name": "Create Transaction",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"type\": \"credit\",\n  \"amount\": 100,\n  \"paymentMethod\": \"Cash\",\n  \"description\": \"Test transaction\"\n}" },
+                "url": { "raw": "http://localhost:3004/api/transactions", "protocol": "http", "host": ["localhost"], "port": "3004", "path": ["api", "transactions"] }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check-ins",
+          "item": [
+            { "name": "Get All Check-ins", "request": { "method": "GET", "url": { "raw": "http://localhost:3004/api/checkins", "protocol": "http", "host": ["localhost"], "port": "3004", "path": ["api", "checkins"] } } }
+          ]
+        },
+        {
+          "name": "Invoices",
+          "item": [
+            { "name": "Get All Invoices", "request": { "method": "GET", "url": { "raw": "http://localhost:3004/api/invoices", "protocol": "http", "host": ["localhost"], "port": "3004", "path": ["api", "invoices"] } } }
+          ]
+        },
+        {
+          "name": "Dashboard",
+          "item": [
+            { "name": "Get Dashboard Data", "request": { "method": "GET", "url": { "raw": "http://localhost:3004/api/dashboard/summary", "protocol": "http", "host": ["localhost"], "port": "3004", "path": ["api", "dashboard", "summary"] } } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Vehicle Service (Port 3002)",
+      "item": [
+        {
+          "name": "Make",
+          "item": [
+            { "name": "Get All Makes", "request": { "method": "GET", "url": { "raw": "http://localhost:3002/api/make", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "make"] } } },
+            {
+              "name": "Create Make",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Toyota\"\n}" },
+                "url": { "raw": "http://localhost:3002/api/make", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "make"] }
+              }
+            },
+            {
+              "name": "Update Make",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"description\": \"Updated Make\"\n}" },
+                "url": { "raw": "http://localhost:3002/api/make/:id", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "make", ":id"], "variable": [{"key": "id", "value": "REPLACE_ME"}] }
+              }
+            },
+            { "name": "Delete Make", "request": { "method": "DELETE", "url": { "raw": "http://localhost:3002/api/make/:id", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "make", ":id"], "variable": [{"key": "id", "value": "REPLACE_ME"}] } } }
+          ]
+        },
+        {
+          "name": "Model",
+          "item": [
+            { "name": "Get All Models", "request": { "method": "GET", "url": { "raw": "http://localhost:3002/api/model", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "model"] } } },
+            {
+              "name": "Create Model",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"Camry\",\n  \"make\": \"REPLACE_WITH_MAKE_ID\"\n}" },
+                "url": { "raw": "http://localhost:3002/api/model", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "model"] }
+              }
+            },
+            {
+              "name": "Update Model",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"description\": \"Updated Model\"\n}" },
+                "url": { "raw": "http://localhost:3002/api/model/:id", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "model", ":id"], "variable": [{"key": "id", "value": "REPLACE_ME"}] }
+              }
+            },
+            { "name": "Delete Model", "request": { "method": "DELETE", "url": { "raw": "http://localhost:3002/api/model/:id", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "model", ":id"], "variable": [{"key": "id", "value": "REPLACE_ME"}] } } }
+          ]
+        },
+        {
+          "name": "Trim",
+          "item": [
+            { "name": "Get All Trims", "request": { "method": "GET", "url": { "raw": "http://localhost:3002/api/trim", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "trim"] } } },
+            {
+              "name": "Create Trim",
+              "request": {
+                "method": "POST",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"name\": \"LE\",\n  \"make\": \"REPLACE_WITH_MAKE_ID\",\n  \"model\": \"REPLACE_WITH_MODEL_ID\"\n}" },
+                "url": { "raw": "http://localhost:3002/api/trim", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "trim"] }
+              }
+            },
+            {
+              "name": "Update Trim",
+              "request": {
+                "method": "PUT",
+                "header": [ { "key": "Content-Type", "value": "application/json" } ],
+                "body": { "mode": "raw", "raw": "{\n  \"description\": \"Updated Trim\"\n}" },
+                "url": { "raw": "http://localhost:3002/api/trim/:id", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "trim", ":id"], "variable": [{"key": "id", "value": "REPLACE_ME"}] }
+              }
+            },
+            { "name": "Delete Trim", "request": { "method": "DELETE", "url": { "raw": "http://localhost:3002/api/trim/:id", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "trim", ":id"], "variable": [{"key": "id", "value": "REPLACE_ME"}] } } }
+          ]
+        },
+        {
+          "name": "Car Intake",
+          "item": [
+            { "name": "Get All Car Intakes", "request": { "method": "GET", "url": { "raw": "http://localhost:3002/api/car-intake", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "car-intake"] } } }
+          ]
+        },
+        {
+          "name": "Junk Cars",
+          "item": [
+            { "name": "Get All Junk Cars", "request": { "method": "GET", "url": { "raw": "http://localhost:3002/api/junk-car", "protocol": "http", "host": ["localhost"], "port": "3002", "path": ["api", "junk-car"] } } }
+          ]
+        }
+      ]
+    }
+  ]
+}

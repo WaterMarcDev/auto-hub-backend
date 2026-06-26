@@ -10,6 +10,9 @@ const generateToken = (userId) =>
 // POST /api/auth/register
 const register = async (req, res) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({ error: "Request body is required" });
+    }
     const { first_name, last_name, email, password, role } = req.body;
 
     const existingUser = await User.findOne({ email });
@@ -45,6 +48,9 @@ const login = async (req, res) => {
       return res.status(400).json({ error: "Validation failed", details: errors.array() });
     }
 
+    if (!req.body) {
+      return res.status(400).json({ error: "Request body is required" });
+    }
     const { email, password, rememberMe } = req.body;
 
     const user = await User.findOne({ email });
