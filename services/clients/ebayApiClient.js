@@ -104,7 +104,7 @@ class EbayApiClient {
     if (this.environment === "sandbox") {
       return "https://signin.sandbox.ebay.com/authorize";
     }
-    return "https://signin.ebay.com/authorize";
+    return "https://signin.ebay.com/oauth2/authorize";
   }
 
   /**
