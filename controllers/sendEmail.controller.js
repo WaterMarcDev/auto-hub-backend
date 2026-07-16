@@ -52,6 +52,17 @@ const sendReply = async (req, res) => {
 
     try {
 
+        console.log("=== SEND REPLY DIAGNOSTIC ===");
+        console.log("STEP 1: Request received");
+        console.log("req.body.to:", req.body?.to);
+        console.log("req.body.subject:", req.body?.subject);
+        console.log("req.body.message length:", req.body?.message?.length);
+        console.log("req.files count:", req.files?.length);
+        console.log("SENDGRID_API_KEY present:", !!process.env.SENDGRID_API_KEY);
+        console.log("SENDGRID_API_KEY prefix:", process.env.SENDGRID_API_KEY?.substring(0, 10));
+        console.log("BASE_URL:", process.env.BASE_URL);
+        console.log("BACKEND_URL:", process.env.BACKEND_URL);
+
         const {
             to,
             subject,
@@ -63,6 +74,10 @@ const sendReply = async (req, res) => {
 
         const emailOnly =
             raw.match(/<(.+)>/)?.[1] || raw;
+
+        console.log("STEP 2: Email parsed");
+        console.log("raw:", raw);
+        console.log("emailOnly:", emailOnly);
 
         // Email validation
         const emailRegex =
@@ -81,6 +96,10 @@ const sendReply = async (req, res) => {
         const safeMessage =
             message || "";
 
+        console.log("STEP 3: Validation passed");
+        console.log("safeSubject:", safeSubject);
+        console.log("safeMessage length:", safeMessage.length);
+
         // SENDGRID attachments
         const sgAttachments =
             (req.files || []).map(file => ({
@@ -98,6 +117,9 @@ const sendReply = async (req, res) => {
                 disposition:
                     "attachment"
             }));
+
+        console.log("STEP 4: Files processed");
+        console.log("sgAttachments count:", sgAttachments.length);
 
         // CRM attachments
         const crmAttachments =
@@ -125,8 +147,11 @@ const sendReply = async (req, res) => {
         const formattedSubject =
             `Re[${count}] ${cleanSubject}`;
 
-        // SEND EMAIL
-        await sgMail.send({
+        console.log("STEP 5: Subject formatted");
+        console.log("formattedSubject:", formattedSubject);
+
+        // SEND EMAIL — include attachments so they are actually delivered
+        const mailPayload = {
 
             to: emailOnly,
 
@@ -155,8 +180,17 @@ const sendReply = async (req, res) => {
                     ${emailSignature}
                 </div>
             `,
-                // "<h1>Test Reply</h1>",
-        });
+        };
+
+        if (sgAttachments.length > 0) {
+            mailPayload.attachments = sgAttachments;
+        }
+
+        console.log("STEP 6: Calling sgMail.send()...");
+
+        await sgMail.send(mailPayload);
+
+        console.log("STEP 7: sgMail.send() succeeded");
 
         // SAVE IN DB
         const savedReply =
@@ -181,6 +215,9 @@ const sendReply = async (req, res) => {
                     emailOnly,
             });
 
+        console.log("STEP 8: CRMEmail.create() succeeded");
+        console.log("savedReply._id:", savedReply._id);
+
         // SOCKET EMIT
         const io =
             req.app.get("io");
@@ -197,6 +234,9 @@ const sendReply = async (req, res) => {
             });
         }
 
+        console.log("STEP 9: Returning success");
+        console.log("=== END DIAGNOSTIC ===");
+
         res.json({
             success: true,
             data: savedReply
@@ -206,30 +246,20 @@ const sendReply = async (req, res) => {
 
         console.error("========== SEND REPLY ERROR ==========");
 
-        console.error("MESSAGE:");
-        console.error(err.message);
+        console.error("EXCEPTION TYPE:", err.constructor?.name);
+        console.error("MESSAGE:", err.message);
+        console.error("STACK:", err.stack);
 
-        console.error("STACK:");
-        console.error(err.stack);
+        if (err.response?.body) {
+            console.error("SENDGRID RESPONSE BODY:", JSON.stringify(err.response.body, null, 2));
+            console.error("SENDGRID STATUS CODE:", err.code);
+        }
 
-        console.log(
-            JSON.stringify(
-                err.response?.body,
-                null,
-                2
-            )
-        );
-        console.error(err.response?.body);
+        if (err.name === "ValidationError") {
+            console.error("MONGOOSE VALIDATION ERROR:", JSON.stringify(err.errors, null, 2));
+        }
 
-        console.error("FULL ERROR:");
-        console.error(err);
-        
-        
-        
-        // console.error(
-        //     "SEND ERROR:",
-        //     err.response?.body || err
-        // );
+        console.error("FULL ERROR:", err);
 
         res.status(500).json({
             error: err.message || "Failed to send email"
