@@ -23,32 +23,6 @@ console.log("[ENV CHECK]", {
   partSyncSecretLength: process.env.PART_SYNC_SECRET?.length || 0,
 });
 
-// ─── Integration Configuration Verification ────────────────────────────────
-// Verify dotenv loaded correctly before any adapters are initialized.
-//--------------------------------------------------------------------
-console.log("\n[Integration Configuration]");
-console.log("  ✓ dotenv loaded");
-
-// Mask META_APP_ID for logging (show first 3 chars + stars)
-const metaAppId = process.env.META_APP_ID;
-if (metaAppId) {
-  const masked = metaAppId.length > 3
-    ? metaAppId.substring(0, 3) + "******"
-    : "******";
-  console.log(`  META_APP_ID    ${masked}`);
-} else {
-  console.log("  META_APP_ID    Missing — WhatsApp OAuth will not work until configured");
-}
-
-const metaGraphVersion = process.env.META_GRAPH_VERSION;
-if (metaGraphVersion) {
-  console.log(`  META_GRAPH_VERSION  ${metaGraphVersion}`);
-} else {
-  console.log("  META_GRAPH_VERSION  Missing (will use default v23.0)`");
-}
-
-console.log(""); // blank line for readability
-
 // Connect to MongoDB
 connectDB();
 
@@ -306,18 +280,6 @@ app.use("/api/invoices", require("./routes/invoice.routes"));
 
 // Wix integration routes
 app.use("/api/wix", require("./routes/wix.routes"));
-
-// Social & Marketplace Integration Routes
-app.use("/api/social-leads", require("./routes/socialLead.routes"));
-app.use("/api/marketplace-leads", require("./routes/marketplaceLead.routes"));
-app.use("/api/conversations", require("./routes/conversation.routes"));
-app.use("/api/integrations", require("./routes/integration.routes"));
-
-// WhatsApp adapter — self-registers with PlatformManager on require
-require("./services/adapters/whatsappAdapter");
-
-// eBay adapter — self-registers with PlatformManager on require
-require("./services/adapters/ebayAdapter");
 
 // Entry Fee routes
 app.use("/api/entry-fee", require("./routes/entryFee.routes"));
