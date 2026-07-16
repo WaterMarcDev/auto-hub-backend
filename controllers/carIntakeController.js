@@ -556,6 +556,16 @@ const updateCarIntake = async (req, res) => {
   try {
     const { sellerData, transactionData, ...carIntakeData } = req.body;
 
+    console.log("\n========== UPDATE CAR INTAKE ==========");
+    console.log("Request Body:");
+    console.log(JSON.stringify(req.body, null, 2));
+
+    console.log("carIntakeData.parts:");
+    console.log(JSON.stringify(carIntakeData.parts, null, 2));
+
+    console.log("carIntakeData.partDetails:");
+    console.log(JSON.stringify(carIntakeData.partDetails, null, 2));
+
     const carIntake = await CarIntake.findById(req.params.id);
     if (!carIntake) {
       return res.status(404).json({ error: "Car intake not found" });
@@ -800,6 +810,15 @@ const updateCarIntake = async (req, res) => {
         carIntake.status = carIntakeData.status;
       } else {
         carIntake.status = computed;
+
+        console.log("\n========== BEFORE SAVE ==========");
+        console.log("Status:", carIntake.status);
+
+        console.log("Parts:");
+        console.log(JSON.stringify(carIntake.parts, null, 2));
+
+        console.log("PartDetails:");
+        console.log(JSON.stringify(carIntake.partDetails, null, 2));
       }
     } catch (e) {
       // ignore and keep existing status
