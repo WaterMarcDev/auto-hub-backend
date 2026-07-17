@@ -4,7 +4,7 @@ const router = express.Router();
 const {
   challenge,
   accountDeletion,
-} = require("../../controllers/integrations/ebay.controller");
+} = require("../controllers/ebay.controller");
 
 router.get("/account-deletion", challenge);
 

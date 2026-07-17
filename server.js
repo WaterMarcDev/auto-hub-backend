@@ -14,7 +14,7 @@ const { swaggerUi, specs } = require("./config/swagger");  // by shiva
 const http = require("http");                                // real time update by shiva
 const { Server } = require("socket.io");                     // by shiva
 const startBackInStockChecker = require("./services/checkBackInStock.service");    // by shiva
-const ebayRoutes = require("./routes/integrations/ebay.routes");   // by shiva
+const ebayRoutes = require("./routes/ebay.routes");   // by shiva
 
 
 require("dotenv").config({ override: true });   // added override: true by shiva
