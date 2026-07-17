@@ -30,7 +30,7 @@ class EbayAdapter extends BaseAdapter {
     this.devId = process.env.EBAY_DEV_ID;
     this.ruName = process.env.EBAY_RUNAME;
     this.scope = process.env.EBAY_SCOPES || "https://api.ebay.com/oauth/api_scope";
-    this.redirectUri = process.env.EBAY_REDIRECT_URI || "http://localhost:5000/api/integrations/ebay/callback";
+    this.redirectUri = process.env.EBAY_REDIRECT_URI || "http://api.autohubexpress.us/integrations/ebay/callback";
 
     this.client = new EbayApiClient({
       clientId: this.clientId,
