@@ -33,38 +33,10 @@ const CustomerSchema = new mongoose.Schema(
     signatureImage: {
       type: String,
     },
-    // ─── Social & Marketplace Integration Fields ─────────────────────────
-    platformUserId: {
-      type: String,
-      default: null,
-      index: true,
-    },
-    platformIds: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
-    },
-    profilePicture: {
-      type: String,
-      default: null,
-    },
-    language: {
-      type: String,
-      default: "en",
-    },
-    country: {
-      type: String,
-      default: null,
-    },
-    source: {
-      type: String,
-      default: null,
-      index: true,
-    },
-    // ─── End Social & Marketplace Fields ─────────────────────────────────
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      default: null,
+      required: true,
     },
     isDeleted: {
       type: Boolean,
@@ -88,14 +60,5 @@ CustomerSchema.virtual("carIntakes", {
 
 CustomerSchema.set("toObject", { virtuals: true });
 CustomerSchema.set("toJSON", { virtuals: true });
-
-// ─── Indexes for Platform Matching ─────────────────────────────────────────
-
-CustomerSchema.index({ platformUserId: 1 });
-CustomerSchema.index({ "platformIds.facebook": 1 });
-CustomerSchema.index({ "platformIds.instagram": 1 });
-CustomerSchema.index({ "platformIds.whatsapp": 1 });
-CustomerSchema.index({ "platformIds.amazon": 1 });
-CustomerSchema.index({ "platformIds.ebay": 1 });
 
 module.exports = mongoose.model("Customer", CustomerSchema);
