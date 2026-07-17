@@ -11,7 +11,9 @@ exports.challenge = async (req, res) => {
       });
     }
 
-    const endpoint = `${req.protocol}://${req.get("host")}${req.baseUrl}${req.path}`;
+    // const endpoint = `${req.protocol}://${req.get("host")}${req.baseUrl}${req.path}`;
+
+    const endpoint = process.env.EBAY_ENDPOINT;
 
     const verificationToken = process.env.EBAY_VERIFICATION_TOKEN;
 
