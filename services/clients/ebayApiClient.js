@@ -266,7 +266,15 @@ class EbayApiClient {
 
     if (state) params.set("state", state);
 
-    return `${this.getSignInUrl()}?${params.toString()}`;
+    const url = `${this.getSignInUrl()}?${params.toString()}`;
+
+    console.log("\n========== EBAY AUTH URL ==========");
+    console.log(url);
+    console.log("===================================\n");
+
+    return url;
+
+    // return `${this.getSignInUrl()}?${params.toString()}`;
   }
 
   /**
