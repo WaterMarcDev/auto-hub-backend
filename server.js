@@ -14,6 +14,8 @@ const { swaggerUi, specs } = require("./config/swagger");  // by shiva
 const http = require("http");                                // real time update by shiva
 const { Server } = require("socket.io");                     // by shiva
 const startBackInStockChecker = require("./services/checkBackInStock.service");    // by shiva
+const ebayRoutes = require("./routes/integrations/ebay.routes");   // by shiva
+
 
 require("dotenv").config({ override: true });   // added override: true by shiva
 
@@ -280,6 +282,19 @@ app.use("/api/invoices", require("./routes/invoice.routes"));
 
 // Wix integration routes
 app.use("/api/wix", require("./routes/wix.routes"));
+
+// Social & Marketplace Integration Routes
+app.use("/api/social-leads", require("./routes/socialLead.routes"));
+app.use("/api/marketplace-leads", require("./routes/marketplaceLead.routes"));
+app.use("/api/conversations", require("./routes/conversation.routes"));
+app.use("/api/integrations", require("./routes/integration.routes"));
+app.use("/api/integrations/ebay", ebayRoutes);
+
+// WhatsApp adapter — self-registers with PlatformManager on require
+require("./services/adapters/whatsappAdapter");
+
+// eBay adapter — self-registers with PlatformManager on require
+require("./services/adapters/ebayAdapter");
 
 // Entry Fee routes
 app.use("/api/entry-fee", require("./routes/entryFee.routes"));
