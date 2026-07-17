@@ -17,12 +17,29 @@ exports.challenge = async (req, res) => {
 
     const verificationToken = process.env.EBAY_VERIFICATION_TOKEN;
 
+    // ===========================
+    // ADD THESE LOGS
+    // ===========================
+    console.log("========== eBay Challenge ==========");
+    console.log("Challenge Code:", challengeCode);
+    console.log("Endpoint:", endpoint);
+    console.log("Verification Token:", verificationToken);
+    // ===========================
+
     const hash = crypto
       .createHash("sha256")
       .update(challengeCode)
       .update(verificationToken)
       .update(endpoint)
       .digest("hex");
+
+
+    // ===========================
+    // ADD THESE LOGS
+    // ===========================
+    console.log("Generated Hash:", hash);
+    console.log("===================================");
+    // ===========================
 
     return res.status(200).json({
       challengeResponse: hash,
