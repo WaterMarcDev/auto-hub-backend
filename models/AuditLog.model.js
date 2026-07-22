@@ -83,7 +83,7 @@ const AuditLogSchema = new mongoose.Schema(
     // ─── Entity References ─────────────────────────────────────────────
     entityType: {
       type: String,
-      enum: ["social_lead", "marketplace_lead", "conversation", "integration_account", "customer", "order", "message"],
+      enum: ["social_lead", "marketplace_lead", "conversation", "integration_account", "customer", "order", "message", "part_request"],
       default: null,
     },
 

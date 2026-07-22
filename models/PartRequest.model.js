@@ -21,7 +21,19 @@ const PartRequestSchema = new mongoose.Schema(
 
         source: {
             type: String,
-            enum: ["Online", "Offline"],
+            enum: [
+                "Online",
+                "Offline",
+                "Website",
+                "Instagram",
+                "Facebook",
+                "WhatsApp",
+                "TikTok",
+                "eBay",
+                "Google Business",
+                "SMS",
+                "Other",
+            ],
             default: "Online"
         },
 
@@ -34,8 +46,15 @@ const PartRequestSchema = new mongoose.Schema(
         fulfilledBy: {
             type: String,
             default: null
-        }
+        },
         // end here
+
+        // Set when this request is auto-created by the Automation Bot (chatbot)
+        createdBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null,
+        },
     },
     { timestamps: true }
 );
