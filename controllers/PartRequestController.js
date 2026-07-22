@@ -1,4 +1,18 @@
 const PartRequest = require("../models/PartRequest.model");
+const auditLogService = require("../services/auditLog.service");
+
+// Automation Bot (chatbot) — recognized platform sources
+const BOT_SOURCES = [
+    "Website",
+    "Instagram",
+    "Facebook",
+    "WhatsApp",
+    "TikTok",
+    "eBay",
+    "Google Business",
+    "SMS",
+    "Other",
+];
 
 exports.createRequest = async (req, res) => {
     console.log("Create part request hit");
@@ -71,14 +85,97 @@ exports.createRequest = async (req, res) => {
     }
 };
 
+// Create part request from the AI Chatbot (Automation Bot) — req.user is
+// attached by middleware/automationBotAuth.js
+exports.createAutomationBotRequest = async (req, res) => {
+    try {
+        const { name, phone, email, make, model, year, partName, source } = req.body;
+
+        // Phn, Email Validation — mirrors createRequest
+        if (!phone && !email) {
+            return res.status(400).json({
+                success: false,
+                message: "Either phone or email is required",
+            });
+        }
+
+        if (phone && !/^[0-9]{10}$/.test(phone)) {
+            return res.status(400).json({
+                success: false,
+                message: "Phone number must be 10 digits",
+            });
+        }
+
+        if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid email format",
+            });
+        }
+
+        let parsedYear = null;
+
+        if (year) {
+            const yearStr = year.toString().trim();
+
+            if (!/^\d{4}$/.test(yearStr)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Year must be exactly 4 digits",
+                });
+            }
+
+            parsedYear = parseInt(yearStr, 10);
+        }
+
+        const resolvedSource = BOT_SOURCES.includes(source) ? source : "Other";
+
+        const request = await PartRequest.create({
+            name: name || "none",
+            phone: phone || "none",
+            email: email || "none",
+            make,
+            model,
+            year: parsedYear,
+            partName,
+            source: resolvedSource,
+            createdBy: req.user._id,
+        });
+
+        await auditLogService.logAction({
+            action: "lead_created",
+            userId: req.user._id,
+            userEmail: req.user.email,
+            platform: resolvedSource,
+            entityType: "part_request",
+            entityId: request._id,
+            message: `Part request created via Automation Bot from ${resolvedSource}`,
+        });
+
+        res.status(201).json({
+            success: true,
+            message: "Request submitted successfully",
+            data: request,
+        });
+    } catch (error) {
+        console.error("CREATE AUTOMATION BOT REQUEST ERROR:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message,
+        });
+    }
+};
+
 exports.getAllRequests = async (req, res) => {
     console.log("GET all part requests hit");
 
     try {
         console.log("Before find");
 
-        const requests = await PartRequest.find().sort({ createdAt: -1 });
-        
+        const requests = await PartRequest.find()
+            .sort({ createdAt: -1 })
+            .populate("createdBy", "first_name last_name email role");
+
         console.log("After fing");
 
         res.json({

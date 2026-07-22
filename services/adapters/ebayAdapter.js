@@ -69,6 +69,18 @@ class EbayAdapter extends BaseAdapter {
     const scope = options.scope || this.scope;
     const state = options.state || "";
 
+    console.log("========== EBAY CONNECT ==========");
+    console.log("RuName:", ruName);
+    console.log("Scope:", scope);
+    console.log("State:", state);
+
+    const authUrl = this.client.getAuthorizationUrl(ruName, scope, state);
+
+    console.log("OAuth URL:", authUrl);
+    console.log("==================================");
+
+    return authUrl;
+
     return this.client.getAuthorizationUrl(ruName, scope, state);
   }
 

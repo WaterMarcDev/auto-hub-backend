@@ -66,10 +66,16 @@ class EbayApiClient {
   }
 
   /**
-   * Detect environment from client ID (SBX = sandbox).
+   * Detect environment: honor EBAY_ENVIRONMENT when set to a recognized value,
+   * otherwise fall back to inferring it from the client ID (SBX = sandbox).
    * @returns {string}
    */
   _detectEnvironment() {
+    const envSetting = (process.env.EBAY_ENVIRONMENT || "").toLowerCase().trim();
+    if (envSetting === "sandbox" || envSetting === "production") {
+      return envSetting;
+    }
+
     const clientId = this.clientId || "";
     return clientId.includes("-SBX-") || clientId.includes("-sandbox-") ? "sandbox" : "production";
   }
@@ -102,9 +108,9 @@ class EbayApiClient {
    */
   getSignInUrl() {
     if (this.environment === "sandbox") {
-      return "https://signin.sandbox.ebay.com/oauth2/authorize";
+      return "https://auth.sandbox.ebay.com/oauth2/authorize";
     }
-    return "https://signin.ebay.com/oauth2/authorize";
+    return "https://auth.ebay.com/oauth2/authorize";
   }
 
   /**

@@ -25,6 +25,7 @@ Notes:
 - [Inventory](#inventory)
 - [Buyers](#buyers)
 - [Waivers](#waivers)
+- [Automation Bot (Chatbot Lead Ingestion)](#automation-bot-chatbot-lead-ingestion)
 
 ---
 
@@ -498,6 +499,40 @@ Recommendations:
 - Standardize on `isDeleted` + `deletedAt` as the single soft-delete contract across all models and update controllers to use them consistently.
 - Replace hard-delete calls (`findByIdAndDelete`, `findOneAndDelete`, etc.) with a shared soft-delete helper or Mongoose plugin that sets `isDeleted`, `deletedAt`, and optionally `isActive=false` and `updatedBy`.
 - Consider adding helper query methods (e.g., `Model.findActive()` or a global query filter) or a small plugin to reduce duplication and prevent accidental hard-deletes.
+
+## Automation Bot (Chatbot Lead Ingestion)
+
+Base path: `/api/part-request`
+
+Lets the AI Chatbot (integrated across Website, Instagram, Facebook, WhatsApp, TikTok, eBay, Google Business, SMS, etc.) create part-request leads in the CRM automatically, attributed to the seeded "Automation Bot" system user. These records appear on the existing Part Requests page exactly like manually-submitted ones, with `createdBy` populated to the Automation Bot user and `source` reflecting the originating platform.
+
+### Create request (bot)
+
+- POST /api/part-request/automation-bot
+- Requires header `x-automation-bot-key: <AUTOMATION_BOT_API_KEY>` (see `.env` and `middleware/automationBotAuth.js`)
+- Body (JSON):
+  {
+  "name": "Jane Doe",
+  "phone": "5551234567",
+  "email": "jane@example.com",
+  "make": "Toyota",
+  "model": "Camry",
+  "year": "2016",
+  "partName": "Alternator",
+  "source": "WhatsApp"
+  }
+- `source` must be one of: `Website`, `Instagram`, `Facebook`, `WhatsApp`, `TikTok`, `eBay`, `Google Business`, `SMS`, `Other` — unrecognized/missing values default to `Other`.
+- Success: 201, returns the created `PartRequest` document with `createdBy` set to the Automation Bot's user ID.
+- Errors: 401 (invalid/missing bot key), 400 (missing phone+email, invalid phone/email format, or malformed year).
+- Setup: run `npm run seed:automation-bot` once per environment to create the Automation Bot user before using this endpoint.
+
+### One-time setup
+
+1. Set `AUTOMATION_BOT_API_KEY` and `AUTOMATION_BOT_EMAIL` in `.env`.
+2. Run `npm run seed:automation-bot` to create the "Automation Bot" User (visible in the Users admin page, role `automation`).
+3. Give the chatbot integration the `AUTOMATION_BOT_API_KEY` value to send as `x-automation-bot-key`.
+
+---
 
 ## Static Uploads
 

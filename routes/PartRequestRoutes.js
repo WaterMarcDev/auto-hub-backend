@@ -11,6 +11,7 @@ console.log("Part Request Routes Loaded");
 
 const express = require("express");
 const router = express.Router();
+const { automationBotAuth } = require("../middleware/automationBotAuth");
 
 const { deleteRequest } = require("../controllers/PartRequestController");
 
@@ -19,7 +20,8 @@ const {
     getAllRequests,
     updateStatus,
     updatePartRequestSource,
-    updatePartRequestRemark
+    updatePartRequestRemark,
+    createAutomationBotRequest,
 } = require("../controllers/PartRequestController");
 
 // const PartRequest = require("../models/PartRequest");
@@ -149,5 +151,49 @@ router.patch("/:id/remark", (req, res, next) => {
     next();
 
 }, updatePartRequestRemark);
+
+/**
+ * @swagger
+ * /api/part-request/automation-bot:
+ *   post:
+ *     summary: Create a part request from the AI Chatbot (Automation Bot)
+ *     tags: [Part Requests]
+ *     parameters:
+ *       - in: header
+ *         name: x-automation-bot-key
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               make:
+ *                 type: string
+ *               model:
+ *                 type: string
+ *               year:
+ *                 type: string
+ *               partName:
+ *                 type: string
+ *               source:
+ *                 type: string
+ *                 example: WhatsApp
+ *     responses:
+ *       201:
+ *         description: Request created successfully, attributed to the Automation Bot user
+ *       401:
+ *         description: Invalid or missing Automation Bot API key
+ */
+router.post("/automation-bot", automationBotAuth, createAutomationBotRequest);
 
 module.exports = router;
