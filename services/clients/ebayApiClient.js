@@ -302,7 +302,7 @@ class EbayApiClient {
     });
 
     const response = await axios.post(
-      `${this.getAuthBaseUrl()}/token`,
+      `${this.getBaseUrl()}/identity/v1/oauth2/token`,
       params.toString(),
       {
         headers: {
@@ -340,7 +340,7 @@ class EbayApiClient {
     });
 
     const response = await axios.post(
-      `${this.getAuthBaseUrl()}/token`,
+      `${this.getBaseUrl()}/identity/v1/oauth2/token`,
       params.toString(),
       {
         headers: {
@@ -377,7 +377,7 @@ class EbayApiClient {
 
     try {
       await axios.post(
-        `${this.getAuthBaseUrl()}/revoke`,
+        `${this.getBaseUrl()}/identity/v1/oauth2/revoke`,
         params.toString(),
         {
           headers: {
