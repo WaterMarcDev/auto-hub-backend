@@ -356,6 +356,17 @@ server.listen(PORT, () => {
   
   startBackInStockChecker();   // Added by shiva
 
+  // Start the eBay token auto-refresh cron job.
+  // Prevents a connected eBay integration from silently showing as
+  // "disconnected" once its ~2h access token expires with no auto-refresh.
+  try {
+    const startEbayTokenRefresh = require("./services/ebayTokenRefresh.service");
+    startEbayTokenRefresh();
+    console.log("eBay token auto-refresh cron job started");
+  } catch (err) {
+    console.error("Failed to start eBay token auto-refresh cron job:", err.message || err);
+  }
+
   // Start the VIN cron job unless explicitly disabled
   try {
     if (

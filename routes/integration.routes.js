@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const { auth } = require("../middleware/auth");
 const controller = require("../controllers/integration.controller");
+const oauthController = require("../controllers/platformOAuth.controller");
+const webhookController = require("../controllers/platformWebhook.controller");
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GENERIC PLATFORM-AGNOSTIC ROUTES (must come before /:id to avoid conflicts)
@@ -10,25 +12,25 @@ const controller = require("../controllers/integration.controller");
 // ═══════════════════════════════════════════════════════════════════════════
 
 // GET  /api/integrations/:platform/connect  - Initiate OAuth for a platform
-router.get("/:platform/connect", auth, controller.connectPlatform);
+router.get("/:platform/connect", auth, oauthController.connectPlatform);
 
 // GET  /api/integrations/:platform/callback  - OAuth callback (no auth — external redirect)
-router.get("/:platform/callback", controller.handleCallback);
+router.get("/:platform/callback", oauthController.handleCallback);
 
 // GET  /api/integrations/:platform/webhook  - Webhook verification (no auth — platform calls this)
-router.get("/:platform/webhook", controller.verifyWebhookEndpoint);
+router.get("/:platform/webhook", webhookController.verifyWebhookEndpoint);
 
 // POST /api/integrations/:platform/webhook  - Receive webhook events (no auth — platform sends this)
-router.post("/:platform/webhook", controller.receiveWebhookEndpoint);
+router.post("/:platform/webhook", webhookController.receiveWebhookEndpoint);
 
 // POST /api/integrations/:platform/disconnect  - Disconnect platform
-router.post("/:platform/disconnect", auth, controller.disconnectPlatform);
+router.post("/:platform/disconnect", auth, oauthController.disconnectPlatform);
 
 // POST /api/integrations/:platform/refresh  - Refresh platform token
-router.post("/:platform/refresh", auth, controller.refreshPlatformToken);
+router.post("/:platform/refresh", auth, oauthController.refreshPlatformToken);
 
 // GET  /api/integrations/:platform/status  - Get platform connection status
-router.get("/:platform/status", auth, controller.platformStatus);
+router.get("/:platform/status", auth, oauthController.platformStatus);
 
 // ─── Standard Integration CRUD Routes ────────────────────────────────────
 

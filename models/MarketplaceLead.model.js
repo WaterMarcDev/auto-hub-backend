@@ -2,7 +2,7 @@
  * Marketplace Lead Model
  *
  * Represents a customer order or inquiry from an online marketplace
- * (Amazon, eBay, and future platforms like Shopify, Etsy, etc.).
+ * (Amazon, eBay).
  *
  * Each lead is auto-created when a new order or customer message
  * is detected from a connected marketplace.

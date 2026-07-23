@@ -42,6 +42,13 @@ const PartRequestSchema = new mongoose.Schema(
             enum: ["Pending", "In Progress", "Completed", "Rejected"],
             default: "Pending"
         },
+
+        // Stamped once when status transitions to "Completed" — used by the
+        // Social Media Leads report (completed, social-sourced requests).
+        completedAt: {
+            type: Date,
+            default: null,
+        },
         // added by shiva
         fulfilledBy: {
             type: String,

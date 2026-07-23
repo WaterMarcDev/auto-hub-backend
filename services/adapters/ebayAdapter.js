@@ -16,6 +16,7 @@
 const crypto = require("crypto");
 const BaseAdapter = require("./baseAdapter");
 const { EbayApiClient, EbayAuthError } = require("../clients/ebayApiClient");
+const { classifyEbayError, missingRefreshTokenError } = require("../integrationErrors");
 const platformManager = require("../platformManager.service");
 const IntegrationAccount = require("../../models/IntegrationAccount.model");
 const MarketplaceLead = require("../../models/MarketplaceLead.model");
@@ -221,10 +222,15 @@ class EbayAdapter extends BaseAdapter {
    */
   async refreshToken(account) {
     if (!account.refreshToken) {
-      throw new Error("No refresh token available to refresh eBay access token");
+      throw missingRefreshTokenError();
     }
 
-    const result = await this.client.refreshAccessToken(account.refreshToken, this.scope);
+    let result;
+    try {
+      result = await this.client.refreshAccessToken(account.refreshToken, this.scope);
+    } catch (err) {
+      throw classifyEbayError(err);
+    }
 
     account.accessToken = result.accessToken;
     if (result.refreshToken) {
@@ -369,7 +375,11 @@ class EbayAdapter extends BaseAdapter {
     account.accessToken = null;
     account.refreshToken = null;
     account.tokenExpiresAt = null;
-    await account.save();
+    // accessToken is a required field on the shared IntegrationAccount schema
+    // (needed while connected, for every platform). Disconnect intentionally
+    // nulls it out, so full document validation must be skipped for this one
+    // save — otherwise Mongoose rejects it with "Access token is required."
+    await account.save({ validateBeforeSave: false });
 
     await logAction({
       action: "platform_disconnected",
