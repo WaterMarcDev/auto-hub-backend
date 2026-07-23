@@ -257,11 +257,22 @@ exports.updatePartRequestRemark = async (req, res) => {
 exports.updateStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status  } = req.body; 
+        const { status  } = req.body;
+
+        const update = { status };
+
+        // Stamp completedAt exactly once, the first time status becomes
+        // "Completed" — later edits (e.g. remark changes) never touch it.
+        if (status === "Completed") {
+            const existing = await PartRequest.findById(id).select("completedAt");
+            if (existing && !existing.completedAt) {
+                update.completedAt = new Date();
+            }
+        }
 
         const request = await PartRequest.findByIdAndUpdate(
             id,
-            { status },
+            update,
             { new: true }
         );
 
@@ -269,7 +280,7 @@ exports.updateStatus = async (req, res) => {
             success: true,
             data: request
         });
-        
+
     } catch (error) {
         res.status(500).json({
             success: false,

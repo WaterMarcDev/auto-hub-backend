@@ -14,6 +14,7 @@
  *   - OAuth token exchange and refresh
  */
 const axios = require("axios");
+const { classifyEbayError } = require("../integrationErrors");
 
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const MAX_RETRIES = 3;
@@ -349,7 +350,7 @@ class EbayApiClient {
         axiosResponseBody: err?.response?.data ?? null,
         stack: err?.stack,
       }));
-      throw err;
+      throw classifyEbayError(err);
     }
 
     const data = response.data;
@@ -394,17 +395,22 @@ class EbayApiClient {
       scope,
     });
 
-    const response = await axios.post(
-      `${this.getBaseUrl()}/identity/v1/oauth2/token`,
-      params.toString(),
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Authorization: `Basic ${basicAuth}`,
-        },
-        timeout: this.timeout,
-      }
-    );
+    let response;
+    try {
+      response = await axios.post(
+        `${this.getBaseUrl()}/identity/v1/oauth2/token`,
+        params.toString(),
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: `Basic ${basicAuth}`,
+          },
+          timeout: this.timeout,
+        }
+      );
+    } catch (err) {
+      throw classifyEbayError(err);
+    }
 
     const data = response.data;
 
