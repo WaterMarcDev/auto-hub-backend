@@ -258,6 +258,29 @@ exports.handleCallback = async (req, res) => {
       console.warn(`[INTEGRATION] ${platform} registerWebhook warning:`, webhookErr.message);
     }
 
+    // Auto-sync marketplace data (orders/listings/messages) right after
+    // connecting, for any adapter that implements sync() (currently eBay).
+    // Fire-and-forget: not awaited, so it never delays the redirect back to
+    // the CRM. The .catch ensures a sync failure is only logged, never an
+    // unhandled rejection, and never blocks or breaks the connect flow.
+    if (typeof platformManager.getAdapter(platform).sync === "function") {
+      if (isEbay) {
+        logEbayTrace(ebayTraceId, "BEFORE_AUTO_SYNC", { function: "handleCallback" });
+      }
+      platformManager.getAdapter(platform).sync(integration, {})
+        .then(() => {
+          if (isEbay) {
+            logEbayTrace(ebayTraceId, "AFTER_AUTO_SYNC", { function: "handleCallback" });
+          }
+        })
+        .catch((syncErr) => {
+          if (isEbay) {
+            logEbayError(ebayTraceId, "AUTO_SYNC_FAILED", "handleCallback", syncErr);
+          }
+          console.warn(`[INTEGRATION] ${platform} auto-sync warning:`, syncErr.message);
+        });
+    }
+
     await logAction({
       action: "platform_connected",
       status: "success",
