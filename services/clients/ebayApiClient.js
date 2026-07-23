@@ -292,7 +292,7 @@ class EbayApiClient {
    * @param {string} ruName - eBay Redirect URL Name (RuName)
    * @returns {Promise<{accessToken: string, refreshToken: string, expiresIn: number, tokenType: string}>}
    */
-  async exchangeAuthorizationCode(code, ruName) {
+  async exchangeAuthorizationCode(code, ruName, traceId = null) {
     const basicAuth = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString("base64");
 
     const params = new URLSearchParams({
@@ -301,19 +301,74 @@ class EbayApiClient {
       redirect_uri: ruName,
     });
 
-    const response = await axios.post(
-      `${this.getBaseUrl()}/identity/v1/oauth2/token`,
-      params.toString(),
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Authorization: `Basic ${basicAuth}`,
-        },
-        timeout: this.timeout,
-      }
-    );
+    const tokenUrl = `${this.getBaseUrl()}/identity/v1/oauth2/token`;
+
+    // ─── DIAGNOSTIC: LOG 5 — before token exchange HTTP call ────────────────
+    console.log(JSON.stringify({
+      tag: "[EBAY][TRACE]",
+      traceId: traceId || "no-trace-id",
+      timestamp: new Date().toISOString(),
+      platform: "ebay",
+      step: "BEFORE_TOKEN_EXCHANGE_HTTP_CALL",
+      function: "EbayApiClient.exchangeAuthorizationCode",
+      codeLength: code ? code.length : 0,
+      tokenUrl,
+      hasRuName: Boolean(ruName),
+      timeoutMs: this.timeout,
+    }));
+
+    let response;
+    try {
+      response = await axios.post(
+        tokenUrl,
+        params.toString(),
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: `Basic ${basicAuth}`,
+          },
+          timeout: this.timeout,
+        }
+      );
+    } catch (err) {
+      // ─── DIAGNOSTIC: structured error report — never swallowed ────────────
+      console.error(JSON.stringify({
+        tag: "[EBAY][ERROR]",
+        traceId: traceId || "no-trace-id",
+        timestamp: new Date().toISOString(),
+        platform: "ebay",
+        step: "TOKEN_EXCHANGE_HTTP_CALL_FAILED",
+        function: "EbayApiClient.exchangeAuthorizationCode",
+        file: __filename,
+        message: err?.message,
+        code: err?.code,
+        cause: err?.cause ? String(err.cause) : null,
+        isAxiosError: Boolean(err?.isAxiosError),
+        axiosRequest: { method: "post", url: tokenUrl, timeoutMs: this.timeout },
+        axiosResponseStatus: err?.response?.status ?? null,
+        axiosResponseBody: err?.response?.data ?? null,
+        stack: err?.stack,
+      }));
+      throw err;
+    }
 
     const data = response.data;
+
+    // ─── DIAGNOSTIC: LOG 6 — after token exchange HTTP call ─────────────────
+    console.log(JSON.stringify({
+      tag: "[EBAY][TRACE]",
+      traceId: traceId || "no-trace-id",
+      timestamp: new Date().toISOString(),
+      platform: "ebay",
+      step: "AFTER_TOKEN_EXCHANGE_HTTP_CALL",
+      function: "EbayApiClient.exchangeAuthorizationCode",
+      httpStatus: response.status,
+      accessTokenReceived: Boolean(data.access_token),
+      refreshTokenReceived: Boolean(data.refresh_token),
+      expiresIn: data.expires_in,
+      scope: data.scope,
+      tokenType: data.token_type,
+    }));
 
     return {
       accessToken: data.access_token,

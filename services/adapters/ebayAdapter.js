@@ -13,6 +13,7 @@
  *
  * Self-registers with PlatformManager on require().
  */
+const crypto = require("crypto");
 const BaseAdapter = require("./baseAdapter");
 const { EbayApiClient, EbayAuthError } = require("../clients/ebayApiClient");
 const platformManager = require("../platformManager.service");
@@ -20,6 +21,52 @@ const IntegrationAccount = require("../../models/IntegrationAccount.model");
 const MarketplaceLead = require("../../models/MarketplaceLead.model");
 const Conversation = require("../../models/Conversation.model");
 const { logAction } = require("../auditLog.service");
+
+// ─── eBay OAuth Diagnostic Tracing (observability only, no behavior change) ─
+// Generates/logs a traceId that follows one OAuth attempt across every step:
+// connect() -> callback -> exchangeAuthorizationCode() -> Mongo save ->
+// fetchBusinessAccount() -> registerWebhook() -> platformStatus() -> redirect.
+
+function generateEbayTraceId() {
+  return crypto.randomBytes(4).toString("hex");
+}
+
+function ebayTrace(traceId, step, data = {}) {
+  console.log(JSON.stringify({
+    tag: "[EBAY][TRACE]",
+    traceId: traceId || "no-trace-id",
+    timestamp: new Date().toISOString(),
+    platform: "ebay",
+    step,
+    ...data,
+  }));
+}
+
+function ebayTraceError(traceId, step, functionName, err) {
+  const stackLines = err && err.stack ? err.stack.split("\n") : [];
+  const location = stackLines[1] ? stackLines[1].trim() : null;
+
+  console.error(JSON.stringify({
+    tag: "[EBAY][ERROR]",
+    traceId: traceId || "no-trace-id",
+    timestamp: new Date().toISOString(),
+    platform: "ebay",
+    step,
+    function: functionName,
+    file: __filename,
+    location,
+    message: err?.message,
+    code: err?.code,
+    cause: err?.cause ? String(err.cause) : null,
+    isAxiosError: Boolean(err?.isAxiosError),
+    axiosRequest: err?.config
+      ? { method: err.config.method, url: err.config.url, baseURL: err.config.baseURL, timeoutMs: err.config.timeout }
+      : null,
+    axiosResponseStatus: err?.response?.status ?? null,
+    axiosResponseBody: err?.response?.data ?? null,
+    stack: err?.stack,
+  }));
+}
 
 class EbayAdapter extends BaseAdapter {
   constructor() {
@@ -49,6 +96,7 @@ class EbayAdapter extends BaseAdapter {
    * @returns {Promise<string>} OAuth authorization URL
    */
   async connect(options = {}) {
+    const traceId = options.traceId || null;
     const ruName = options.ruName || this.ruName;
 
     // Check required credentials
@@ -56,6 +104,7 @@ class EbayAdapter extends BaseAdapter {
       const err = new Error("EBAY_CLIENT_ID is missing from the server environment. Configure your eBay Developer App credentials in the backend .env file.");
       err.code = "EBAY_NOT_CONFIGURED";
       err.statusCode = 500;
+      ebayTraceError(traceId, "CONNECT_MISSING_CLIENT_ID", "EbayAdapter.connect", err);
       throw err;
     }
 
@@ -63,11 +112,21 @@ class EbayAdapter extends BaseAdapter {
       const err = new Error("EBAY_RUNAME (eBay Redirect URL Name) is missing. Create one in the eBay Developer Portal under User Tokens → RuName and add it to the backend .env file.");
       err.code = "EBAY_RUNAME_MISSING";
       err.statusCode = 500;
+      ebayTraceError(traceId, "CONNECT_MISSING_RUNAME", "EbayAdapter.connect", err);
       throw err;
     }
 
     const scope = options.scope || this.scope;
     const state = options.state || "";
+
+    // ─── DIAGNOSTIC: LOG 2 — before OAuth URL generation ────────────────────
+    ebayTrace(traceId, "BEFORE_AUTH_URL_GENERATION", {
+      function: "EbayAdapter.connect",
+      clientId: this.clientId,
+      ruName,
+      scope,
+      state,
+    });
 
     console.log("========== EBAY CONNECT ==========");
     console.log("RuName:", ruName);
@@ -78,6 +137,12 @@ class EbayAdapter extends BaseAdapter {
 
     console.log("OAuth URL:", authUrl);
     console.log("==================================");
+
+    // ─── DIAGNOSTIC: LOG 3 — generated OAuth URL ────────────────────────────
+    ebayTrace(traceId, "AUTH_URL_GENERATED", {
+      function: "EbayAdapter.connect",
+      authUrl,
+    });
 
     return authUrl;
 
@@ -93,12 +158,23 @@ class EbayAdapter extends BaseAdapter {
    * @returns {Promise<{accessToken: string, refreshToken: string, expiresIn: number}>}
    */
   async exchangeAuthorizationCode(code, options = {}) {
+    const traceId = options.traceId || null;
     const ruName = options.ruName || this.ruName || options.redirectUri;
+
+    // ─── DIAGNOSTIC: LOG 5 — before token exchange (adapter layer) ──────────
+    ebayTrace(traceId, "BEFORE_TOKEN_EXCHANGE", {
+      function: "EbayAdapter.exchangeAuthorizationCode",
+      codeLength: code ? code.length : 0,
+      hasClientId: Boolean(this.clientId),
+      hasClientSecret: Boolean(this.clientSecret),
+      ruName,
+    });
 
     if (!this.clientId || !this.clientSecret) {
       const err = new Error("EBAY_CLIENT_ID or EBAY_CLIENT_SECRET is missing from the server environment.");
       err.code = "EBAY_NOT_CONFIGURED";
       err.statusCode = 500;
+      ebayTraceError(traceId, "TOKEN_EXCHANGE_MISSING_CREDENTIALS", "EbayAdapter.exchangeAuthorizationCode", err);
       throw err;
     }
 
@@ -106,10 +182,26 @@ class EbayAdapter extends BaseAdapter {
       const err = new Error("EBAY_RUNAME is required for token exchange.");
       err.code = "EBAY_RUNAME_MISSING";
       err.statusCode = 500;
+      ebayTraceError(traceId, "TOKEN_EXCHANGE_MISSING_RUNAME", "EbayAdapter.exchangeAuthorizationCode", err);
       throw err;
     }
 
-    const result = await this.client.exchangeAuthorizationCode(code, ruName);
+    let result;
+    try {
+      result = await this.client.exchangeAuthorizationCode(code, ruName, traceId);
+    } catch (err) {
+      ebayTraceError(traceId, "TOKEN_EXCHANGE_FAILED", "EbayAdapter.exchangeAuthorizationCode", err);
+      throw err;
+    }
+
+    // ─── DIAGNOSTIC: LOG 6 — after token exchange (adapter layer) ───────────
+    ebayTrace(traceId, "AFTER_TOKEN_EXCHANGE", {
+      function: "EbayAdapter.exchangeAuthorizationCode",
+      accessTokenReceived: Boolean(result.accessToken),
+      refreshTokenReceived: Boolean(result.refreshToken),
+      expiresIn: result.expiresIn,
+      tokenType: result.tokenType,
+    });
 
     return {
       accessToken: result.accessToken,
@@ -182,8 +274,15 @@ class EbayAdapter extends BaseAdapter {
    *
    * @returns {Promise<boolean>}
    */
-  async registerWebhook() {
+  async registerWebhook(account, traceId = null) {
+    // ─── DIAGNOSTIC: LOG 11 — before registerWebhook ────────────────────────
+    ebayTrace(traceId, "BEFORE_REGISTER_WEBHOOK", { function: "EbayAdapter.registerWebhook" });
+
     console.log("[EBAY] Webhook registration not implemented — eBay uses Marketplace Account Delegation");
+
+    // ─── DIAGNOSTIC: LOG 12 — after registerWebhook ─────────────────────────
+    ebayTrace(traceId, "AFTER_REGISTER_WEBHOOK", { function: "EbayAdapter.registerWebhook", result: false });
+
     return false;
   }
 
@@ -200,36 +299,51 @@ class EbayAdapter extends BaseAdapter {
   // ─── Health Check ──────────────────────────────────────────────────────
 
   /**
-   * Verify the eBay API connection by validating the access token.
+   * Verify the eBay connection using locally-stored token state.
+   *
+   * eBay's REST API has no scope-independent token-introspection endpoint,
+   * so health is derived from the access token's presence and expiry
+   * (tokenExpiresAt is set directly from eBay's own `expires_in` at
+   * token-exchange time) instead of an extra network call.
    *
    * @param {Object} account - IntegrationAccount document
    * @returns {Promise<{healthy: boolean, details: Object}>}
    */
-  async healthCheck(account) {
-    try {
-      // Validate token by calling the token info endpoint
-      const result = await this.client.get(account.accessToken, "/oauth2/token/info");
+  async healthCheck(account, traceId = null) {
+    const hasToken = !!account.accessToken;
+    const expired = !!account.isTokenExpired;
+    const healthy = hasToken && !expired;
 
+    // ─── DIAGNOSTIC: HEALTH DEBUGGING ────────────────────────────────────────
+    ebayTrace(traceId, "HEALTH_CHECK", {
+      function: "EbayAdapter.healthCheck",
+      tokenExists: hasToken,
+      refreshTokenExists: !!account.refreshToken,
+      tokenExpiresAt: account.tokenExpiresAt,
+      currentTime: new Date().toISOString(),
+      healthyResult: healthy,
+    });
+
+    if (healthy) {
       return {
         healthy: true,
         details: {
-          uid: result.uid,
+          healthy: true,
           environment: this.client.environment,
-          expiresIn: result.expires_in,
-        },
-      };
-    } catch (err) {
-      const isAuthError = err instanceof EbayAuthError;
-
-      return {
-        healthy: false,
-        details: {
-          error: err.message,
-          isAuthError,
-          environment: this.client.environment,
+          tokenExpiresAt: account.tokenExpiresAt,
         },
       };
     }
+
+    return {
+      healthy: false,
+      details: {
+        healthy: false,
+        error: !hasToken ? "No eBay access token stored" : "eBay access token has expired",
+        isAuthError: true,
+        environment: this.client.environment,
+      },
+    };
   }
 
   // ─── Disconnect ────────────────────────────────────────────────────────
@@ -277,7 +391,13 @@ class EbayAdapter extends BaseAdapter {
    * @param {Object} account - IntegrationAccount document
    * @returns {Promise<{businessAccountId: string, businessName: string}>}
    */
-  async fetchBusinessAccount(account) {
+  async fetchBusinessAccount(account, traceId = null) {
+    // ─── DIAGNOSTIC: LOG 9 — before fetchBusinessAccount ────────────────────
+    ebayTrace(traceId, "BEFORE_FETCH_BUSINESS_ACCOUNT", {
+      function: "EbayAdapter.fetchBusinessAccount",
+      accountId: account?._id,
+    });
+
     try {
       const tokenInfo = await this.client.get(account.accessToken, "/oauth2/token/info");
       account.platformUserId = tokenInfo.uid || account.platformUserId;
@@ -288,12 +408,23 @@ class EbayAdapter extends BaseAdapter {
       };
       await account.save();
 
+      // ─── DIAGNOSTIC: LOG 10 — after fetchBusinessAccount (success) ───────
+      ebayTrace(traceId, "AFTER_FETCH_BUSINESS_ACCOUNT", {
+        function: "EbayAdapter.fetchBusinessAccount",
+        success: true,
+        uid: tokenInfo.uid,
+      });
+
       return {
         businessAccountId: tokenInfo.uid || account._id.toString(),
         businessName: tokenInfo.uid || "eBay User",
       };
     } catch (err) {
       console.warn("[EBAY] fetchBusinessAccount warning:", err.message);
+
+      // ─── DIAGNOSTIC: LOG 10 — after fetchBusinessAccount (failure) ───────
+      ebayTraceError(traceId, "FETCH_BUSINESS_ACCOUNT_FAILED", "EbayAdapter.fetchBusinessAccount", err);
+
       return {
         businessAccountId: account._id.toString(),
         businessName: "eBay User",
