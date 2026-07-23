@@ -325,6 +325,29 @@ app.use((err, req, res, next) => {
 
 // 404 handler - must be last
 app.use((req, res) => {
+  // ─── eBay OAuth diagnostic: only fires for requests that mention "ebay" ──
+  // and reached here (i.e. matched no route). Purely additive — does not
+  // change the response for this or any other unmatched request.
+  if (typeof req.originalUrl === "string" && req.originalUrl.toLowerCase().includes("ebay")) {
+    console.error(JSON.stringify({
+      tag: "[EBAY][ERROR]",
+      timestamp: new Date().toISOString(),
+      platform: "ebay",
+      step: "404_ROUTE_NOT_FOUND",
+      function: "server.js 404 handler",
+      requestedUrl: req.originalUrl,
+      expectedCallbackUrl: "/api/integrations/ebay/callback",
+      expectedConnectUrl: "/api/integrations/ebay/connect",
+      expectedStatusUrl: "/api/integrations/ebay/status",
+      method: req.method,
+      referer: req.get("Referer") || null,
+      origin: req.get("Origin") || null,
+      frontendUrl: process.env.FRONTEND_URL || "http://localhost:5173",
+      backendHost: `${req.protocol}://${req.get("host")}`,
+      routeFound: false,
+    }));
+  }
+
   res.status(404).json({ error: "Route not found" });
 });
 
