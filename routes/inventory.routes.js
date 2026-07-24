@@ -16,6 +16,7 @@ const {
   getInventoryByVIN,
   getPartsMasterList,
   getAllInventories,
+  searchByMakeModelYear,
   exportInventories,
   deduplicateInventory,
 } = require("../controllers/Inventory.controller");
@@ -89,6 +90,35 @@ router.get("/vin/:vin", auth, getInventoryByVIN);
  */
 //end here
 router.get("/parts", auth, getPartsMasterList);
+
+/**
+ * @swagger
+ * /api/inventory/search:
+ *   get:
+ *     summary: Search inventory by Make + Model + Year simultaneously
+ *     tags: [Inventory]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: make
+ *         schema:
+ *           type: string
+ *         description: Make ObjectId or name
+ *       - in: query
+ *         name: model
+ *         schema:
+ *           type: string
+ *         description: Model ObjectId or name
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: number
+ *     responses:
+ *       200:
+ *         description: Matching inventory fetched successfully
+ */
+router.get("/search", auth, searchByMakeModelYear); // Specific route, kept above the generic / below
 
 // by shiva
 /**
