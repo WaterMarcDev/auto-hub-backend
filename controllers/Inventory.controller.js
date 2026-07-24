@@ -339,6 +339,95 @@ const getPartsMasterList = async (req, res) => {
     res.status(500).json({ message: "Server error while fetching parts" });
   }
 };
+// Search inventory by Make + Model + Year simultaneously, accepting either
+// ObjectIds or human-readable names for make/model (resolved server-side,
+// same lookup style as createInventory) so a caller doesn't need separate
+// round trips to look up IDs first. Read-only — never creates Make/Model
+// records; an unresolvable name just yields zero results.
+// GET /api/inventory/search
+const searchByMakeModelYear = async (req, res) => {
+  try {
+    const { make, model, year } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 25;
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+
+    if (make) {
+      const makeDoc = mongoose.Types.ObjectId.isValid(make)
+        ? await Make.findById(make)
+        : await Make.findOne({ name: make });
+      if (!makeDoc) {
+        return res.status(200).json({
+          parts: [],
+          pagination: { page, limit, total: 0, pages: 0 },
+        });
+      }
+      filter.make = makeDoc._id;
+    }
+
+    if (model) {
+      const modelQuery = { name: model };
+      if (filter.make) modelQuery.make = filter.make;
+      const modelDoc = mongoose.Types.ObjectId.isValid(model)
+        ? await CarModel.findById(model)
+        : await CarModel.findOne(modelQuery);
+      if (!modelDoc) {
+        return res.status(200).json({
+          parts: [],
+          pagination: { page, limit, total: 0, pages: 0 },
+        });
+      }
+      filter.model = modelDoc._id;
+    }
+
+    if (year) {
+      const parsedYear = Number(year);
+      if (!Number.isNaN(parsedYear)) filter.year = parsedYear;
+    }
+
+    const total = await Inventory.countDocuments(filter);
+
+    const items = await Inventory.find(filter)
+      .populate("make", "name shortName")
+      .populate("model", "name shortName")
+      .populate("trim", "name shortName")
+      .select(
+        "partName unit cleaned quality location weight dimensions sku year color"
+      )
+      .skip(skip)
+      .limit(limit)
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const parts = items.map((it) => ({
+      _id: it._id,
+      partName: it.partName,
+      unit: it.unit,
+      cleaned: it.cleaned,
+      quality: it.quality,
+      location: it.location,
+      weight: it.weight,
+      dimensions: it.dimensions,
+      sku: it.sku,
+      year: it.year,
+      color: it.color,
+      make: it.make ? { _id: it.make._id, name: it.make.name } : null,
+      model: it.model ? { _id: it.model._id, name: it.model.name } : null,
+      trim: it.trim ? { _id: it.trim._id, name: it.trim.name } : null,
+    }));
+
+    res.status(200).json({
+      parts,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    console.error("Error searching inventory by make/model/year:", error);
+    res.status(500).json({ message: "Server error while searching inventory" });
+  }
+};
+
 // Export inventories with custom format
 // GET /api/inventory/export
 const exportInventories = async (req, res) => {
@@ -790,6 +879,7 @@ module.exports = {
   getInventoryByVIN,
   getPartsMasterList,
   getAllInventories,
+  searchByMakeModelYear,
   exportInventories,
   syncInventoriesV3,
   deduplicateInventory,

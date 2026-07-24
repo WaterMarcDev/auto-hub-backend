@@ -11,6 +11,7 @@ exports.createJunkCarRequest = async (req, res) => {
             make,
             model,
             engineOrVin,
+            condition,
         } = req.body;
 
         // added by shiva
@@ -38,6 +39,7 @@ exports.createJunkCarRequest = async (req, res) => {
             make: make || "none",
             model: model || "none",
             engineOrVin: engineOrVin || "none",
+            condition: condition || "none",
         });
 
         res.status(201).json({

@@ -29,6 +29,9 @@ const junkCarSchema = new mongoose.Schema(
         engineOrVin: {
             type: String,
         },
+        condition: {
+            type: String,
+        },
         remark: {
             type: String,
             default: "",
