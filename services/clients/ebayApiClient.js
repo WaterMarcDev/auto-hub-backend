@@ -454,6 +454,52 @@ class EbayApiClient {
       return false;
     }
   }
+
+  /**
+   * Fetch seller orders from eBay Fulfillment API.
+   * 
+   * Docs:
+   * https://developer/ebay.com/api-docs/sell/fulfillment/resources/order/methods/getOrders
+   * 
+   * @param {string} accessToken
+   * @param {Object} [options]
+   * @param {number} [options.limit=50]
+   * @param {number} [options.offset=0]
+   * @param {string} [options.filter]
+   * @param {string} [options.sort]
+   * @returns {Promise<Object>}
+   */
+  async getOrders(accessToken, options = {}) {
+    const {
+      limit = 50,
+      offset = 0,
+      filter,
+      sort,
+    } = options;
+
+    const params = {
+      limit,
+      offset,
+    };
+    
+    if (filter) {
+      params.filter = filter;
+    }
+
+    if (sort) {
+      params.sort = sort;
+    }
+
+    return this.get(
+      accessToken,
+      "/sell/fulfillment/v1/order",
+      params
+    );
+  }
+
+
+
+
 }
 
 module.exports = {

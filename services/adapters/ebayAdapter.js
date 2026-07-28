@@ -21,6 +21,7 @@ const platformManager = require("../platformManager.service");
 const IntegrationAccount = require("../../models/IntegrationAccount.model");
 const MarketplaceLead = require("../../models/MarketplaceLead.model");
 const Conversation = require("../../models/Conversation.model");
+const Order = require("../../models/Order.model");
 const { logAction } = require("../auditLog.service");
 
 // ─── eBay OAuth Diagnostic Tracing (observability only, no behavior change) ─
@@ -653,60 +654,130 @@ class EbayAdapter extends BaseAdapter {
    * @returns {Promise<Object>} MarketplaceLead document
    */
   async _upsertOrder(order) {
-    const orderId = order.orderId;
     const buyer = order.buyer || {};
-    const shippingAddress = buyer.shippingAddress?.addressLine1
-      ? {
-          street: buyer.shippingAddress.addressLine1,
-          city: buyer.shippingAddress.city,
-          state: buyer.shippingAddress.stateOrProvince,
-          zip: buyer.shippingAddress.postalCode,
-          country: buyer.shippingAddress.country,
-        }
-      : {};
-    const lineItem = (order.lineItems || [])[0] || {};
+    const lineItems = order.lineItems || [];
 
-    const price = order.pricingSummary?.price?.value
-      ? parseFloat(order.pricingSummary.price.value)
-      : 0;
-    const currency = order.pricingSummary?.price?.currency || "USD";
+    const orderData = {
+      platform: "ebay",
 
-    const leadData = {
-      marketplace: "ebay",
-      marketplaceOrderId: orderId,
-      marketplaceCustomerId: buyer.username,
-      customerName: buyer.username,
-      customerEmail: buyer.email,
-      customerPhone: buyer.contactPhoneNumber,
-      shippingAddress,
-      productName: lineItem.title,
-      productSku: lineItem.sku,
-      quantity: lineItem.quantity || 1,
-      price,
-      currency,
-      orderStatus: this._mapOrderStatus(order.orderPaymentStatus),
-      shippingStatus: this._mapShippingStatus(order.fulfillmentStatus),
-      trackingNumber: lineItem.trackingNumber,
-      carrier: lineItem.shippingCarrier,
-      estimatedDelivery: lineItem.estimatedDeliveryDate ? new Date(lineItem.estimatedDeliveryDate) : null,
-      source: "eBay Sync",
+      orderId: order.orderId,
+      legacyOrderId: order.legacyOrderId || null,
+
+      buyerUsername: buyer.username || null,
+      buyerEmail: buyer.email || null,
+
+      status:
+        order.orderFulfillmentStatus ||
+        order.orderPaymentStatus ||
+        "UNKNOWN",
+
+      createdAtEbay: order.creationDate
+        ? new Date(order.creationDate)
+        : null,
+
+      total: parseFloat(
+        order.pricingSummary?.total?.value ||
+        order.pricingSummary?.price?.value ||
+        0
+      ),
+
+      currency:
+        order.pricingSummary?.total?.currency ||
+        order.pricingSummary?.price?.currency ||
+        "USD",
+
+      items: lineItems.map((item) => ({
+        itemId: item.lineItemId,
+        title: item.title,
+        sku: item.sku,
+        quantity: item.quantity,
+        price: parseFloat(item.lineItemCost?.value || 0),
+      })),
+
+      shippingAddress: {
+        name:
+          buyer.shippingAddress?.fullName || "",
+        city:
+          buyer.shippingAddress?.city || "",
+        state:
+          buyer.shippingAddress?.stateOrProvince || "",
+        postalCode:
+          buyer.shippingAddress?.postalCode || "",
+        country:
+          buyer.shippingAddress?.country || "",
+      },
+
+      rawData: order,
     };
 
-    // Upsert by marketplaceOrderId to avoid duplicates
-    let lead = await MarketplaceLead.findOne({
-      marketplace: "ebay",
-      marketplaceOrderId: orderId,
-    });
-
-    if (lead) {
-      Object.assign(lead, leadData);
-    } else {
-      lead = new MarketplaceLead(leadData);
-    }
-
-    await lead.save();
-    return lead;
+    return await Order.findOneAndUpdate(
+      { orderId: order.orderId },
+      orderData,
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+      }
+    );
   }
+  
+  
+  
+  // async _upsertOrder(order) {
+  //   const orderId = order.orderId;
+  //   const buyer = order.buyer || {};
+  //   const shippingAddress = buyer.shippingAddress?.addressLine1
+  //     ? {
+  //         street: buyer.shippingAddress.addressLine1,
+  //         city: buyer.shippingAddress.city,
+  //         state: buyer.shippingAddress.stateOrProvince,
+  //         zip: buyer.shippingAddress.postalCode,
+  //         country: buyer.shippingAddress.country,
+  //       }
+  //     : {};
+  //   const lineItem = (order.lineItems || [])[0] || {};
+
+  //   const price = order.pricingSummary?.price?.value
+  //     ? parseFloat(order.pricingSummary.price.value)
+  //     : 0;
+  //   const currency = order.pricingSummary?.price?.currency || "USD";
+
+  //   const leadData = {
+  //     marketplace: "ebay",
+  //     marketplaceOrderId: orderId,
+  //     marketplaceCustomerId: buyer.username,
+  //     customerName: buyer.username,
+  //     customerEmail: buyer.email,
+  //     customerPhone: buyer.contactPhoneNumber,
+  //     shippingAddress,
+  //     productName: lineItem.title,
+  //     productSku: lineItem.sku,
+  //     quantity: lineItem.quantity || 1,
+  //     price,
+  //     currency,
+  //     orderStatus: this._mapOrderStatus(order.orderPaymentStatus),
+  //     shippingStatus: this._mapShippingStatus(order.fulfillmentStatus),
+  //     trackingNumber: lineItem.trackingNumber,
+  //     carrier: lineItem.shippingCarrier,
+  //     estimatedDelivery: lineItem.estimatedDeliveryDate ? new Date(lineItem.estimatedDeliveryDate) : null,
+  //     source: "eBay Sync",
+  //   };
+
+  //   // Upsert by marketplaceOrderId to avoid duplicates
+  //   let lead = await MarketplaceLead.findOne({
+  //     marketplace: "ebay",
+  //     marketplaceOrderId: orderId,
+  //   });
+
+  //   if (lead) {
+  //     Object.assign(lead, leadData);
+  //   } else {
+  //     lead = new MarketplaceLead(leadData);
+  //   }
+
+  //   await lead.save();
+  //   return lead;
+  // }
 
   /**
    * Upsert a MarketplaceLead from an eBay inventory item (listing).
