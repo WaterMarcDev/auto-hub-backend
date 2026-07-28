@@ -32,6 +32,10 @@ const junkCarSchema = new mongoose.Schema(
         condition: {
             type: String,
         },
+        message: {
+            type: String,
+            default: "",
+        },
         remark: {
             type: String,
             default: "",
@@ -42,8 +46,18 @@ const junkCarSchema = new mongoose.Schema(
         },
         source: {
             type: String,
-            enum: ["Online", "Offline"],
-            default: "Online",
+            enum: [
+                "Manual",
+                "Website",
+                "Instagram",
+                "Facebook",
+                "TikTok",
+                "eBay",
+                "WhatsApp",
+                "SMS",
+                "Other",
+            ],
+            default: "Manual",
         },
 
         // added by shiva paymentStatus
@@ -55,6 +69,11 @@ const junkCarSchema = new mongoose.Schema(
         movedToIntake: {
         type: Boolean,
         default: false,
+        },
+        createdBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User", 
+            default: null,
         },
         // Assigned to or Handled by
         assignedTo: {

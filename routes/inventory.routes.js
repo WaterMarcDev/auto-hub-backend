@@ -11,6 +11,7 @@
 const express = require("express");
 const router = express.Router();
 const { auth } = require("../middleware/auth");
+const { automationBotAuth } = require("../middleware/automationBotAuth"); // added by shiva
 const {
   createInventory,
   getInventoryByVIN,
@@ -119,6 +120,8 @@ router.get("/parts", auth, getPartsMasterList);
  *         description: Matching inventory fetched successfully
  */
 router.get("/search", auth, searchByMakeModelYear); // Specific route, kept above the generic / below
+
+router.get("/search/automation-bot", automationBotAuth, searchByMakeModelYear); // added by shiva
 
 // by shiva
 /**
