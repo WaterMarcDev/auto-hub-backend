@@ -436,10 +436,35 @@ const searchByMakeModelYear = async (req, res) => {
         "\\$&"
       );
 
-      filter.partName = {
-        $regex: `^${escapedPartName}$`,
-        $options: "i"
+      filter.$expr = {
+        $eq: [
+          {
+            $replaceAll: {
+              input: {
+                $replaceAll: {
+                  input: {
+                    $replaceAll: {
+                      input: { $toLower: "$partName" },
+                      find: " ",
+                      replacement: ""
+                    }
+                  },
+                  find: "_",
+                  replacement: ""
+                }
+              },
+              find: "-",
+              replacement: ""
+            }
+          },
+          normalizedSearch
+        ]
       };
+      
+      // filter.partName = {
+      //   $regex: `^${escapedPartName}$`,
+      //   $options: "i"
+      // };
     }
     
     // if (partName?.trim()) {
