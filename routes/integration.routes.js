@@ -32,6 +32,18 @@ router.post("/:platform/refresh", auth, oauthController.refreshPlatformToken);
 // GET  /api/integrations/:platform/status  - Get platform connection status
 router.get("/:platform/status", auth, oauthController.platformStatus);
 
+// GET /api/integrations/:platform/orders - Fetch marketplace orders
+router.get("/:platform/orders", auth, oauthController.fetchOrders);
+
+// GET /api/integrations/:platform/listings - Fetch marketplace listings
+router.get("/:platform/listings", auth, oauthController.fetchListings);
+
+// GET /api/integrations/:platform/messages - Fetch marketplace messages
+router.get("/:platform/messages", auth, oauthController.fetchMessages);
+
+// POST /api/integrations/:platform/sync - Run full marketplace sync
+router.post("/:platform/sync", auth, oauthController.syncPlatform);
+
 // ─── Standard Integration CRUD Routes ────────────────────────────────────
 
 // GET /api/integrations
