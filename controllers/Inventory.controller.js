@@ -253,6 +253,7 @@ const getAllInventories = async (req, res) => {
     if (req.query.make) filter.make = req.query.make;
     if (req.query.model) filter.model = req.query.model;
     if (req.query.trim) filter.trim = req.query.trim;
+    
     if (req.query.search?.trim()) {
 
       console.log("Search Query:", req.query.search);
@@ -404,14 +405,75 @@ const searchByMakeModelYear = async (req, res) => {
 
     if (partName?.trim()) {
 
-      console.log("Part Search:", partName);
+      const normalize = (text = "") => 
+        String(text)
+          .trim()
+          .replace(/([a-z])([A-Z])/g, "$1 $2")
+          .toLowerCase()
+          .replace(/[\s_-]+/g, "");
 
-      const search = partName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const normalizedSearch = normalize(partName);
+
+      const parts = await Part.find({}, { name: 1, _id: 0 }).lean();
+
+      const matchedPart = parts.find(part => 
+        normalize(part.name) === normalizedSearch);
+
+      if (!matchedPart) {
+        return res.status(200).json({
+          parts: [],
+          pagination: {
+            page,
+            limit,
+            total: 0,
+            pages: 0
+          }
+        });
+      }
+
+      const escapedPartName = matchedPart.name.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      );
+
       filter.partName = {
-        $regex: search,
-        $options: "i",
+        $regex: `^${escapedPartName}$`,
+        $options: "i"
       };
     }
+    
+    // if (partName?.trim()) {
+
+    //   const normalize = (text) => 
+    //     text
+    //       .toLowerCase()
+    //       .replace(/[\s_-]+/g, "");
+
+    //   const search = normalize(partName);
+
+    //   filter.$expr = {
+    //     $ep: [
+    //       {
+    //         $replaceAll: {
+    //           input: {
+    //             $toLower: "$partName"
+    //           },
+    //           find: " ",
+    //           replacement: ""
+    //         }
+    //       },
+    //       search
+    //     ]
+    //   };
+
+    //   console.log("Part Search:", partName);
+
+    //   // const search = partName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    //   // filter.partName = {
+    //   //   $regex: search,
+    //   //   $options: "i",
+    //   // };
+    // }
 
     const total = await Inventory.countDocuments(filter);
 
