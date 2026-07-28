@@ -497,18 +497,35 @@ class EbayAdapter extends BaseAdapter {
    */
   async fetchOrders(account, options = {}) {
     const limit = options.limit || 50;
-    const filter = options.filter || "orderfulfillmentstatus:{NOT_STARTED}";
+    const filter = options.filter;
+    // || "orderfulfillmentstatus:{NOT_STARTED}";
 
     const leads = [];
     let offset = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const result = await this.client.get(account.accessToken, "/sell/fulfillment/v1/order", {
+      const params = {
         limit,
         offset,
-        filter,
-      });
+      };
+
+      if (filter) {
+        params.filter = filter;
+      }
+
+      const result = await this.client.get(
+        account.accessToken,
+        "/sell/fulfillment/v1/order",
+        params
+      );
+
+      
+      // const result = await this.client.get(account.accessToken, "/sell/fulfillment/v1/order", {
+      //   limit,
+      //   offset,
+      //   filter,
+      // });
 
       const orders = result.orders || [];
 
