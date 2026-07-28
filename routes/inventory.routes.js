@@ -115,6 +115,11 @@ router.get("/parts", auth, getPartsMasterList);
  *         name: year
  *         schema:
  *           type: number
+ *       - in: query
+ *        name: partName
+ *         schema:
+ *           type: string
+ *         description: Part name to search (case-insensitive)
  *     responses:
  *       200:
  *         description: Matching inventory fetched successfully

@@ -347,7 +347,7 @@ const getPartsMasterList = async (req, res) => {
 // GET /api/inventory/search
 const searchByMakeModelYear = async (req, res) => {
   try {
-    const { make, model, year } = req.query;
+    const { make, model, year, partName } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 25;
     const skip = (page - 1) * limit;
@@ -385,6 +385,13 @@ const searchByMakeModelYear = async (req, res) => {
     if (year) {
       const parsedYear = Number(year);
       if (!Number.isNaN(parsedYear)) filter.year = parsedYear;
+    }
+
+    if (partName) {
+      filter.partName = {
+        $regex: partName,
+        $options: "i",
+      };
     }
 
     const total = await Inventory.countDocuments(filter);
