@@ -10,10 +10,12 @@
 const express = require("express");
 const router = express.Router();
 const { auth } = require("../middleware/auth");    // added by shiva
+const { automationBotAuth } = require("../middleware/automationBotAuth");  // added by shiva
 
 
 const {
     createJunkCarRequest,
+    createAutomationBotJunkCarRequest,  // added by shiva
     getAllJunkCars,
     updateJunkCarStatus,
     updateJunkCarPaymentStatus,
@@ -58,6 +60,9 @@ const {
  */
 //end here
 router.post("/", createJunkCarRequest);
+
+// Automation bot route by shiva
+router.post("/automation-bot", automationBotAuth, createAutomationBotJunkCarRequest); // added by shiva
 
 // by shiva
 /**

@@ -1,5 +1,14 @@
 const JunkCar = require("../models/junkCar.model");
 const CarIntake = require("../models/carInTake.model");  // by shiva
+const BOT_SOURCES = [
+    "Website",
+    "Instagram",
+    "Facebook",
+    "WhatsApp",
+    "TikTok",
+    "SMS",
+    "Other",
+]
 
 exports.createJunkCarRequest = async (req, res) => {
     try {
@@ -12,6 +21,7 @@ exports.createJunkCarRequest = async (req, res) => {
             model,
             engineOrVin,
             condition,
+            message,
         } = req.body;
 
         // added by shiva
@@ -40,6 +50,7 @@ exports.createJunkCarRequest = async (req, res) => {
             model: model || "none",
             engineOrVin: engineOrVin || "none",
             condition: condition || "none",
+            message: message || "",
         });
 
         res.status(201).json({
@@ -49,6 +60,72 @@ exports.createJunkCarRequest = async (req, res) => {
         });
     } catch (error) {
         console.error(error);
+        res.status(500).json({
+            success: false,
+            message: error.message,
+        });
+    }
+};
+
+exports.createAutomationBotJunkCarRequest = async (req, res) => {
+    try {
+        const {
+            name,
+            email,
+            phone,
+            year,
+            make,
+            model,
+            engineOrVin,
+            condition,
+            source,
+            message,
+        } = req.body;
+
+        let parsedYear = null;
+
+        if (year) {
+            const yearStr = year.toString().trim();
+
+            if (!/^\d{4}$/.test(yearStr)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Year must be exactly 4 digits",
+                });
+            }
+
+            parsedYear = parseInt(yearStr, 10);
+        }
+
+        const resolvedSource = BOT_SOURCES.includes(source)
+            ? source
+            : "Other";
+
+        const newRequest = await JunkCar.create({
+            name: name || "none",
+            email: email || "none",
+            phone: phone || "none",
+            year: parsedYear,
+            make: make || "none",
+            model: model || "none",
+            engineOrVin: engineOrVin || "none",
+            condition: condition || "none",
+            message: message || "",
+
+            //  Added for Automation Bot
+            source: resolvedSource,
+            createdBy: req.user._id,
+            // assignedTo: req.user._id,
+        });
+
+        res.status(201).json({
+            success: true,
+            data: newRequest,
+        });
+    } catch (error) {
+
+        console.error(error);
+
         res.status(500).json({
             success: false,
             message: error.message,
@@ -66,10 +143,9 @@ exports.getAllJunkCars = async (req, res) => {
             filter.movedToIntake = { $ne: true };
         }
 
-        const data = await JunkCar.find(filter).populate(
-            "assignedTo",
-            "first_name last_name email role"
-        );  // get data first
+        const data = await JunkCar.find(filter)
+            .populate("assignedTo","first_name last_name email role")  // get data first
+            .populate("createdBy", "first_name last_name email role");
 
         console.log(JSON.stringify(data, null, 2));   // added by shiva  The temp debug
 
