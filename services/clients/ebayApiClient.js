@@ -497,6 +497,25 @@ class EbayApiClient {
     );
   }
 
+  /**
+   * Fetch seller inventory listings
+   */
+  async getListings(accessToken, options = {}) {
+    const {
+      limit = 100,
+      offset = 0,
+    } = options;
+
+    return this.get(
+      accessToken,
+      "/sell/inventory/v1/inventory_item",
+      {
+        limit,
+        offset,
+      }
+    );
+  }
+
 
 
 
