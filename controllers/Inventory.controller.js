@@ -253,8 +253,17 @@ const getAllInventories = async (req, res) => {
     if (req.query.make) filter.make = req.query.make;
     if (req.query.model) filter.model = req.query.model;
     if (req.query.trim) filter.trim = req.query.trim;
-    if (req.query.search) {
-      filter.partName = { $regex: req.query.search, $options: "i" };
+    if (req.query.search?.trim()) {
+
+      console.log("Search Query:", req.query.search);
+
+      const search = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+      filter.partName = {
+        $regex: search,
+        $options: "i",
+      };
+      // filter.partName = { $regex: req.query.search, $options: "i" };
     }
 
     const total = await Inventory.countDocuments(filter);
@@ -295,9 +304,15 @@ const getPartsMasterList = async (req, res) => {
       else if (val === "false" || val === "0") filter.cleaned = false;
     }
     if (req.query.quality) filter.quality = req.query.quality;
-    if (req.query.search) {
-      filter.partName = { $regex: req.query.search, $options: "i" };
+    if (req.query.search?.trim()) { 
+      
+      console.log("Search Query:", req.query.search);
+
+      const search = req.query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      filter.partName = { $regex: search, $options: "i" };
     }
+
+    console.log("Mongo Filter:", JSON.stringify(filter, null, 2));
 
     const total = await Inventory.countDocuments(filter);
 
@@ -387,9 +402,13 @@ const searchByMakeModelYear = async (req, res) => {
       if (!Number.isNaN(parsedYear)) filter.year = parsedYear;
     }
 
-    if (partName) {
+    if (partName?.trim()) {
+
+      console.log("Part Search:", partName);
+
+      const search = partName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.partName = {
-        $regex: partName,
+        $regex: search,
         $options: "i",
       };
     }
