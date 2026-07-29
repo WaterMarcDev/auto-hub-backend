@@ -188,6 +188,11 @@ exports.handleCallback = async (req, res) => {
 
     if (integration) {
       integration.accessToken = tokenResult.accessToken;
+
+      integration.scope = tokenResult.scope
+        ? tokenResult.scope.split(" ")
+        : [];
+      
       if (tokenResult.refreshToken) integration.refreshToken = tokenResult.refreshToken;
       if (tokenResult.expiresIn) {
         integration.tokenExpiresAt = new Date(Date.now() + tokenResult.expiresIn * 1000);
@@ -201,6 +206,11 @@ exports.handleCallback = async (req, res) => {
       integration = await IntegrationAccount.create({
         platform,
         accessToken: tokenResult.accessToken,
+
+        scope: tokenResult.scope
+          ? tokenResult.scope.split(" ")
+          : [],
+        
         refreshToken: tokenResult.refreshToken || null,
         tokenExpiresAt: tokenResult.expiresIn
           ? new Date(Date.now() + tokenResult.expiresIn * 1000)

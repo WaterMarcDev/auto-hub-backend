@@ -213,6 +213,7 @@ class EbayAdapter extends BaseAdapter {
       refreshToken: result.refreshToken,
       expiresIn: result.expiresIn,
       tokenType: result.tokenType,
+      scope: result.scope,
     };
   }
 

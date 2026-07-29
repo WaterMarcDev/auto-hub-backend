@@ -188,7 +188,7 @@ class EbayApiClient {
       console.log("Headers:", err.response?.headers);
       console.log("Body:", JSON.stringify(body, null, 2));
       console.log("==================");
-      
+
       return new EbayAuthError(errorMessage, errorId);
     }
 
@@ -362,6 +362,10 @@ class EbayApiClient {
 
     const data = response.data;
 
+    console.log("====== EBAY TOKEN RESPONSE ======");
+    console.log(JSON.stringify(data, null, 2));
+    console.log("==========================");
+
     // ─── DIAGNOSTIC: LOG 6 — after token exchange HTTP call ─────────────────
     console.log(JSON.stringify({
       tag: "[EBAY][TRACE]",
@@ -383,6 +387,7 @@ class EbayApiClient {
       refreshToken: data.refresh_token,
       expiresIn: data.expires_in || 7200,
       tokenType: data.token_type || "Bearer",
+      scope: data.scope || "",
     };
   }
 
