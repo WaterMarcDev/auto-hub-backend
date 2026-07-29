@@ -25,6 +25,12 @@ router.post("/sync", auth, controller.syncAll);
 // GET /api/marketplace-leads/ebay/messages-test
 router.get("/ebay/messages-test", auth, controller.testEbayConversations);
 
+// Temp
+router.get("/ebay/messages-test", auth, (req, res, next) => {
+    console.log("===== TEST ROUTE HIT =====");
+    next();
+}, controller.testEbayConversations);
+
 // ─── Standard CRUD Routes ───────────────────────────────────────────────
 
 // GET /api/marketplace-leads
