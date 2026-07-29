@@ -354,9 +354,14 @@ exports.getMessages = async (req, res) => {
     const { page = 1, limit = 50 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    console.log("======== GET MESSAGES =========");
+    console.log("Conversation ID:", req.params.id);
+
     const conversation = await Conversation.findById(req.params.id)
       .select("messages")
       .lean();
+    
+      console.log("Conversation Found:", conversation);
 
     if (!conversation) {
       return res.status(404).json({ success: false, message: "Conversation not found" });
