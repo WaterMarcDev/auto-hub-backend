@@ -19,6 +19,7 @@
 const mongoose = require("mongoose");
 const IntegrationAccount = require("../models/IntegrationAccount.model");
 const platformManager = require("../services/platformManager.service");
+const ebayAdapter = require("../services/adapters/ebayAdapter");
 const { logAction } = require("../services/auditLog.service");
 const { classifyEbayError, invalidCallbackError } = require("../services/integrationErrors");
 const {
@@ -565,5 +566,157 @@ exports.platformStatus = async (req, res) => {
     }
     console.error(`[INTEGRATION] ${req.params.platform} status error:`, err);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * GET /api/integrations/:platform/orders
+ * Fetch eBay Orders
+ */
+exports.fetchOrders = async (req, res) => {
+  try {
+    const { platform } = req.params;
+
+    const integration = await IntegrationAccount.findOne({
+      platform,
+      isActive: true,
+    }).sort({ createdAt: -1 });
+
+    if (!integration) {
+      return res.status(404).json({
+        success: false,
+        message: `${platform} is not connected`,
+      });
+    }
+
+    const orders = await platformManager
+      .getAdapter(platform)
+      .fetchOrders(integration);
+
+    res.json({
+      success: true,
+      count: orders.length,
+      data: orders,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+/**
+ * GET /api/integrations/:platform/listings
+ * Fetch eBay Listings
+ */
+exports.fetchListings = async (req, res) => {
+  try {
+    const {platform } = req.params;
+
+    const integration = await IntegrationAccount.findOne({
+      platform,
+      isActive: true,
+    }).sort({ createdAt: -1 });
+
+    if (!integration) {
+      return res.status(404).json({
+        success: false,
+        message: `${platform} is not connected`,
+      });
+    }
+
+    const listings = await platformManager
+      .getAdapter(platform)
+      .fetchListings(integration);
+
+    res.json({
+      success: true,
+      count: listings.length,
+      data: listings,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+/**
+ * GET /api/integrations/:platform/messages
+ * Fetch eBay Messages
+ */
+exports.fetchMessages = async (req, res) => {
+  try {
+    const { platform } = req.params;
+
+    const integration = await IntegrationAccount.findOne({
+      platform,
+      isActive: true,
+    }).sort({ createdAt: -1 });
+
+    if (!integration) {
+      return res.status(404).json({
+        success: false,
+        message: `${platform} is not connected`,
+      });
+    }
+
+    const messages = await platformManager
+      .getAdapter(platform)
+      .fetchMessages(integration);
+
+    res.json({
+      success: true,
+      count: messages.length,
+      data: messages,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
+
+
+/**
+ * POST /api/integrations/:platform/sync
+ * Run complete eBay Sync
+ */
+exports.syncPlatform = async (req, res) => {
+  try {
+    const { platform } = req.params;
+
+    const integration = await IntegrationAccount.findOne({
+      platform,
+      isActive: true,
+    }).sort({ createdAt: -1 });
+
+    if (!integration) {
+      return res.status(404).json({
+        success: false,
+        message: `${platform} is not connected`,
+      });
+    }
+
+    const result = await platformManager
+      .getAdapter(platform)
+      .sync(integration);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
