@@ -657,12 +657,21 @@ class EbayAdapter extends BaseAdapter {
     let hasMore = true;
 
     while (hasMore) {
-      const result = await this.client.get(account.accessToken, "/sell/messaging/v1/message", {
-        limit,
-        offset,
-      });
+      const result = await this.client.getConversations(
+        account.accessToken,
+        {
+          limit,
+          offset,
+        }
+      );
+      const messages = result.conversations || [];
+      // const result = await this.client.get(account.accessToken, "/sell/messaging/v1/message", {
+      //   limit,
+      //   offset,
+      // });
 
-      const messages = result.messages || [];
+      // const messages = result.messages || [];
+
 
       for (const msg of messages) {
         const conversation = await this._upsertMessage(msg);
