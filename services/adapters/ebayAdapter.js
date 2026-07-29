@@ -888,7 +888,7 @@ class EbayAdapter extends BaseAdapter {
     const listingData = {
       marketplace: "ebay",
       marketplaceListingId: sku,
-      marketplaceOrderId: null, // This is a listing, not an order
+      // marketplaceOrderId: null, // This is a listing, not an order
       productName: title,
       productSku: sku,
       quantity: availability.quantity || 0,
@@ -902,7 +902,7 @@ class EbayAdapter extends BaseAdapter {
     let lead = await MarketplaceLead.findOne({
       marketplace: "ebay",
       marketplaceListingId: sku,
-      marketplaceOrderId: null,
+      // marketplaceOrderId: null,
     });
 
     if (lead) {
