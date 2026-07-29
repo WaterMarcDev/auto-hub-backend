@@ -182,6 +182,13 @@ class EbayApiClient {
 
     // Auth error detection
     if (statusCode === 401 || statusCode === 403) {
+
+      console.log("===== EBAY RAW ERROR =====");
+      console.log("Status:", statusCode);
+      console.log("Headers:", err.response?.headers);
+      console.log("Body:", JSON.stringify(body, null, 2));
+      console.log("==================");
+      
       return new EbayAuthError(errorMessage, errorId);
     }
 
