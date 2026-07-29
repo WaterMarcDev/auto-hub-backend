@@ -516,9 +516,6 @@ class EbayApiClient {
     );
   }
 
-
-
-
 }
 
 module.exports = {

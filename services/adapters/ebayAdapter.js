@@ -16,6 +16,7 @@
 const crypto = require("crypto");
 const BaseAdapter = require("./baseAdapter");
 const { EbayApiClient, EbayAuthError } = require("../clients/ebayApiClient");
+const EbayTradingClient = require("../clients/ebayTradingClient");
 const { classifyEbayError, missingRefreshTokenError } = require("../integrationErrors");
 const platformManager = require("../platformManager.service");
 const IntegrationAccount = require("../../models/IntegrationAccount.model");
@@ -85,6 +86,8 @@ class EbayAdapter extends BaseAdapter {
       clientId: this.clientId,
       clientSecret: this.clientSecret,
     });
+
+    this.tradingClient = new EbayTradingClient();
   }
 
   // ─── OAuth ──────────────────────────────────────────────────────────────
@@ -570,12 +573,56 @@ class EbayAdapter extends BaseAdapter {
         offset,
       });
 
-      const items = result.inventoryItems || [];
+      const inventoryItems = result.inventoryItems || [];
+      
+      // Trading API fetch
+      let tradingItems = [];
+      
+      try {
+        const tradingResult =
+          await this.tradingClient.getManualListings(account.accessToken);
 
-      for (const item of items) {
+        const activeList = 
+          tradingResult?.GetMyeBaySellingResponse?.ActiveList;
+
+        const items = activeList?.ItemArray?.Item || [];
+
+        tradingItems = Array.isArray(items)
+          ? items
+          : items
+              ? [items]
+              : [];
+      } catch (error) {
+        console.warn(
+          "[EBAY] Trading API listings unavailable:",
+          error.message
+        );
+      }
+
+      const normalizedTradingItems = tradingItems.map(item =>
+        this._normalizeTradingListing(item)
+      );
+
+      const allItems = [
+        ...inventoryItems,
+        ...normalizedTradingItems,
+      ];
+
+      const seen = new Set();
+
+      for (const item of allItems) {
+        if (seen.has(item.sku)) continue;
+
+        seen.add(item.sku);
+
         const lead = await this._upsertListing(item);
         leads.push(lead);
       }
+      
+      // for (const item of inventoryItems) {
+      //   const lead = await this._upsertListing(item);
+      //   leads.push(lead);
+      // }
 
       offset += limit;
       hasMore = result.total && offset < result.total;
@@ -795,6 +842,35 @@ class EbayAdapter extends BaseAdapter {
   //   await lead.save();
   //   return lead;
   // }
+
+  /**
+   * Convert a Trading API Listing into the same structure used by
+   * the Inventory API.
+   */
+  _normalizeTradingListing(item) {
+    return {
+      sku: String(item.SKU || item.ItemID),
+
+      product: {
+        title: item.Title || item.SKU || item.ItemID,
+        prices: [
+          {
+            value: item.SellingStatus?.CurrentPrice?.["#text"] || 0,
+            currency:
+              item.SellingStatus?.CurrentPrice?.currencyID || "USD",
+          },
+        ],
+      },
+
+      availability: {
+        shipToLocationAvailability: {
+          quantity: Number(item.QuantityAvailable || 0),
+        },
+      },
+
+      rawTradingData: item,
+    };
+  }
 
   /**
    * Upsert a MarketplaceLead from an eBay inventory item (listing).
