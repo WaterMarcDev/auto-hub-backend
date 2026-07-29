@@ -16,11 +16,13 @@
 const crypto = require("crypto");
 const BaseAdapter = require("./baseAdapter");
 const { EbayApiClient, EbayAuthError } = require("../clients/ebayApiClient");
+const EbayTradingClient = require("../clients/ebayTradingClient");
 const { classifyEbayError, missingRefreshTokenError } = require("../integrationErrors");
 const platformManager = require("../platformManager.service");
 const IntegrationAccount = require("../../models/IntegrationAccount.model");
 const MarketplaceLead = require("../../models/MarketplaceLead.model");
 const Conversation = require("../../models/Conversation.model");
+const Order = require("../../models/Order.model");
 const { logAction } = require("../auditLog.service");
 
 // ─── eBay OAuth Diagnostic Tracing (observability only, no behavior change) ─
@@ -84,6 +86,8 @@ class EbayAdapter extends BaseAdapter {
       clientId: this.clientId,
       clientSecret: this.clientSecret,
     });
+
+    this.tradingClient = new EbayTradingClient();
   }
 
   // ─── OAuth ──────────────────────────────────────────────────────────────
@@ -496,18 +500,35 @@ class EbayAdapter extends BaseAdapter {
    */
   async fetchOrders(account, options = {}) {
     const limit = options.limit || 50;
-    const filter = options.filter || "orderfulfillmentstatus:{NOT_STARTED}";
+    const filter = options.filter;
+    // || "orderfulfillmentstatus:{NOT_STARTED}";
 
     const leads = [];
     let offset = 0;
     let hasMore = true;
 
     while (hasMore) {
-      const result = await this.client.get(account.accessToken, "/sell/fulfillment/v1/order", {
+      const params = {
         limit,
         offset,
-        filter,
-      });
+      };
+
+      if (filter) {
+        params.filter = filter;
+      }
+
+      const result = await this.client.get(
+        account.accessToken,
+        "/sell/fulfillment/v1/order",
+        params
+      );
+
+      
+      // const result = await this.client.get(account.accessToken, "/sell/fulfillment/v1/order", {
+      //   limit,
+      //   offset,
+      //   filter,
+      // });
 
       const orders = result.orders || [];
 
@@ -552,12 +573,56 @@ class EbayAdapter extends BaseAdapter {
         offset,
       });
 
-      const items = result.inventoryItems || [];
+      const inventoryItems = result.inventoryItems || [];
+      
+      // Trading API fetch
+      let tradingItems = [];
+      
+      try {
+        const tradingResult =
+          await this.tradingClient.getManualListings(account.accessToken);
 
-      for (const item of items) {
+        const activeList = 
+          tradingResult?.GetMyeBaySellingResponse?.ActiveList;
+
+        const items = activeList?.ItemArray?.Item || [];
+
+        tradingItems = Array.isArray(items)
+          ? items
+          : items
+              ? [items]
+              : [];
+      } catch (error) {
+        console.warn(
+          "[EBAY] Trading API listings unavailable:",
+          error.message
+        );
+      }
+
+      const normalizedTradingItems = tradingItems.map(item =>
+        this._normalizeTradingListing(item)
+      );
+
+      const allItems = [
+        ...inventoryItems,
+        ...normalizedTradingItems,
+      ];
+
+      const seen = new Set();
+
+      for (const item of allItems) {
+        if (seen.has(item.sku)) continue;
+
+        seen.add(item.sku);
+
         const lead = await this._upsertListing(item);
         leads.push(lead);
       }
+      
+      // for (const item of inventoryItems) {
+      //   const lead = await this._upsertListing(item);
+      //   leads.push(lead);
+      // }
 
       offset += limit;
       hasMore = result.total && offset < result.total;
@@ -653,59 +718,158 @@ class EbayAdapter extends BaseAdapter {
    * @returns {Promise<Object>} MarketplaceLead document
    */
   async _upsertOrder(order) {
-    const orderId = order.orderId;
     const buyer = order.buyer || {};
-    const shippingAddress = buyer.shippingAddress?.addressLine1
-      ? {
-          street: buyer.shippingAddress.addressLine1,
-          city: buyer.shippingAddress.city,
-          state: buyer.shippingAddress.stateOrProvince,
-          zip: buyer.shippingAddress.postalCode,
-          country: buyer.shippingAddress.country,
-        }
-      : {};
-    const lineItem = (order.lineItems || [])[0] || {};
+    const lineItems = order.lineItems || [];
 
-    const price = order.pricingSummary?.price?.value
-      ? parseFloat(order.pricingSummary.price.value)
-      : 0;
-    const currency = order.pricingSummary?.price?.currency || "USD";
+    const orderData = {
+      platform: "ebay",
 
-    const leadData = {
-      marketplace: "ebay",
-      marketplaceOrderId: orderId,
-      marketplaceCustomerId: buyer.username,
-      customerName: buyer.username,
-      customerEmail: buyer.email,
-      customerPhone: buyer.contactPhoneNumber,
-      shippingAddress,
-      productName: lineItem.title,
-      productSku: lineItem.sku,
-      quantity: lineItem.quantity || 1,
-      price,
-      currency,
-      orderStatus: this._mapOrderStatus(order.orderPaymentStatus),
-      shippingStatus: this._mapShippingStatus(order.fulfillmentStatus),
-      trackingNumber: lineItem.trackingNumber,
-      carrier: lineItem.shippingCarrier,
-      estimatedDelivery: lineItem.estimatedDeliveryDate ? new Date(lineItem.estimatedDeliveryDate) : null,
-      source: "eBay Sync",
+      orderId: order.orderId,
+      legacyOrderId: order.legacyOrderId || null,
+
+      buyerUsername: buyer.username || null,
+      buyerEmail: buyer.email || null,
+
+      status:
+        order.orderFulfillmentStatus ||
+        order.orderPaymentStatus ||
+        "UNKNOWN",
+
+      createdAtEbay: order.creationDate
+        ? new Date(order.creationDate)
+        : null,
+
+      total: parseFloat(
+        order.pricingSummary?.total?.value ||
+        order.pricingSummary?.price?.value ||
+        0
+      ),
+
+      currency:
+        order.pricingSummary?.total?.currency ||
+        order.pricingSummary?.price?.currency ||
+        "USD",
+
+      items: lineItems.map((item) => ({
+        itemId: item.lineItemId,
+        title: item.title,
+        sku: item.sku,
+        quantity: item.quantity,
+        price: parseFloat(item.lineItemCost?.value || 0),
+      })),
+
+      shippingAddress: {
+        name:
+          buyer.shippingAddress?.fullName || "",
+        city:
+          buyer.shippingAddress?.city || "",
+        state:
+          buyer.shippingAddress?.stateOrProvince || "",
+        postalCode:
+          buyer.shippingAddress?.postalCode || "",
+        country:
+          buyer.shippingAddress?.country || "",
+      },
+
+      rawData: order,
     };
 
-    // Upsert by marketplaceOrderId to avoid duplicates
-    let lead = await MarketplaceLead.findOne({
-      marketplace: "ebay",
-      marketplaceOrderId: orderId,
-    });
+    return await Order.findOneAndUpdate(
+      { orderId: order.orderId },
+      orderData,
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+  }
+  
+  
+  
+  // async _upsertOrder(order) {
+  //   const orderId = order.orderId;
+  //   const buyer = order.buyer || {};
+  //   const shippingAddress = buyer.shippingAddress?.addressLine1
+  //     ? {
+  //         street: buyer.shippingAddress.addressLine1,
+  //         city: buyer.shippingAddress.city,
+  //         state: buyer.shippingAddress.stateOrProvince,
+  //         zip: buyer.shippingAddress.postalCode,
+  //         country: buyer.shippingAddress.country,
+  //       }
+  //     : {};
+  //   const lineItem = (order.lineItems || [])[0] || {};
 
-    if (lead) {
-      Object.assign(lead, leadData);
-    } else {
-      lead = new MarketplaceLead(leadData);
-    }
+  //   const price = order.pricingSummary?.price?.value
+  //     ? parseFloat(order.pricingSummary.price.value)
+  //     : 0;
+  //   const currency = order.pricingSummary?.price?.currency || "USD";
 
-    await lead.save();
-    return lead;
+  //   const leadData = {
+  //     marketplace: "ebay",
+  //     marketplaceOrderId: orderId,
+  //     marketplaceCustomerId: buyer.username,
+  //     customerName: buyer.username,
+  //     customerEmail: buyer.email,
+  //     customerPhone: buyer.contactPhoneNumber,
+  //     shippingAddress,
+  //     productName: lineItem.title,
+  //     productSku: lineItem.sku,
+  //     quantity: lineItem.quantity || 1,
+  //     price,
+  //     currency,
+  //     orderStatus: this._mapOrderStatus(order.orderPaymentStatus),
+  //     shippingStatus: this._mapShippingStatus(order.fulfillmentStatus),
+  //     trackingNumber: lineItem.trackingNumber,
+  //     carrier: lineItem.shippingCarrier,
+  //     estimatedDelivery: lineItem.estimatedDeliveryDate ? new Date(lineItem.estimatedDeliveryDate) : null,
+  //     source: "eBay Sync",
+  //   };
+
+  //   // Upsert by marketplaceOrderId to avoid duplicates
+  //   let lead = await MarketplaceLead.findOne({
+  //     marketplace: "ebay",
+  //     marketplaceOrderId: orderId,
+  //   });
+
+  //   if (lead) {
+  //     Object.assign(lead, leadData);
+  //   } else {
+  //     lead = new MarketplaceLead(leadData);
+  //   }
+
+  //   await lead.save();
+  //   return lead;
+  // }
+
+  /**
+   * Convert a Trading API Listing into the same structure used by
+   * the Inventory API.
+   */
+  _normalizeTradingListing(item) {
+    return {
+      sku: String(item.SKU || item.ItemID),
+
+      product: {
+        title: item.Title || item.SKU || item.ItemID,
+        prices: [
+          {
+            value: item.SellingStatus?.CurrentPrice?.["#text"] || 0,
+            currency:
+              item.SellingStatus?.CurrentPrice?.currencyID || "USD",
+          },
+        ],
+      },
+
+      availability: {
+        shipToLocationAvailability: {
+          quantity: Number(item.QuantityAvailable || 0),
+        },
+      },
+
+      rawTradingData: item,
+    };
   }
 
   /**
@@ -724,7 +888,7 @@ class EbayAdapter extends BaseAdapter {
     const listingData = {
       marketplace: "ebay",
       marketplaceListingId: sku,
-      marketplaceOrderId: null, // This is a listing, not an order
+      // marketplaceOrderId: null, // This is a listing, not an order
       productName: title,
       productSku: sku,
       quantity: availability.quantity || 0,
@@ -738,7 +902,7 @@ class EbayAdapter extends BaseAdapter {
     let lead = await MarketplaceLead.findOne({
       marketplace: "ebay",
       marketplaceListingId: sku,
-      marketplaceOrderId: null,
+      // marketplaceOrderId: null,
     });
 
     if (lead) {
