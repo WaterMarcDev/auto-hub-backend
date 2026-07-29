@@ -172,13 +172,6 @@ exports.handleCallback = async (req, res) => {
       ...(isEbay ? { traceId: ebayTraceId } : {}),
     });
 
-    console.log("TOKEN RESULT:", tokenResult);
-
-    return res.json({
-      success: true,
-      tokenResult,
-    });
-
     if (isEbay) {
       // ─── DIAGNOSTIC: LOG 7 — before MongoDB save ──────────────────────────
       const existingCount = await IntegrationAccount.countDocuments({ platform });
