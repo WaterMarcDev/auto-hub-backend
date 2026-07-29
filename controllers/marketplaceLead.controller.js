@@ -401,44 +401,65 @@ exports.syncAll = async (req, res) => {
 };
 
 //Ebay conversations function
-// exports.testEbayConversations = async (req, res) => {
-//   try {
-//     const IntegrationAccount = require("../models/IntegrationAccount.model");
-//     const ebayAdapter = require("../services/adapters/ebayAdapter");
-
-//     const account = await IntegrationAccount.findOne({
-//       platform: "ebay",
-//       isConnected: true,
-//     });
-
-//     if (!account) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "No connected eBay account found.",
-//       });
-//     }
-
-//     const result = await ebayAdapter.testConversations(account);
-
-//     return res.status(200).json({
-//       success: true,
-//       data: result,
-//     });
-//   } catch (err) {
-//     console.error(err);
-
-//     return res.status(500).json({
-//       success: false,
-//       message: err.message,
-//       response: err.response?.data || null,
-//     });
-//   }
-// };
 exports.testEbayConversations = async (req, res) => {
-    console.log("===== TEST CONTROLLER HIT =====");
+  try {
+    console.log("==== 1 ====");
 
-    return res.json({
-        success: true,
-        message: "Controller reached"
+    const IntegrationAccount = require("../models/IntegrationAccount.model");
+    const ebayAdapter = require("../services/adapters/ebayAdapter");
+
+    console.log("==== 2 ====");
+
+    const account = await IntegrationAccount.findOne({
+      platform: "ebay",
+      isConnected: true,
     });
+
+    console.log("==== 3 ====")
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: "No connected eBay account found.",
+      });
+    }
+
+    console.log("==== 4 ====");
+
+    const result = await ebayAdapter.testConversations(account);
+
+    console.log("==== 5 ====");
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    // console.error(err);
+    console.error("====== EBAY ERROR =====");
+    console.error("Message:", err.message);
+    console.error("Stack:", err.stack);
+
+    if (err.response) {
+      console.error("Status:", err.response.status);
+      console.error("Headers:", err.response.headers);
+      console.error("Body:", err.response.data);
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+      status: err.response?.status || null,
+      response: err.response?.data || null,
+      stack: err.stack,
+    });
+  }
 };
+// exports.testEbayConversations = async (req, res) => {
+//     console.log("===== TEST CONTROLLER HIT =====");
+
+//     return res.json({
+//         success: true,
+//         message: "Controller reached"
+//     });
+// };
