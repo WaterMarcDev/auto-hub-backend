@@ -682,6 +682,17 @@ class EbayAdapter extends BaseAdapter {
     return conversations;
   }
 
+  async testConversations(account) {
+    if (account.isTokenExpired && account.refreshToken) {
+      await this.refreshToken(account);
+    }
+
+    return await this.client.getConversations(account.accessToken, {
+      limit: 10,
+      offset: 0,
+    });
+  }
+
   /**
    * Full sync: orders, listings, then messages.
    *

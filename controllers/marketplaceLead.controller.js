@@ -399,3 +399,38 @@ exports.syncAll = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+//Ebay conversations function
+exports.testEbayConversations = async (req, res) => {
+  try {
+    const IntegrationAccount = require("../models/IntegrationAccount.model");
+    const ebayAdapter = require("../services/adapters/ebayAdapter");
+
+    const account = await IntegrationAccount.findOne({
+      platform: "ebay",
+      isConnected: true,
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: "No connected eBay account found.",
+      });
+    }
+
+    const result = await ebayAdapter.testConversations(account);
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+      response: err.response?.data || null,
+    });
+  }
+};

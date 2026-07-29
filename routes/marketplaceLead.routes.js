@@ -22,6 +22,9 @@ router.get("/messages", auth, controller.syncMessages);
 // POST /api/marketplace-leads/sync     - Full sync (orders + listings + messages)
 router.post("/sync", auth, controller.syncAll);
 
+// GET /api/marketplace-leads/ebay/messages-test
+router.get("/ebay/messages-test", auth, controller.testEbayConversations);
+
 // ─── Standard CRUD Routes ───────────────────────────────────────────────
 
 // GET /api/marketplace-leads

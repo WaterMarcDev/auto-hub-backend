@@ -516,7 +516,27 @@ class EbayApiClient {
     );
   }
 
+  /**
+ * Fetch seller conversations from eBay Message API
+ */
+  async getConversations(accessToken, options = {}) {
+      const {
+          limit = 25,
+          offset = 0,
+      } = options;
+
+      return this.get(
+          accessToken,
+          "/commerce/message/v1/conversation",
+          {
+              limit,
+              offset,
+          }
+      );
 }
+
+}
+
 
 module.exports = {
   EbayApiClient,
