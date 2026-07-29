@@ -493,7 +493,7 @@ class EbayApiClient {
       limit,
       offset,
     };
-    
+
     if (filter) {
       params.filter = filter;
     }
@@ -532,22 +532,39 @@ class EbayApiClient {
  * Fetch seller conversations from eBay Message API
  */
   async getConversations(accessToken, options = {}) {
-      const {
-          limit = 25,
-          offset = 0,
-      } = options;
+    const {
+      limit = 25,
+      offset = 0,
+    } = options;
 
-      return this.get(
-          accessToken,
-          "/commerce/message/v1/conversation",
-          {
-              limit,
-              offset,
-          }
-      );
+    return this.get(
+      accessToken,
+      "/commerce/message/v1/conversation",
+      {
+        limit,
+        offset,
+      }
+    );
+  }
+
+  async getConversation(accessToken, conversationId, conversationType, options = {}) {
+    const {
+      limit = 50,
+      offset = 0,
+    } = options;
+
+    return this.get(
+      accessToken,
+      `/commerce/message/v1/conversation/${encodeURIComponent(conversationId)}`,
+      {
+        conversation_type: conversationType,
+        limit,
+        offset,
+      }
+    );
+  }
 }
 
-}
 
 
 module.exports = {

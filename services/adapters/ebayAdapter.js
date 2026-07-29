@@ -664,7 +664,25 @@ class EbayAdapter extends BaseAdapter {
           offset,
         }
       );
-      const messages = result.conversations || [];
+
+      const conversationList = result.conversations || [];
+
+      for (const conversationSummary of conversationList) {
+        const conversationDetails = await this.client.getConversation(
+          account.accessToken,
+          conversationSummary.conversationId,
+          conversationSummary.conversationType
+        );
+
+        const messages = conversationDetails.messages || [];
+
+        for (const msg of messages) {
+          const conversation = await this._upsertMessage(msg);
+          conversations.push(conversation);
+        }
+      }
+
+      // const messages = result.conversations || [];
       // const result = await this.client.get(account.accessToken, "/sell/messaging/v1/message", {
       //   limit,
       //   offset,
@@ -672,16 +690,10 @@ class EbayAdapter extends BaseAdapter {
 
       // const messages = result.messages || [];
 
-      console.log("===================");
-      console.log("FIRST EBAY CONVERSATION");
-      console.log(JSON.stringify(messages[0], null, 2));
-      console.log("=========================");
-
-
-      for (const msg of messages) {
-        const conversation = await this._upsertMessage(msg);
-        conversations.push(conversation);
-      }
+      // for (const msg of messages) {
+      //   const conversation = await this._upsertMessage(msg);
+      //   conversations.push(conversation);
+      // }
 
       offset += limit;
       hasMore = result.total && offset < result.total;
