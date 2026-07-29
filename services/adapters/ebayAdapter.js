@@ -136,6 +136,7 @@ class EbayAdapter extends BaseAdapter {
     console.log("========== EBAY CONNECT ==========");
     console.log("RuName:", ruName);
     console.log("Scope:", scope);
+    console.log("Raw EBAY_SCOPES:", process.env.EBAY_SCOPES);
     console.log("State:", state);
 
     const authUrl = this.client.getAuthorizationUrl(ruName, scope, state);
