@@ -672,6 +672,11 @@ class EbayAdapter extends BaseAdapter {
 
       // const messages = result.messages || [];
 
+      console.log("===================");
+      console.log("FIRST EBAY CONVERSATION");
+      console.log(JSON.stringify(messages[0], null, 2));
+      console.log("=========================");
+
 
       for (const msg of messages) {
         const conversation = await this._upsertMessage(msg);
