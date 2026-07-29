@@ -25,7 +25,7 @@ const MarketplaceLeadSchema = new mongoose.Schema(
 
     marketplaceOrderId: {
       type: String,
-      default: null,
+      // default: null,
       index: true,
     },
 
