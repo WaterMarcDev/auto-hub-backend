@@ -973,16 +973,23 @@ class EbayAdapter extends BaseAdapter {
    */
   async _upsertMessage(msg, conversationSummary) {
     const messageId = msg.messageId || msg.id || msg.message_id || crypto.randomUUID();
-    const sender = msg.sender || "eBay User";
-    const receiver = msg.recipient || "Unknown";
-    const text = msg.message || msg.body || "";
-    const timestamp = msg.timestamp ? new Date(msg.timestamp) : new Date();
+    const sender = msg.senderUsername || msg.sender?.username || msg.sender || "eBay User";
+    const receiver = msg.recipientUsername || msg.recipient?.username || msg.recipient || "Unknown";
+    const text = msg.messageBody || msg.message || msg.body || "";
+    const timestamp = 
+      msg.createdDate
+        ? new Date(msg.createdDate)
+        : msg.timestamp 
+          ? new Date(msg.timestamp) 
+          : new Date();
     // const platformConversationId = msg.conversationId || msg.orderId || messageId;
     const platformConversationId = conversationSummary.conversationId;
 
     const customerName = 
       conversationSummary.buyer?.username ||
       conversationSummary.otherParticipant?.username ||
+      msg.senderUsername ||
+      msg.recipientUsername ||
       sender ||
       "eBay User";
 
