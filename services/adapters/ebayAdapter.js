@@ -982,17 +982,25 @@ class EbayAdapter extends BaseAdapter {
       msg.body ||
       "";
 
-    const text = rawMessage
+    const cleanedText = rawMessage
       ? convert(rawMessage, {
-          wordwrap: false,
+          wordwrap: 120,
           selectors: [
             { selector: "img", format: "skip" },
             { selector: "style", format: "skip" },
             { selector: "script", format: "skip" },
-            { selector: "head", format: "skip" }
+            { selector: "head", format: "skip" },
+            { selector: "a", options: { ignoreHref: true } }
           ]
-        }).trim()
+        })
       : "";
+
+    const text = cleanedText
+        .replace(/https?:\/\/\S+/gi, "")           //Remove URLs
+        .replace(/\[[^\]]+\]/g, "")                // Remove [https://...]
+        .replace(/\n{3,}/g, "\n\n")                // Remove extra blank lines
+        .replace(/[ \t]{2,}/g, " ")                // Remove extra spaces
+        .trim(); 
 
     // const text = msg.messageBody || msg.message || msg.body || "";
     const timestamp = 
