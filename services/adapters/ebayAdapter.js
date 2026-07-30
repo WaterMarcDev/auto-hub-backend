@@ -682,7 +682,7 @@ class EbayAdapter extends BaseAdapter {
 
         if (messages.length > 0) {
           console.log("\n========== FIRST EBAY MESSAGE ==========");
-          console.log(JSON.stringify(message[0], null, 2));
+          console.log(JSON.stringify(messages[0], null, 2));
           console.log("===========================================\n");
         }
 
