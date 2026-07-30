@@ -14,6 +14,7 @@
  * Self-registers with PlatformManager on require().
  */
 const crypto = require("crypto");
+const { convert } = require("html-to-text");
 const BaseAdapter = require("./baseAdapter");
 const { EbayApiClient, EbayAuthError } = require("../clients/ebayApiClient");
 const EbayTradingClient = require("../clients/ebayTradingClient");
@@ -975,7 +976,25 @@ class EbayAdapter extends BaseAdapter {
     const messageId = msg.messageId || msg.id || msg.message_id || crypto.randomUUID();
     const sender = msg.senderUsername || msg.sender?.username || msg.sender || "eBay User";
     const receiver = msg.recipientUsername || msg.recipient?.username || msg.recipient || "Unknown";
-    const text = msg.messageBody || msg.message || msg.body || "";
+    const rawMessage = 
+      msg.messageBody ||
+      msg.message ||
+      msg.body ||
+      "";
+
+    const text = rawMessage
+      ? convert(rawMessage, {
+          wordwrap: false,
+          selectors: [
+            { selector: "img", format: "skip" },
+            { selector: "style", format: "skip" },
+            { selector: "script", format: "skip" },
+            { selector: "head", format: "skip" }
+          ]
+        }).trim()
+      : "";
+
+    // const text = msg.messageBody || msg.message || msg.body || "";
     const timestamp = 
       msg.createdDate
         ? new Date(msg.createdDate)
