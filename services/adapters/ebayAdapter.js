@@ -673,7 +673,8 @@ class EbayAdapter extends BaseAdapter {
           conversationSummary.conversationId,
           conversationSummary.conversationType
         );
-
+        console.log("========= CONVERSATION SUMMARY =========");
+        console.log(JSON.stringify(conversationSummary, null, 2));
         console.log("\n========== EBAY CONVERSATION DETAILS ==============");
         console.log(JSON.stringify(conversationDetails, null, 2));
         console.log("============================\n");
@@ -687,7 +688,7 @@ class EbayAdapter extends BaseAdapter {
         }
 
         for (const msg of messages) {
-          const conversation = await this._upsertMessage(msg);
+          const conversation = await this._upsertMessage(msg, conversationSummary);
           conversations.push(conversation);
         }
       }
@@ -970,13 +971,20 @@ class EbayAdapter extends BaseAdapter {
    * @param {Object} msg - eBay message object from Messaging API
    * @returns {Promise<Object>} Conversation document
    */
-  async _upsertMessage(msg) {
-    const messageId = msg.messageId;
+  async _upsertMessage(msg, conversationSummary) {
+    const messageId = msg.messageId || msg.id || msg.message_id || crypto.randomUUID();
     const sender = msg.sender || "eBay User";
     const receiver = msg.recipient || "Unknown";
     const text = msg.message || msg.body || "";
     const timestamp = msg.timestamp ? new Date(msg.timestamp) : new Date();
-    const platformConversationId = msg.conversationId || msg.orderId || messageId;
+    // const platformConversationId = msg.conversationId || msg.orderId || messageId;
+    const platformConversationId = conversationSummary.conversationId;
+
+    const customerName = 
+      conversationSummary.buyer?.username ||
+      conversationSummary.otherParticipant?.username ||
+      sender ||
+      "eBay User";
 
     // Find or create conversation
     let conversation = await Conversation.findOne({
@@ -988,8 +996,8 @@ class EbayAdapter extends BaseAdapter {
       conversation = await Conversation.create({
         platform: "ebay",
         platformConversationId,
-        platformUserId: sender,
-        customerName: sender,
+        platformUserId: customerName,
+        customerName: customerName,
         status: "new",
         messages: [],
       });
@@ -1009,6 +1017,11 @@ class EbayAdapter extends BaseAdapter {
         messageType: "text",
         createdAt: timestamp,
       });
+
+      conversation.lastMessage = text;
+      conversation.lastMessageAt = timestamp;
+      conversation.messageCount = conversation.messages.length;
+      conversation.updatedAt = new Date();
 
       conversation.status = "open";
       await conversation.save();
