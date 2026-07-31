@@ -5,14 +5,18 @@ const OrderSchema = new mongoose.Schema(
     platform: {
       type: String,
       required: true,
+      enum: ["ebay", "amazon"],
       default: "ebay",
       index: true,
     },
 
+    // NOTE: `orderId` is intentionally NOT unique on its own — uniqueness is
+    // enforced by the compound index below ({platform, orderId}), scoped per
+    // marketplace so an Amazon order can never collide with/overwrite an
+    // eBay order that happens to share the same orderId value.
     orderId: {
       type: String,
       required: true,
-      unique: true,
       index: true,
     },
 
@@ -33,6 +37,47 @@ const OrderSchema = new mongoose.Schema(
 
     status: {
       type: String,
+      default: null,
+    },
+
+    // Newer, more granular status fields (additive — `status` above is left
+    // untouched for backward compatibility with anything already reading it).
+    paymentStatus: {
+      type: String,
+      default: null,
+    },
+
+    shippingStatus: {
+      type: String,
+      default: null,
+    },
+
+    trackingNumber: {
+      type: String,
+      default: null,
+    },
+
+    // CRM linkage (all optional — populated by the adapter/customer-match
+    // flow on upsert; existing documents without these simply read as null).
+    customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+      default: null,
+    },
+
+    customerName: {
+      type: String,
+      default: null,
+    },
+
+    customerPhone: {
+      type: String,
+      default: null,
+    },
+
+    conversationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Conversation",
       default: null,
     },
 
@@ -77,5 +122,13 @@ const OrderSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Compound uniqueness per marketplace (see note on `orderId` above).
+// NOTE: this index is declared here but not auto-applied to the live
+// database — Mongo already has the older single-field unique index on
+// `orderId` from before this change. Applying the new compound index and
+// retiring the old one is a deliberate, manual, documented migration step
+// (see Migration Notes), never executed automatically on server start.
+OrderSchema.index({ platform: 1, orderId: 1 }, { unique: true });
 
 module.exports = mongoose.model("Order", OrderSchema);

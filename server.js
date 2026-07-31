@@ -287,6 +287,7 @@ app.use("/api/wix", require("./routes/wix.routes"));
 app.use("/api/social-leads", require("./routes/socialLead.routes"));
 app.use("/api/marketplace-leads", require("./routes/marketplaceLead.routes"));
 app.use("/api/conversations", require("./routes/conversation.routes"));
+app.use("/api/orders", require("./routes/order.routes"));
 app.use("/api/integrations", require("./routes/integration.routes"));
 app.use("/api/integrations/ebay", ebayRoutes);
 

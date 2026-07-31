@@ -11,6 +11,47 @@ const platformManager = require("../services/platformManager.service");
 const { logAction } = require("../services/auditLog.service");
 
 /**
+ * Emit a real-time `new_message` Socket.io event per synced conversation, so
+ * the Unified Inbox can update instantly instead of waiting on its next poll.
+ * Mirrors the existing `new_email` pattern in controllers/email.controller.js
+ * (same req.app.get("io") accessor, same controller-layer emission point —
+ * the eBay adapter itself has no access to `req`/`io`).
+ *
+ * Purely additive/best-effort: if Socket.io isn't available for any reason,
+ * this silently no-ops and never affects the HTTP response.
+ *
+ * @param {import("express").Request} req
+ * @param {Array<Object>} conversations - Conversation documents returned by
+ *   an adapter's fetchMessages()/sync() (each entry is the conversation as it
+ *   stood immediately after one message was appended).
+ */
+function emitNewMessageEvents(req, conversations) {
+  if (!Array.isArray(conversations) || conversations.length === 0) return;
+
+  const io = req.app.get("io");
+  if (!io) return;
+
+  for (const conversation of conversations) {
+    if (!conversation) continue;
+    const lastMsg = conversation.messages?.[conversation.messages.length - 1] || null;
+
+    io.emit("new_message", {
+      conversationId: conversation._id,
+      message: lastMsg,
+      conversation: {
+        _id: conversation._id,
+        platform: conversation.platform,
+        customerName: conversation.customerName,
+        lastMessage: conversation.lastMessage,
+        lastMessageAt: conversation.lastMessageAt,
+        unreadCount: conversation.unreadCount,
+        status: conversation.status,
+      },
+    });
+  }
+}
+
+/**
  * GET /api/marketplace-leads
  */
 exports.getAll = async (req, res) => {
@@ -95,15 +136,24 @@ exports.getById = async (req, res) => {
  */
 exports.updateStatus = async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, marketplace } = req.body;
     const validStatuses = ["new", "open", "in_progress", "waiting_customer", "waiting_internal", "resolved", "closed", "archived"];
 
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: "Invalid status" });
     }
 
-    const lead = await MarketplaceLead.findByIdAndUpdate(
-      req.params.id,
+    // Defense-in-depth: when the caller supplies the record's own
+    // `marketplace` value, scope the update to it so a status change can
+    // never affect a record belonging to a different marketplace. Omitting
+    // it keeps today's exact behavior (id-only lookup) for backward
+    // compatibility with any existing caller.
+    const filter = marketplace
+      ? { _id: req.params.id, marketplace }
+      : { _id: req.params.id };
+
+    const lead = await MarketplaceLead.findOneAndUpdate(
+      filter,
       { conversationStatus: status },
       { new: true }
     );
@@ -182,15 +232,21 @@ exports.updateNotes = async (req, res) => {
  */
 exports.updateOrderStatus = async (req, res) => {
   try {
-    const { orderStatus, shippingStatus, trackingNumber } = req.body;
+    const { orderStatus, shippingStatus, trackingNumber, marketplace } = req.body;
 
     const updates = {};
     if (orderStatus) updates.orderStatus = orderStatus;
     if (shippingStatus) updates.shippingStatus = shippingStatus;
     if (trackingNumber) updates.trackingNumber = trackingNumber;
 
-    const lead = await MarketplaceLead.findByIdAndUpdate(
-      req.params.id,
+    // Same opt-in marketplace-scoping as updateStatus above — additive and
+    // backward compatible when `marketplace` isn't supplied.
+    const filter = marketplace
+      ? { _id: req.params.id, marketplace }
+      : { _id: req.params.id };
+
+    const lead = await MarketplaceLead.findOneAndUpdate(
+      filter,
       updates,
       { new: true }
     );
@@ -348,6 +404,7 @@ exports.syncMessages = async (req, res) => {
     }
 
     const conversations = await adapter.fetchMessages(account, req.query);
+    emitNewMessageEvents(req, conversations);
     res.json({ success: true, data: conversations, count: conversations.length });
   } catch (err) {
     console.error("[MARKETPLACE LEAD] Sync messages error:", err);
@@ -385,6 +442,7 @@ exports.syncAll = async (req, res) => {
     }
 
     const result = await adapter.sync(account, req.body);
+    emitNewMessageEvents(req, result.messages);
     res.json({
       success: true,
       data: result,

@@ -33,6 +33,33 @@ const CustomerSchema = new mongoose.Schema(
     signatureImage: {
       type: String,
     },
+    // Additive fields used by services/smartMatch.service.js for cross-platform
+    // (eBay/Amazon/social) customer matching. Optional and default-safe so
+    // existing Customer documents/queries are unaffected.
+    platformUserId: {
+      type: String,
+      default: null,
+    },
+    platformIds: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
+    language: {
+      type: String,
+      default: "en",
+    },
+    country: {
+      type: String,
+      default: null,
+    },
+    source: {
+      type: String,
+      default: null,
+    },
+    profilePicture: {
+      type: String,
+      default: null,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
