@@ -147,6 +147,28 @@ exports.sendReply = async (req, res) => {
     conversation.unreadCount = 0;
     await conversation.save();
 
+    // Real-time push so the Unified Inbox shows the agent's own reply
+    // instantly, without waiting on a poll. Mirrors the existing
+    // `new_email` Socket.io pattern (controllers/email.controller.js) —
+    // purely additive, never affects the HTTP response below.
+    const io = req.app.get("io");
+    if (io) {
+      const lastMsg = conversation.messages[conversation.messages.length - 1];
+      io.emit("new_message", {
+        conversationId: conversation._id,
+        message: lastMsg,
+        conversation: {
+          _id: conversation._id,
+          platform: conversation.platform,
+          customerName: conversation.customerName,
+          lastMessage: conversation.lastMessage,
+          lastMessageAt: conversation.lastMessageAt,
+          unreadCount: conversation.unreadCount,
+          status: conversation.status,
+        },
+      });
+    }
+
     // Update lead unread count
     if (conversation.socialLeadId) {
       await SocialLead.findByIdAndUpdate(conversation.socialLeadId, {

@@ -17,7 +17,40 @@
  * while adding new fields for platform-specific IDs.
  */
 const Customer = require("../models/customer");
+const User = require("../models/User");
 const { logAction } = require("./auditLog.service");
+
+// Cached after first successful lookup so background sync jobs (which have no
+// logged-in req.user) don't hit the DB on every customer-create call. Mirrors
+// the existing caching pattern in middleware/automationBotAuth.js.
+let cachedSystemUserId = null;
+
+/**
+ * Resolve a valid `createdBy` ObjectId for customers created by a background
+ * sync (e.g. eBay order/message sync) rather than a logged-in CRM user.
+ * Reuses the Automation Bot user already seeded/configured for this
+ * environment (see middleware/automationBotAuth.js) instead of relaxing the
+ * Customer model's existing `createdBy: required` constraint.
+ *
+ * @returns {Promise<import("mongoose").Types.ObjectId|null>}
+ */
+async function _resolveSystemCreatedBy() {
+  if (cachedSystemUserId) return cachedSystemUserId;
+
+  try {
+    const botEmail = process.env.AUTOMATION_BOT_EMAIL;
+    if (!botEmail) return null;
+
+    const botUser = await User.findOne({ email: botEmail }).select("_id").lean();
+    if (botUser) {
+      cachedSystemUserId = botUser._id;
+    }
+    return cachedSystemUserId;
+  } catch (error) {
+    console.error("[SMART MATCH] Failed to resolve system createdBy user:", error.message || error);
+    return null;
+  }
+}
 
 /**
  * Search for an existing customer by multiple criteria.
@@ -162,6 +195,11 @@ async function findOrCreateCustomer(customerData) {
   const firstName = nameParts[0] || "Unknown";
   const lastName = nameParts.slice(1).join(" ") || "";
 
+  // customerData.createdBy is preferred when provided (e.g. a CRM-user-driven
+  // flow); background/sync flows fall back to the system automation user
+  // rather than leaving this required field null.
+  const createdBy = customerData.createdBy || (await _resolveSystemCreatedBy());
+
   // Create new customer using existing model fields
   const newCustomer = await Customer.create({
     firstName,
@@ -176,7 +214,7 @@ async function findOrCreateCustomer(customerData) {
     language: customerData.language || "en",
     country: customerData.country || null,
     source: customerData.platform || "social",
-    createdBy: customerData.createdBy || null,
+    createdBy: createdBy || null,
   });
 
   await logAction({

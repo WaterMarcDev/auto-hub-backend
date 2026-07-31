@@ -24,6 +24,7 @@ const IntegrationAccount = require("../../models/IntegrationAccount.model");
 const MarketplaceLead = require("../../models/MarketplaceLead.model");
 const Conversation = require("../../models/Conversation.model");
 const Order = require("../../models/Order.model");
+const smartMatchService = require("../smartMatch.service");
 const { logAction } = require("../auditLog.service");
 
 // ─── eBay OAuth Diagnostic Tracing (observability only, no behavior change) ─
@@ -689,7 +690,7 @@ class EbayAdapter extends BaseAdapter {
         }
 
         for (const msg of messages) {
-          const conversation = await this._upsertMessage(msg, conversationSummary);
+          const conversation = await this._upsertMessage(msg, conversationSummary, account);
           conversations.push(conversation);
         }
       }
@@ -786,6 +787,14 @@ class EbayAdapter extends BaseAdapter {
         order.orderPaymentStatus ||
         "UNKNOWN",
 
+      // Newer, granular status fields — additive alongside `status` above,
+      // which is left exactly as-is for backward compatibility.
+      paymentStatus: order.orderPaymentStatus || null,
+      shippingStatus: order.orderFulfillmentStatus || null,
+      trackingNumber: lineItems[0]?.trackingNumber || null,
+      customerName: buyer.username || null,
+      customerPhone: buyer.contactPhoneNumber || null,
+
       createdAtEbay: order.creationDate
         ? new Date(order.creationDate)
         : null,
@@ -825,8 +834,37 @@ class EbayAdapter extends BaseAdapter {
       rawData: order,
     };
 
+    // CRM linking is best-effort: a failure here must never block the order
+    // itself from being synced/upserted.
+    try {
+      const { customer } = await smartMatchService.findOrCreateCustomer({
+        platform: "ebay",
+        email: buyer.email || null,
+        phone: buyer.contactPhoneNumber || null,
+        name: buyer.username || null,
+      });
+      orderData.customerId = customer?._id || null;
+    } catch (error) {
+      console.error("[EBAY] Order customer-match failed (non-fatal):", error.message || error);
+    }
+
+    try {
+      if (buyer.username) {
+        // Read-only lookup — never creates/modifies a Conversation from here.
+        const existingConversation = await Conversation.findOne({
+          platform: "ebay",
+          platformUserId: buyer.username,
+        }).select("_id").lean();
+        orderData.conversationId = existingConversation?._id || null;
+      }
+    } catch (error) {
+      console.error("[EBAY] Order conversation-link lookup failed (non-fatal):", error.message || error);
+    }
+
+    // Filter is scoped by platform + orderId (not orderId alone) so an
+    // Amazon order can never overwrite an eBay order sharing the same ID.
     return await Order.findOneAndUpdate(
-      { orderId: order.orderId },
+      { platform: "ebay", orderId: order.orderId },
       orderData,
       {
         upsert: true,
@@ -970,17 +1008,35 @@ class EbayAdapter extends BaseAdapter {
    * Upsert a Conversation from an eBay message.
    *
    * @param {Object} msg - eBay message object from Messaging API
+   * @param {Object} conversationSummary - eBay conversation summary object
+   * @param {Object} [account] - IntegrationAccount document (used to detect
+   *   whether this message was actually sent by the connected seller, so
+   *   historical seller messages aren't mislabeled as customer messages)
    * @returns {Promise<Object>} Conversation document
    */
-  async _upsertMessage(msg, conversationSummary) {
-    const messageId = msg.messageId || msg.id || msg.message_id || crypto.randomUUID();
+  async _upsertMessage(msg, conversationSummary, account) {
     const sender = msg.senderUsername || msg.sender?.username || msg.sender || "eBay User";
     const receiver = msg.recipientUsername || msg.recipient?.username || msg.recipient || "Unknown";
-    const rawMessage = 
+    const rawMessage =
       msg.messageBody ||
       msg.message ||
       msg.body ||
       "";
+
+    const messageId =
+      msg.messageId ||
+      msg.id ||
+      msg.message_id ||
+      // eBay doesn't always return a stable message ID. Falling back to a
+      // random UUID here would mean an ID-less message re-synced later is
+      // never recognized as a duplicate. A deterministic hash of its own
+      // content means the same message always resolves to the same ID on
+      // every future sync, while a genuinely different/new message (even
+      // from the same conversation) still gets a new one.
+      crypto
+        .createHash("sha256")
+        .update(`${conversationSummary?.conversationId || ""}|${sender}|${msg.createdDate || msg.timestamp || ""}|${rawMessage}`)
+        .digest("hex");
 
     const cleanedText = rawMessage
       ? convert(rawMessage, {
@@ -1012,13 +1068,27 @@ class EbayAdapter extends BaseAdapter {
     // const platformConversationId = msg.conversationId || msg.orderId || messageId;
     const platformConversationId = conversationSummary.conversationId;
 
-    const customerName = 
+    const customerName =
       conversationSummary.buyer?.username ||
       conversationSummary.otherParticipant?.username ||
       msg.senderUsername ||
       msg.recipientUsername ||
       sender ||
       "eBay User";
+
+    // Historical eBay conversations were exchanged before this CRM existed,
+    // so a message's true owner must be derived from eBay's own sender
+    // identity rather than assumed. Compare the message's actual sender
+    // against the connected seller's own eBay username (platformUserId,
+    // captured at connect time) — if they match, this is a message the
+    // seller/business sent (via eBay's own UI, pre-CRM), not something the
+    // customer sent. `senderId` is intentionally left null for these: there
+    // is no CRM user to attribute a historical sync message to (a live CRM
+    // reply, by contrast, always has a real senderId — see
+    // conversation.controller.js#sendReply — which is how the frontend
+    // tells "seller/historical" apart from "You").
+    const sellerUsername = (account?.platformUserId || "").toLowerCase().trim();
+    const isSellerMessage = Boolean(sellerUsername) && String(sender).toLowerCase().trim() === sellerUsername;
 
     // Find or create conversation
     let conversation = await Conversation.findOne({
@@ -1045,8 +1115,9 @@ class EbayAdapter extends BaseAdapter {
     if (!isDuplicate) {
       conversation.messages.push({
         platformMessageId: messageId,
-        senderType: "customer",
-        senderName: sender,
+        senderType: isSellerMessage ? "agent" : "customer",
+        senderId: null,
+        senderName: isSellerMessage ? (account?.platformName || sender) : sender,
         text,
         messageType: "text",
         createdAt: timestamp,
