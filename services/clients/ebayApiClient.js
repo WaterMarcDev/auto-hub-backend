@@ -563,6 +563,52 @@ class EbayApiClient {
       }
     );
   }
+
+  /**
+   * Send a message via eBay's Message API, either within an existing
+   * conversation or to start a new one with another eBay user.
+   *
+   * Docs: https://developer.ebay.com/api-docs/commerce/message/resources/conversation/methods/sendMessage
+   * NOTE: eBay's Message API (commerce/message/v1) is documented as a
+   * Limited Release API requiring specific eBay approval for production
+   * access — this call (and the existing getConversations/getConversation
+   * reads) will fail with an access-denied-style error if this eBay
+   * developer account has not been granted that access. That is an eBay-side
+   * approval gate, not something this client can detect or work around.
+   *
+   * @param {string} accessToken
+   * @param {Object} params
+   * @param {string} [params.conversationId] - reply within an existing conversation
+   * @param {string} [params.otherPartyUsername] - start a new conversation (unused by this app today)
+   * @param {string} params.messageText - message body (required)
+   * @returns {Promise<Object>}
+   */
+  async sendMessage(accessToken, { conversationId, otherPartyUsername, messageText } = {}) {
+    const body = { messageText };
+    if (conversationId) body.conversationId = conversationId;
+    if (otherPartyUsername) body.otherPartyUsername = otherPartyUsername;
+
+    return this.post(accessToken, "/commerce/message/v1/send_message", body);
+  }
+
+  /**
+   * Fetch the shipping fulfillment(s) (carrier, tracking number, tracking
+   * URL) for a specific order. eBay's Fulfillment API order object does not
+   * embed tracking info directly on line items — it requires this separate
+   * sub-resource call per order.
+   *
+   * Docs: https://developer.ebay.com/api-docs/sell/fulfillment/resources/shipping_fulfillment/methods/getShippingFulfillments
+   *
+   * @param {string} accessToken
+   * @param {string} orderId
+   * @returns {Promise<Object>}
+   */
+  async getShippingFulfillments(accessToken, orderId) {
+    return this.get(
+      accessToken,
+      `/sell/fulfillment/v1/order/${encodeURIComponent(orderId)}/shipping_fulfillment`
+    );
+  }
 }
 
 

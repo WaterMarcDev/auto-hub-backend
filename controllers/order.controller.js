@@ -23,6 +23,7 @@ exports.getAll = async (req, res) => {
       status,
       paymentStatus,
       shippingStatus,
+      refundStatus,
       customerId,
       conversationId,
       dateFrom,
@@ -38,6 +39,7 @@ exports.getAll = async (req, res) => {
     if (status) query.status = status;
     if (paymentStatus) query.paymentStatus = paymentStatus;
     if (shippingStatus) query.shippingStatus = shippingStatus;
+    if (refundStatus) query.refundStatus = refundStatus;
     if (customerId) query.customerId = customerId;
     if (conversationId) query.conversationId = conversationId;
 

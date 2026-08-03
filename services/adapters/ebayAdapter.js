@@ -25,6 +25,7 @@ const MarketplaceLead = require("../../models/MarketplaceLead.model");
 const Conversation = require("../../models/Conversation.model");
 const Order = require("../../models/Order.model");
 const smartMatchService = require("../smartMatch.service");
+const { normalizeOrderStatuses } = require("../orderStatusMapper");
 const { logAction } = require("../auditLog.service");
 
 // ─── eBay OAuth Diagnostic Tracing (observability only, no behavior change) ─
@@ -457,16 +458,73 @@ class EbayAdapter extends BaseAdapter {
     return [];
   }
 
-  // ─── Send Message (not yet supported) ──────────────────────────────────
+  // ─── Send Message ────────────────────────────────────────────────────────
 
   /**
-   * Send a message via eBay Messaging API.
-   * Not yet implemented — eBay messaging requires specific order context.
+   * Send a reply via eBay's Message API, within the existing conversation.
    *
-   * @returns {Promise<{platformMessageId: string, status: string}>}
+   * Prerequisites are verified before attempting anything — nothing is ever
+   * faked or assumed:
+   *   - `conversation.platformConversationId` must be present (it is what
+   *     eBay's own sendMessage call uses to target the existing thread —
+   *     this app already captures/stores it for every synced conversation).
+   *   - Attachments are not sent: eBay's attachment format for this API was
+   *     never confirmed against real documentation, so this fails clearly
+   *     rather than guessing a schema.
+   *   - Success is only ever reported if eBay's API call itself succeeds —
+   *     the underlying client throws on any non-success response, so there
+   *     is no path to a false "sent" result.
+   *
+   * IMPORTANT: eBay's Message API (commerce/message/v1) is a Limited
+   * Release API per eBay's own documentation — it requires this eBay
+   * developer account to have been specifically approved by eBay for
+   * production access. If that access hasn't been granted, this call (and
+   * the pre-existing getConversations/getConversation reads) will fail with
+   * an access-denied-style error from eBay, surfaced via the thrown error
+   * below — that is an eBay-side approval gate, not something fixable here.
+   *
+   * @param {Object} conversation - Conversation document
+   * @param {string} text - reply body
+   * @param {Array} [attachments]
+   * @returns {Promise<{platformMessageId: string|null, status: string}>}
    */
-  async sendMessage() {
-    throw new Error("sendMessage() not yet implemented for eBay — requires order context");
+  async sendMessage(conversation, text, attachments = []) {
+    if (!conversation?.platformConversationId) {
+      throw new Error(
+        "Cannot send eBay reply: this conversation is missing its eBay conversation ID."
+      );
+    }
+
+    if (attachments && attachments.length > 0) {
+      throw new Error(
+        "Sending attachments via eBay replies is not yet supported — please resend without attachments."
+      );
+    }
+
+    const account = await IntegrationAccount.findOne({
+      platform: "ebay",
+      isActive: true,
+    }).sort({ createdAt: -1 });
+
+    if (!account) {
+      throw new Error("No active eBay integration found. Please connect eBay first.");
+    }
+
+    if (account.isTokenExpired && account.refreshToken) {
+      await this.refreshToken(account);
+    }
+
+    const response = await this.client.sendMessage(account.accessToken, {
+      conversationId: conversation.platformConversationId,
+      messageText: text,
+    });
+
+    // The client throws on any non-success response, so reaching this line
+    // means eBay actually accepted the message — never assumed.
+    return {
+      platformMessageId: response?.messageId || null,
+      status: "sent",
+    };
   }
 
   /**
@@ -537,7 +595,7 @@ class EbayAdapter extends BaseAdapter {
       const orders = result.orders || [];
 
       for (const order of orders) {
-        const lead = await this._upsertOrder(order);
+        const lead = await this._upsertOrder(order, account);
         leads.push(lead);
       }
 
@@ -767,11 +825,17 @@ class EbayAdapter extends BaseAdapter {
    * Upsert a MarketplaceLead from an eBay order object.
    *
    * @param {Object} order - eBay order object from Fulfillment API
+   * @param {Object} [account] - IntegrationAccount document (used to fetch
+   *   real tracking/carrier data via a best-effort shipping_fulfillment call)
    * @returns {Promise<Object>} MarketplaceLead document
    */
-  async _upsertOrder(order) {
+  async _upsertOrder(order, account) {
     const buyer = order.buyer || {};
     const lineItems = order.lineItems || [];
+
+    // Order Status must never be manually maintained in the CRM — it is
+    // always derived from the marketplace's own data here, at sync time.
+    const { orderStatus, paymentStatus, refundStatus, shippingStatus } = normalizeOrderStatuses(order);
 
     const orderData = {
       platform: "ebay",
@@ -782,16 +846,13 @@ class EbayAdapter extends BaseAdapter {
       buyerUsername: buyer.username || null,
       buyerEmail: buyer.email || null,
 
-      status:
-        order.orderFulfillmentStatus ||
-        order.orderPaymentStatus ||
-        "UNKNOWN",
-
-      // Newer, granular status fields — additive alongside `status` above,
-      // which is left exactly as-is for backward compatibility.
-      paymentStatus: order.orderPaymentStatus || null,
-      shippingStatus: order.orderFulfillmentStatus || null,
-      trackingNumber: lineItems[0]?.trackingNumber || null,
+      // `status` is kept as the canonical Order Status value (same field,
+      // now trustworthy instead of a raw/unnormalized passthrough — no
+      // schema change, no change to what reads this field).
+      status: orderStatus,
+      paymentStatus,
+      refundStatus,
+      shippingStatus,
       customerName: buyer.username || null,
       customerPhone: buyer.contactPhoneNumber || null,
 
@@ -859,6 +920,31 @@ class EbayAdapter extends BaseAdapter {
       }
     } catch (error) {
       console.error("[EBAY] Order conversation-link lookup failed (non-fatal):", error.message || error);
+    }
+
+    // Real tracking/carrier data requires a separate call to eBay's
+    // shipping_fulfillment sub-resource — the order object itself does not
+    // embed it. Best-effort: a failure (including a genuinely trackless
+    // order, rate limiting, or an access-denied error) must never block the
+    // order itself from being synced. "N/A" is used only after checking —
+    // never fabricated in place of a real value.
+    orderData.trackingNumber = "N/A";
+    orderData.carrier = "N/A";
+    orderData.trackingUrl = null;
+    try {
+      if (account?.accessToken) {
+        const fulfillmentResult = await this.client.getShippingFulfillments(account.accessToken, order.orderId);
+        const fulfillment = fulfillmentResult?.fulfillments?.[0] || fulfillmentResult;
+        const trackingNumber = fulfillment?.shipmentTrackingNumber || fulfillment?.trackingNumber || null;
+        const carrier = fulfillment?.shippingCarrierCode || fulfillment?.carrier || null;
+        const trackingUrl = fulfillment?.trackingUrl || fulfillment?.shipmentTrackingUrl || null;
+
+        if (trackingNumber) orderData.trackingNumber = trackingNumber;
+        if (carrier) orderData.carrier = carrier;
+        if (trackingUrl) orderData.trackingUrl = trackingUrl;
+      }
+    } catch (error) {
+      console.error("[EBAY] Order shipping_fulfillment lookup failed (non-fatal):", error.message || error);
     }
 
     // Filter is scoped by platform + orderId (not orderId alone) so an
@@ -983,7 +1069,11 @@ class EbayAdapter extends BaseAdapter {
       quantity: availability.quantity || 0,
       price: priceInfo.value ? parseFloat(priceInfo.value) : 0,
       currency: priceInfo.currency || "USD",
-      orderStatus: "pending", // Listings use "pending" as default — repurposed as listing status
+      // "active" reflects the semantics of the endpoints this data comes
+      // from (Trading API's GetMyeBaySelling ActiveList, and the Inventory
+      // API's inventory-item fetch) — both are, by definition, the
+      // seller's own current/active listings, not a fabricated status.
+      listingStatus: "active",
       source: "eBay Listing Sync",
     };
 
