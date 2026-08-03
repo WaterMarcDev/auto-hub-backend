@@ -9,12 +9,18 @@
  * the Marketplace Orders page's filters (src/pages/Orders.jsx), so a stored
  * value and a filter option can never mismatch.
  *
- * IMPORTANT: no raw eBay order response has ever been captured/logged on
- * this system (logs/access.log and logs/error.log are both empty), so the
- * raw eBay key names below are this codebase's best-known reference —
- * carried over from the previously-unused _mapOrderStatus/_mapShippingStatus
- * tables in ebayAdapter.js — NOT verified against a live payload. Anything
- * unrecognized falls back to "Unknown" rather than being guessed further.
+ * Raw eBay enum values below are confirmed against eBay's official Sell
+ * Fulfillment API documentation (developer.ebay.com):
+ *   - orderFulfillmentStatus (OrderFulfillmentStatusEnum) has EXACTLY three
+ *     values: NOT_STARTED, IN_PROGRESS, FULFILLED. eBay never sends
+ *     "SHIPPED"/"DELIVERED"/"CANCELLED" as a raw fulfillment status — there
+ *     is no delivery-confirmation signal in this field at all, so canonical
+ *     values implying delivery (e.g. "Delivered", "Out For Delivery") can
+ *     never actually be reached from this field alone.
+ *   - orderPaymentStatus (OrderPaymentStatusEnum) has EXACTLY five values:
+ *     FAILED, FULLY_REFUNDED, PAID, PARTIALLY_REFUNDED, PENDING.
+ * Anything genuinely unrecognized falls back to "Unknown" rather than being
+ * guessed further.
  */
 
 const ORDER_STATUS = {
@@ -62,35 +68,34 @@ const SHIPPING_STATUS = {
   UNKNOWN: "Unknown",
 };
 
-// eBay raw orderPaymentStatus -> canonical Payment Status
+// eBay raw orderPaymentStatus (OrderPaymentStatusEnum, confirmed exhaustive:
+// FAILED, FULLY_REFUNDED, PAID, PARTIALLY_REFUNDED, PENDING) -> canonical
+// Payment Status.
 const RAW_PAYMENT_STATUS_MAP = {
   PAID: PAYMENT_STATUS.PAID,
   PENDING: PAYMENT_STATUS.PENDING,
   FAILED: PAYMENT_STATUS.FAILED,
   PARTIALLY_REFUNDED: PAYMENT_STATUS.PARTIALLY_REFUNDED,
-  REFUNDED: PAYMENT_STATUS.REFUNDED,
-  ESCROW_CHECK: PAYMENT_STATUS.PENDING,
-  CANCELLED: PAYMENT_STATUS.FAILED,
+  FULLY_REFUNDED: PAYMENT_STATUS.REFUNDED,
 };
 
-// eBay raw orderFulfillmentStatus -> canonical Shipping Status
+// eBay raw orderFulfillmentStatus (OrderFulfillmentStatusEnum, confirmed
+// exhaustive: NOT_STARTED, IN_PROGRESS, FULFILLED) -> canonical Shipping
+// Status.
 const RAW_SHIPPING_STATUS_MAP = {
   NOT_STARTED: SHIPPING_STATUS.AWAITING_SHIPMENT,
   IN_PROGRESS: SHIPPING_STATUS.PROCESSING,
   FULFILLED: SHIPPING_STATUS.SHIPPED,
-  SHIPPED: SHIPPING_STATUS.SHIPPED,
-  DELIVERED: SHIPPING_STATUS.DELIVERED,
-  CANCELLED: SHIPPING_STATUS.CANCELLED,
 };
 
-// eBay raw orderFulfillmentStatus -> canonical Order Status (overall lifecycle)
+// eBay raw orderFulfillmentStatus -> canonical Order Status (overall
+// lifecycle). FULFILLED maps to "Shipped", not "Completed" — eBay's
+// Fulfillment API has no delivery-confirmation signal, so mapping it to
+// "Completed" would overstate what is actually known.
 const RAW_ORDER_STATUS_MAP = {
   NOT_STARTED: ORDER_STATUS.AWAITING_SHIPMENT,
   IN_PROGRESS: ORDER_STATUS.PROCESSING,
-  FULFILLED: ORDER_STATUS.COMPLETED,
-  SHIPPED: ORDER_STATUS.SHIPPED,
-  DELIVERED: ORDER_STATUS.COMPLETED,
-  CANCELLED: ORDER_STATUS.CANCELLED,
+  FULFILLED: ORDER_STATUS.SHIPPED,
 };
 
 /**
@@ -112,7 +117,7 @@ function normalizeOrderStatuses(rawOrder = {}) {
   // Cancellation/refund signals take precedence over the fulfillment-derived status.
   if (cancelState === "CANCELED" || cancelState === "CANCELLED") {
     orderStatus = ORDER_STATUS.CANCELLED;
-  } else if (rawPayment === "REFUNDED") {
+  } else if (rawPayment === "FULLY_REFUNDED") {
     orderStatus = ORDER_STATUS.REFUNDED;
   } else if (rawPayment === "PARTIALLY_REFUNDED") {
     orderStatus = ORDER_STATUS.PARTIALLY_REFUNDED;
@@ -124,7 +129,7 @@ function normalizeOrderStatuses(rawOrder = {}) {
   // required for full refund/return detail (returns filed by the buyer
   // without a payment-status change would not be reflected here).
   let refundStatus = REFUND_STATUS.NOT_REFUNDED;
-  if (rawPayment === "REFUNDED") {
+  if (rawPayment === "FULLY_REFUNDED") {
     refundStatus = REFUND_STATUS.REFUNDED;
   } else if (rawPayment === "PARTIALLY_REFUNDED") {
     refundStatus = REFUND_STATUS.PARTIALLY_REFUNDED;
