@@ -52,7 +52,25 @@ const OrderSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Best-effort, derived only from signals already present on the same
+    // Fulfillment API order object (no dedicated refund/return API
+    // integration exists) — see services/orderStatusMapper.js.
+    refundStatus: {
+      type: String,
+      default: "Not Refunded",
+    },
+
     trackingNumber: {
+      type: String,
+      default: null,
+    },
+
+    carrier: {
+      type: String,
+      default: null,
+    },
+
+    trackingUrl: {
       type: String,
       default: null,
     },

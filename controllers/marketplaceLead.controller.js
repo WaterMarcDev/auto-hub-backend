@@ -62,6 +62,7 @@ exports.getAll = async (req, res) => {
       orderStatus,
       priority,
       search,
+      hasListingId,
       page = 1,
       limit = 50,
     } = req.query;
@@ -72,6 +73,10 @@ exports.getAll = async (req, res) => {
     if (status) query.conversationStatus = status;
     if (orderStatus) query.orderStatus = orderStatus;
     if (priority) query.priority = priority;
+    // Additive, opt-in filter for the Marketplace Listings page — restricts
+    // results to listing-sourced records only. Omitted (default) preserves
+    // today's exact behavior for every other caller.
+    if (hasListingId === "true") query.marketplaceListingId = { $ne: null };
 
     if (search) {
       query.$or = [

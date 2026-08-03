@@ -39,6 +39,15 @@ const MarketplaceLeadSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Populated only for listing-sourced records (marketplaceListingId set) —
+    // reflects the semantics of the "active listings"/"inventory items"
+    // endpoints used to sync them, not a fabricated value. See
+    // services/adapters/ebayAdapter.js#_upsertListing.
+    listingStatus: {
+      type: String,
+      default: "active",
+    },
+
     // ─── Customer Information ─────────────────────────────────────────
     customerName: {
       type: String,
