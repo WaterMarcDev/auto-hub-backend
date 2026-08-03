@@ -833,6 +833,18 @@ class EbayAdapter extends BaseAdapter {
     const buyer = order.buyer || {};
     const lineItems = order.lineItems || [];
 
+    // eBay's `buyer` object does not carry direct contact info (confirmed
+    // against eBay's Fulfillment API docs — it only has the buyer's
+    // username/registration address). Real contact details are on the
+    // shipping instructions instead: shipTo.email (only returned within 14
+    // days of order creation) and shipTo.primaryPhone.phoneNumber (only
+    // within 90 days) — both eBay-side privacy windows, not bugs. shipTo's
+    // fullName is also a real name, unlike the pseudonymous buyer username.
+    const shipTo = order.fulfillmentStartInstructions?.[0]?.shippingStep?.shipTo || {};
+    const shipToEmail = shipTo.email || null;
+    const shipToPhone = shipTo.primaryPhone?.phoneNumber || null;
+    const shipToName = shipTo.fullName || null;
+
     // Order Status must never be manually maintained in the CRM — it is
     // always derived from the marketplace's own data here, at sync time.
     const { orderStatus, paymentStatus, refundStatus, shippingStatus } = normalizeOrderStatuses(order);
@@ -844,7 +856,7 @@ class EbayAdapter extends BaseAdapter {
       legacyOrderId: order.legacyOrderId || null,
 
       buyerUsername: buyer.username || null,
-      buyerEmail: buyer.email || null,
+      buyerEmail: shipToEmail || buyer.email || null,
 
       // `status` is kept as the canonical Order Status value (same field,
       // now trustworthy instead of a raw/unnormalized passthrough — no
@@ -853,8 +865,8 @@ class EbayAdapter extends BaseAdapter {
       paymentStatus,
       refundStatus,
       shippingStatus,
-      customerName: buyer.username || null,
-      customerPhone: buyer.contactPhoneNumber || null,
+      customerName: shipToName || buyer.username || null,
+      customerPhone: shipToPhone || null,
 
       createdAtEbay: order.creationDate
         ? new Date(order.creationDate)
@@ -896,17 +908,29 @@ class EbayAdapter extends BaseAdapter {
     };
 
     // CRM linking is best-effort: a failure here must never block the order
-    // itself from being synced/upserted.
+    // itself from being synced/upserted. Failures are logged both to the
+    // console AND the AuditLog collection (via logAction) — console.error
+    // alone is not captured to any file this system persists (logs/*.log are
+    // HTTP-access logs only), so without the audit-log entry a silent
+    // customer-linking failure would be effectively invisible.
     try {
       const { customer } = await smartMatchService.findOrCreateCustomer({
         platform: "ebay",
-        email: buyer.email || null,
-        phone: buyer.contactPhoneNumber || null,
-        name: buyer.username || null,
+        email: shipToEmail,
+        phone: shipToPhone,
+        name: shipToName || buyer.username || null,
       });
       orderData.customerId = customer?._id || null;
     } catch (error) {
       console.error("[EBAY] Order customer-match failed (non-fatal):", error.message || error);
+      await logAction({
+        action: "system_error",
+        status: "failure",
+        platform: "ebay",
+        entityType: "order",
+        message: `Order ${order.orderId}: customer-match failed`,
+        errorMessage: error.message || String(error),
+      });
     }
 
     try {
@@ -920,6 +944,14 @@ class EbayAdapter extends BaseAdapter {
       }
     } catch (error) {
       console.error("[EBAY] Order conversation-link lookup failed (non-fatal):", error.message || error);
+      await logAction({
+        action: "system_error",
+        status: "failure",
+        platform: "ebay",
+        entityType: "order",
+        message: `Order ${order.orderId}: conversation-link lookup failed`,
+        errorMessage: error.message || String(error),
+      });
     }
 
     // Real tracking/carrier data requires a separate call to eBay's
