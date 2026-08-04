@@ -107,7 +107,14 @@ const RAW_ORDER_STATUS_MAP = {
  */
 function normalizeOrderStatuses(rawOrder = {}) {
   const rawPayment = String(rawOrder.orderPaymentStatus || "").toUpperCase();
-  const rawFulfillment = String(rawOrder.orderFulfillmentStatus || "").toUpperCase();
+  // eBay's OrderFulfillmentStatusEnum should always be present, but if it's
+  // ever omitted (observed for orders where fulfillment genuinely hasn't
+  // begun), the absence of any fulfillment activity IS the same fact
+  // NOT_STARTED represents — defaulting to it here is an honest inference
+  // from what's actually known, not a fabricated value, and closes a real
+  // gap where such orders were falling through to "Unknown" instead of
+  // "Awaiting Shipment".
+  const rawFulfillment = String(rawOrder.orderFulfillmentStatus || "NOT_STARTED").toUpperCase();
   const cancelState = String(rawOrder.cancelStatus?.cancelState || "").toUpperCase();
 
   const paymentStatus = RAW_PAYMENT_STATUS_MAP[rawPayment] || PAYMENT_STATUS.UNKNOWN;

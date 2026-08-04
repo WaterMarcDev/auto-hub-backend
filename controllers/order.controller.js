@@ -44,9 +44,18 @@ exports.getAll = async (req, res) => {
     if (conversationId) query.conversationId = conversationId;
 
     if (dateFrom || dateTo) {
-      query.createdAt = {};
-      if (dateFrom) query.createdAt.$gte = new Date(dateFrom);
-      if (dateTo) query.createdAt.$lte = new Date(dateTo);
+      const range = {};
+      if (dateFrom) range.$gte = new Date(dateFrom);
+      if (dateTo) range.$lte = new Date(dateTo);
+      // Filter on the same field the UI displays as "Order Date"
+      // (createdAtEbay — the real marketplace order date), falling back to
+      // the record's own createdAt for any document where createdAtEbay
+      // isn't set, so existing/older records are never silently excluded.
+      // Uses $and (a separate key from the `search` $or below) so both can
+      // be applied together without overwriting each other.
+      query.$and = [
+        { $or: [{ createdAtEbay: range }, { createdAtEbay: null, createdAt: range }] },
+      ];
     }
 
     if (search) {
