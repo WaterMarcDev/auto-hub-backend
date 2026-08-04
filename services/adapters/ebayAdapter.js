@@ -677,10 +677,10 @@ class EbayAdapter extends BaseAdapter {
 
         seen.add(item.sku);
 
-        const lead = await this._upsertListing(item);
+        const lead = await this._upsertListing(item, account);
         leads.push(lead);
       }
-      
+
       // for (const item of inventoryItems) {
       //   const lead = await this._upsertListing(item);
       //   leads.push(lead);
@@ -1075,22 +1075,101 @@ class EbayAdapter extends BaseAdapter {
         },
       },
 
+      // Real eBay Trading API field (ListingStatusCodeType: Active,
+      // Completed, Ended) — used directly in _upsertListing instead of a
+      // hardcoded status.
+      rawListingStatus: item.SellingStatus?.ListingStatus || null,
+
       rawTradingData: item,
     };
   }
 
   /**
+   * Map real eBay listing/offer status into the CRM's canonical
+   * vocabulary. Sourced only from real eBay fields — never fabricated:
+   *   - Trading API's SellingStatus.ListingStatus (Active/Completed/Ended)
+   *   - Inventory API Offer's status (PUBLISHED/UNPUBLISHED) — confirmed
+   *     via eBay's own API docs to be the field that actually carries
+   *     live-listing state; InventoryItem itself has no status field.
+   * "Out of Stock" is a data-driven inference (quantity === 0 on an
+   * otherwise-active listing), not a raw eBay enum value. Falls back to
+   * "Unknown" when neither real field is available — never assumes
+   * "Active".
+   *
+   * @param {Object} params
+   * @param {string|null} [params.rawListingStatus] - Trading API value
+   * @param {string|null} [params.rawOfferStatus] - Inventory API Offer value
+   * @param {number} [params.quantity]
+   * @returns {string}
+   */
+  _normalizeListingStatus({ rawListingStatus, rawOfferStatus, quantity } = {}) {
+    if (rawListingStatus) {
+      const value = String(rawListingStatus).toUpperCase();
+      if (value === "ENDED" || value === "COMPLETED") return "Ended";
+      if (value === "ACTIVE") return quantity === 0 ? "Out of Stock" : "Active";
+    }
+
+    if (rawOfferStatus) {
+      const value = String(rawOfferStatus).toUpperCase();
+      if (value === "PUBLISHED") return quantity === 0 ? "Out of Stock" : "Active";
+      if (value === "UNPUBLISHED") return "Inactive";
+    }
+
+    return "Unknown";
+  }
+
+  /**
    * Upsert a MarketplaceListing from an eBay inventory item (listing).
    *
-   * @param {Object} item - eBay inventory item from Inventory API
+   * @param {Object} item - eBay inventory item from Inventory API (or the
+   *   normalized shape from _normalizeTradingListing)
+   * @param {Object} [account] - IntegrationAccount document (used for the
+   *   best-effort Offer lookup — real price/status for Inventory-API-
+   *   sourced items, which don't carry either field themselves)
    * @returns {Promise<Object>} MarketplaceListing document
    */
-  async _upsertListing(item) {
+  async _upsertListing(item, account) {
     const sku = item.sku;
     const product = item.product || {};
     const title = product.title || sku;
     const availability = item.availability?.shipToLocationAvailability || {};
     const priceInfo = product.prices?.[0] || {};
+    const quantity = availability.quantity || 0;
+
+    let price = priceInfo.value ? parseFloat(priceInfo.value) : 0;
+    let currency = priceInfo.currency || "USD";
+    let rawOfferStatus = null;
+
+    // Trading-API-sourced items already have real price (SellingStatus.
+    // CurrentPrice) and a real listing status (item.rawListingStatus, set
+    // in _normalizeTradingListing) — only Inventory-API-sourced items (no
+    // rawListingStatus) need the additional Offer lookup below, since
+    // InventoryItem itself carries neither price nor listing status.
+    if (!item.rawListingStatus && account?.accessToken) {
+      try {
+        const offersResult = await this.client.getOffers(account.accessToken, sku);
+        const offer = offersResult?.offers?.[0];
+        if (offer) {
+          rawOfferStatus = offer.status || null;
+          const offerPrice = offer.pricingSummary?.price;
+          if (offerPrice?.value) {
+            price = parseFloat(offerPrice.value);
+            currency = offerPrice.currency || currency;
+          }
+        }
+      } catch (error) {
+        // Best-effort: a missing/failed offer lookup must never block the
+        // listing itself from being synced — falls back to whatever price
+        // was already known (likely 0) and "Unknown" status below.
+        console.error("[EBAY] Listing offer lookup failed (non-fatal):", error.message || error);
+      }
+    }
+
+    const listingStatus = this._normalizeListingStatus({
+      rawListingStatus: item.rawListingStatus,
+      rawOfferStatus,
+      quantity,
+    });
 
     const listingData = {
       marketplace: "ebay",
@@ -1098,14 +1177,10 @@ class EbayAdapter extends BaseAdapter {
       // marketplaceOrderId: null, // This is a listing, not an order
       productName: title,
       productSku: sku,
-      quantity: availability.quantity || 0,
-      price: priceInfo.value ? parseFloat(priceInfo.value) : 0,
-      currency: priceInfo.currency || "USD",
-      // "active" reflects the semantics of the endpoints this data comes
-      // from (Trading API's GetMyeBaySelling ActiveList, and the Inventory
-      // API's inventory-item fetch) — both are, by definition, the
-      // seller's own current/active listings, not a fabricated status.
-      listingStatus: "active",
+      quantity,
+      price,
+      currency,
+      listingStatus,
       source: "eBay Listing Sync",
     };
 

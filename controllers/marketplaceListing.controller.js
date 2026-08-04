@@ -104,9 +104,14 @@ exports.getAll = async (req, res) => {
 
       // Numeric fields (Price, Quantity): $regex only matches string BSON
       // values, so an exact-value match is added when the search text
-      // itself parses as a number.
-      const numericValue = Number(search);
-      if (search.trim() !== "" && !Number.isNaN(numericValue)) {
+      // itself parses as a number. Strips a leading currency symbol and
+      // thousands separators first (e.g. "$99.99" or "1,000") since the
+      // Price column displays values with a "$" prefix — without this, a
+      // search copied straight from that column would never parse as a
+      // number and silently match nothing.
+      const cleanedNumericInput = search.trim().replace(/^[$€£]\s*/, "").replace(/,/g, "");
+      const numericValue = Number(cleanedNumericInput);
+      if (cleanedNumericInput !== "" && !Number.isNaN(numericValue)) {
         orConditions.push({ price: numericValue });
         orConditions.push({ quantity: numericValue });
       }

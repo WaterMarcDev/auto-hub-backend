@@ -529,6 +529,25 @@ class EbayApiClient {
   }
 
   /**
+   * Fetch the Offer(s) for a given SKU — the eBay Inventory API's
+   * InventoryItem resource does NOT carry price or live-listing status at
+   * all (both confirmed absent from InventoryItem in eBay's own API docs);
+   * that data lives exclusively on the separate Offer resource returned
+   * here (pricingSummary.price, status: PUBLISHED/UNPUBLISHED, and — only
+   * for published offers — a `listing` container with the real eBay
+   * listing status).
+   *
+   * Docs: https://developer.ebay.com/api-docs/sell/inventory/resources/offer/methods/getOffers
+   *
+   * @param {string} accessToken
+   * @param {string} sku
+   * @returns {Promise<Object>}
+   */
+  async getOffers(accessToken, sku) {
+    return this.get(accessToken, "/sell/inventory/v1/offer", { sku });
+  }
+
+  /**
  * Fetch seller conversations from eBay Message API
  */
   async getConversations(accessToken, options = {}) {
