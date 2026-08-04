@@ -21,7 +21,7 @@ const EbayTradingClient = require("../clients/ebayTradingClient");
 const { classifyEbayError, missingRefreshTokenError } = require("../integrationErrors");
 const platformManager = require("../platformManager.service");
 const IntegrationAccount = require("../../models/IntegrationAccount.model");
-const MarketplaceLead = require("../../models/MarketplaceLead.model");
+const MarketplaceListing = require("../../models/MarketplaceListing.model");
 const Conversation = require("../../models/Conversation.model");
 const Order = require("../../models/Order.model");
 const smartMatchService = require("../smartMatch.service");
@@ -558,7 +558,7 @@ class EbayAdapter extends BaseAdapter {
    * @param {Object} [options]
    * @param {string} [options.filter] - eBay filter string
    * @param {number} [options.limit] - Results per page (max 200)
-   * @returns {Promise<Array<Object>>} Array of created/updated MarketplaceLead documents
+   * @returns {Promise<Array<Object>>} Array of created/updated MarketplaceListing documents
    */
   async fetchOrders(account, options = {}) {
     const limit = options.limit || 50;
@@ -620,7 +620,7 @@ class EbayAdapter extends BaseAdapter {
    * @param {Object} account - IntegrationAccount document
    * @param {Object} [options]
    * @param {number} [options.limit] - Results per page
-   * @returns {Promise<Array<Object>>} Array of created/updated MarketplaceLead documents
+   * @returns {Promise<Array<Object>>} Array of created/updated MarketplaceListing documents
    */
   async fetchListings(account, options = {}) {
     const limit = options.limit || 50;
@@ -822,12 +822,12 @@ class EbayAdapter extends BaseAdapter {
   // ─── Private Helpers ───────────────────────────────────────────────────
 
   /**
-   * Upsert a MarketplaceLead from an eBay order object.
+   * Upsert a MarketplaceListing from an eBay order object.
    *
    * @param {Object} order - eBay order object from Fulfillment API
    * @param {Object} [account] - IntegrationAccount document (used to fetch
    *   real tracking/carrier data via a best-effort shipping_fulfillment call)
-   * @returns {Promise<Object>} MarketplaceLead document
+   * @returns {Promise<Object>} MarketplaceListing document
    */
   async _upsertOrder(order, account) {
     const buyer = order.buyer || {};
@@ -1035,7 +1035,7 @@ class EbayAdapter extends BaseAdapter {
   //   };
 
   //   // Upsert by marketplaceOrderId to avoid duplicates
-  //   let lead = await MarketplaceLead.findOne({
+  //   let lead = await MarketplaceListing.findOne({
   //     marketplace: "ebay",
   //     marketplaceOrderId: orderId,
   //   });
@@ -1043,7 +1043,7 @@ class EbayAdapter extends BaseAdapter {
   //   if (lead) {
   //     Object.assign(lead, leadData);
   //   } else {
-  //     lead = new MarketplaceLead(leadData);
+  //     lead = new MarketplaceListing(leadData);
   //   }
 
   //   await lead.save();
@@ -1080,10 +1080,10 @@ class EbayAdapter extends BaseAdapter {
   }
 
   /**
-   * Upsert a MarketplaceLead from an eBay inventory item (listing).
+   * Upsert a MarketplaceListing from an eBay inventory item (listing).
    *
    * @param {Object} item - eBay inventory item from Inventory API
-   * @returns {Promise<Object>} MarketplaceLead document
+   * @returns {Promise<Object>} MarketplaceListing document
    */
   async _upsertListing(item) {
     const sku = item.sku;
@@ -1110,7 +1110,7 @@ class EbayAdapter extends BaseAdapter {
     };
 
     // Upsert by marketplaceListingId
-    let lead = await MarketplaceLead.findOne({
+    let lead = await MarketplaceListing.findOne({
       marketplace: "ebay",
       marketplaceListingId: sku,
       // marketplaceOrderId: null,
@@ -1119,7 +1119,7 @@ class EbayAdapter extends BaseAdapter {
     if (lead) {
       Object.assign(lead, listingData);
     } else {
-      lead = new MarketplaceLead(listingData);
+      lead = new MarketplaceListing(listingData);
     }
 
     await lead.save();
@@ -1258,7 +1258,7 @@ class EbayAdapter extends BaseAdapter {
   }
 
   /**
-   * Map eBay payment status to MarketplaceLead orderStatus.
+   * Map eBay payment status to MarketplaceListing orderStatus.
    *
    * @param {string} status - eBay orderPaymentStatus
    * @returns {string}
@@ -1277,7 +1277,7 @@ class EbayAdapter extends BaseAdapter {
   }
 
   /**
-   * Map eBay fulfillment status to MarketplaceLead shippingStatus.
+   * Map eBay fulfillment status to MarketplaceListing shippingStatus.
    *
    * @param {string} status - eBay fulfillmentStatus
    * @returns {string}

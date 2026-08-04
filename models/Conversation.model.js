@@ -153,7 +153,7 @@ const ConversationSchema = new mongoose.Schema(
 
     marketplaceLeadId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "MarketplaceLead",
+      ref: "MarketplaceListing",
       default: null,
     },
 

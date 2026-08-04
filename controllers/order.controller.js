@@ -3,12 +3,12 @@
  *
  * Read/update API for the dedicated Orders module. Backed by the `Order`
  * collection (models/Order.model.js), which is completely separate from
- * `MarketplaceLead` — the Marketplace page's own model. Orders are created
+ * `MarketplaceListing` — the Marketplace page's own model. Orders are created
  * exclusively by marketplace adapters during sync (see
  * services/adapters/ebayAdapter.js#_upsertOrder); this controller only
  * reads and updates status-related fields.
  *
- * Mirrors the response shape/style of controllers/marketplaceLead.controller.js.
+ * Mirrors the response shape/style of controllers/marketplaceListing.controller.js.
  */
 const Order = require("../models/Order.model");
 const { logAction } = require("../services/auditLog.service");
@@ -137,7 +137,7 @@ exports.getById = async (req, res) => {
  * Accepts any of paymentStatus/shippingStatus/trackingNumber. When the
  * caller supplies `platform` in the body, the update is scoped to
  * {_id, platform} for defense-in-depth (mirrors the same opt-in-stricter
- * pattern used by controllers/marketplaceLead.controller.js's status
+ * pattern used by controllers/marketplaceListing.controller.js's status
  * endpoints); when omitted, falls back to id-only lookup.
  */
 exports.updateStatus = async (req, res) => {

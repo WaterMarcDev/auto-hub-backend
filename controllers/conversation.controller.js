@@ -13,7 +13,7 @@
  */
 const Conversation = require("../models/Conversation.model");
 const SocialLead = require("../models/SocialLead.model");
-const MarketplaceLead = require("../models/MarketplaceLead.model");
+const MarketplaceListing = require("../models/MarketplaceListing.model");
 const platformManager = require("../services/platformManager.service");
 const translationService = require("../services/translation.service");
 const { logAction } = require("../services/auditLog.service");
@@ -178,7 +178,7 @@ exports.sendReply = async (req, res) => {
         lastMessageAt: new Date(),
       });
     } else if (conversation.marketplaceLeadId) {
-      await MarketplaceLead.findByIdAndUpdate(conversation.marketplaceLeadId, {
+      await MarketplaceListing.findByIdAndUpdate(conversation.marketplaceLeadId, {
         conversationStatus: "open",
         unreadCount: 0,
         lastMessage: text,
