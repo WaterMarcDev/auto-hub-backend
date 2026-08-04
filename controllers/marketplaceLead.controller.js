@@ -79,13 +79,46 @@ exports.getAll = async (req, res) => {
     if (hasListingId === "true") query.marketplaceListingId = { $ne: null };
 
     if (search) {
-      query.$or = [
+      // Base fields (unchanged — kept for backward compatibility with any
+      // order/lead-shaped MarketplaceLead documents/callers).
+      const orConditions = [
         { customerName: { $regex: search, $options: "i" } },
         { customerEmail: { $regex: search, $options: "i" } },
         { marketplaceOrderId: { $regex: search, $options: "i" } },
         { productName: { $regex: search, $options: "i" } },
         { trackingNumber: { $regex: search, $options: "i" } },
+        // Listing fields — additive, so the Marketplace Listings page's
+        // search actually covers what it displays (Listing ID, Marketplace,
+        // SKU, Listing Status).
+        { marketplaceListingId: { $regex: search, $options: "i" } },
+        { productSku: { $regex: search, $options: "i" } },
+        { marketplace: { $regex: search, $options: "i" } },
+        { listingStatus: { $regex: search, $options: "i" } },
       ];
+
+      // Numeric fields (Price, Quantity): $regex only matches string BSON
+      // values, so an exact-value match is added when the search text
+      // itself parses as a number.
+      const numericValue = Number(search);
+      if (search.trim() !== "" && !Number.isNaN(numericValue)) {
+        orConditions.push({ price: numericValue });
+        orConditions.push({ quantity: numericValue });
+      }
+
+      // Date fields (Created Date, Updated Date): matched against the whole
+      // calendar day when the search text parses as a valid date, mirroring
+      // how the UI displays these fields (date-only, via toLocaleDateString()).
+      const parsedDate = new Date(search);
+      if (!Number.isNaN(parsedDate.getTime())) {
+        const startOfDay = new Date(parsedDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(parsedDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        orConditions.push({ createdAt: { $gte: startOfDay, $lte: endOfDay } });
+        orConditions.push({ updatedAt: { $gte: startOfDay, $lte: endOfDay } });
+      }
+
+      query.$or = orConditions;
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
