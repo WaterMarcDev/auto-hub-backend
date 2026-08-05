@@ -15,12 +15,6 @@ router.get("/:id/messages", auth, controller.getMessages);
 // POST /api/conversations/:id/reply
 router.post("/:id/reply", auth, controller.sendReply);
 
-// POST /api/conversations/:id/translate
-router.post("/:id/translate", auth, controller.translateMessage);
-
-// POST /api/conversations/:id/detect-language
-router.post("/:id/detect-language", auth, controller.detectMessageLanguage);
-
 // POST /api/conversations/:id/notes
 router.post("/:id/notes", auth, controller.addInternalNote);
 
