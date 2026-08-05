@@ -11,12 +11,60 @@
  *   - Assignment management
  *   - Translation
  */
+const mongoose = require("mongoose");
 const Conversation = require("../models/Conversation.model");
 const SocialLead = require("../models/SocialLead.model");
 const MarketplaceListing = require("../models/MarketplaceListing.model");
 const platformManager = require("../services/platformManager.service");
 const translationService = require("../services/translation.service");
 const { logAction } = require("../services/auditLog.service");
+
+/**
+ * Resolve the authoritative time for a message subdocument, for sorting
+ * strictly oldest -> newest. `createdAt` already holds the real timestamp
+ * for every message (the platform's own timestamp for synced messages —
+ * see services/adapters/ebayAdapter.js#_upsertMessage — or the server
+ * send-time for CRM replies), so no new field/schema is needed; this only
+ * reads what already exists.
+ *
+ * Never throws: legacy/malformed messages with no usable createdAt fall
+ * back to the timestamp embedded in their own Mongo ObjectId (still a real,
+ * monotonic creation time), and finally to 0 rather than crashing.
+ *
+ * @param {Object} message - message subdocument (plain object, from .lean())
+ * @returns {number} epoch milliseconds
+ */
+function getMessageTime(message) {
+  if (message?.createdAt) {
+    const time = new Date(message.createdAt).getTime();
+    if (!Number.isNaN(time)) return time;
+  }
+
+  if (message?._id) {
+    try {
+      return new mongoose.Types.ObjectId(message._id).getTimestamp().getTime();
+    } catch {
+      // fall through to 0 below
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Sort message subdocuments strictly oldest -> newest by their
+ * authoritative timestamp, without mutating the input array or touching
+ * anything in the database — insertion order (which can diverge from
+ * chronological order, e.g. a later historical sync backfilling older
+ * messages after a live reply was already appended) is never relied upon.
+ *
+ * @param {Array<Object>} messages
+ * @returns {Array<Object>} new, sorted array
+ */
+function sortMessagesChronologically(messages) {
+  if (!Array.isArray(messages)) return messages;
+  return [...messages].sort((a, b) => getMessageTime(a) - getMessageTime(b));
+}
 
 /**
  * GET /api/conversations
@@ -89,6 +137,12 @@ exports.getById = async (req, res) => {
 
     if (!conversation) {
       return res.status(404).json({ success: false, message: "Conversation not found" });
+    }
+
+    // Same defensive chronological sort as getMessages — this endpoint also
+    // returns the full messages array, so it must be consistent.
+    if (conversation.messages) {
+      conversation.messages = sortMessagesChronologically(conversation.messages);
     }
 
     res.json({ success: true, data: conversation });
@@ -389,9 +443,18 @@ exports.getMessages = async (req, res) => {
       return res.status(404).json({ success: false, message: "Conversation not found" });
     }
 
-    // Reverse for newest-first pagination
-    const totalMessages = conversation.messages.length;
-    const messages = conversation.messages
+    // Messages are stored as an embedded array, appended in whatever order
+    // they were synced/sent — which can diverge from chronological order
+    // (e.g. a later historical sync backfilling older messages after a live
+    // reply was already appended). Sort strictly oldest -> newest by each
+    // message's own authoritative timestamp before pagination, so the API
+    // always returns correct chronological order regardless of insertion
+    // order. Nothing in the database is reordered — only the in-memory copy
+    // used for this response.
+    const chronologicalMessages = sortMessagesChronologically(conversation.messages);
+
+    const totalMessages = chronologicalMessages.length;
+    const messages = chronologicalMessages
       .slice(-(skip + parseInt(limit)))
       .slice(0, parseInt(limit));
 
