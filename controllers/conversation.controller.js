@@ -9,14 +9,12 @@
  *   - Internal notes (never sent to customer)
  *   - Conversation status management
  *   - Assignment management
- *   - Translation
  */
 const mongoose = require("mongoose");
 const Conversation = require("../models/Conversation.model");
 const SocialLead = require("../models/SocialLead.model");
 const MarketplaceListing = require("../models/MarketplaceListing.model");
 const platformManager = require("../services/platformManager.service");
-const translationService = require("../services/translation.service");
 const { logAction } = require("../services/auditLog.service");
 
 /**
@@ -258,97 +256,6 @@ exports.sendReply = async (req, res) => {
     });
 
     res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-/**
- * POST /api/conversations/:id/translate
- * Translate a specific message.
- */
-exports.translateMessage = async (req, res) => {
-  try {
-    const { messageId } = req.body;
-    const conversation = await Conversation.findById(req.params.id);
-
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-
-    const message = conversation.messages.id(messageId);
-    if (!message) {
-      return res.status(404).json({ success: false, message: "Message not found" });
-    }
-
-    const sourceText = message.originalText || message.text;
-
-    // Reuse a previously-computed translation rather than calling the
-    // translation API again — translatedText/originalLanguage are
-    // persisted below the first time a message is translated (this
-    // includes English messages, cached as originalLanguage: "en", so
-    // even the language-detection step is never repeated for the same
-    // message).
-    if (message.translatedText && message.originalLanguage) {
-      return res.json({
-        success: true,
-        data: {
-          originalText: sourceText,
-          originalLanguage: message.originalLanguage,
-          translatedText: message.translatedText,
-        },
-      });
-    }
-
-    const result = await translationService.translateToEnglish(
-      sourceText,
-      message.originalLanguage
-    );
-
-    message.originalLanguage = result.originalLanguage;
-    message.translatedText = result.translatedText;
-    await conversation.save();
-
-    res.json({
-      success: true,
-      data: {
-        originalText: sourceText,
-        originalLanguage: result.originalLanguage,
-        translatedText: result.translatedText,
-      },
-    });
-  } catch (err) {
-    console.error("[CONVERSATION] Translate error:", err.message);
-    res.status(500).json({ success: false, message: "Translation service unavailable." });
-  }
-};
-
-/**
- * POST /api/conversations/:id/detect-language
- * Detect the source language of a single message — used by the frontend
- * to decide whether to show the "Translate to English" action at all
- * (never shown for messages already in English). Detection only, no
- * translation performed and nothing persisted; reuses the existing
- * translationService.detectLanguage() used internally by translateMessage.
- */
-exports.detectMessageLanguage = async (req, res) => {
-  try {
-    const { messageId } = req.body;
-    const conversation = await Conversation.findById(req.params.id);
-
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-
-    const message = conversation.messages.id(messageId);
-    if (!message) {
-      return res.status(404).json({ success: false, message: "Message not found" });
-    }
-
-    const { language } = await translationService.detectLanguage(message.originalText || message.text);
-
-    res.json({ success: true, data: { language } });
-  } catch (err) {
-    console.error("[CONVERSATION] Detect language error:", err);
-    res.status(500).json({ success: false, message: "Language detection unavailable." });
   }
 };
 
