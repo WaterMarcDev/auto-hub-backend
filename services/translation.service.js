@@ -160,36 +160,34 @@ async function detectLanguage(text) {
     return { language: "en", confidence: 1.0 };
   }
 
-  // If API key is configured, use Google Cloud Translation
-  if (TRANSLATION_API_KEY) {
-    try {
-      const response = await axios.post(
-        `${TRANSLATION_API_URL}/detect`,
-        { q: text },
-        { params: { key: TRANSLATION_API_KEY } }
-      );
-
-      const detection = response.data?.data?.detections?.[0]?.[0];
-      if (detection) {
-        return {
-          language: detection.language,
-          confidence: detection.confidence || 1.0,
-        };
-      }
-    } catch (err) {
-      console.warn("[TRANSLATION] Detection API error:", err.message);
-    }
+  // No real detection is possible without a configured provider. Previously
+  // this fell through to a "heuristic" that checked the ratio of non-ASCII
+  // characters — but both of its branches returned `language: "en"`
+  // unconditionally, so it could never actually detect a non-English
+  // language (e.g. Spanish text with no accented characters, like "Es
+  // compatible con Hyundai Venue SE 2020", was always misreported as
+  // English). Rather than guess, this now fails loudly so the caller can
+  // surface "translation unavailable" instead of silently mislabeling
+  // foreign text as already-English.
+  if (!TRANSLATION_API_KEY) {
+    throw new Error("Language detection is unavailable — no translation provider is configured.");
   }
 
-  // Simple heuristic: check if text contains mostly ASCII characters
-  const nonAsciiRatio = [...text].filter((c) => c.charCodeAt(0) > 127).length / text.length;
+  const response = await axios.post(
+    `${TRANSLATION_API_URL}/detect`,
+    { q: text },
+    { params: { key: TRANSLATION_API_KEY } }
+  );
 
-  if (nonAsciiRatio < 0.1) {
-    return { language: "en", confidence: 0.6 };
+  const detection = response.data?.data?.detections?.[0]?.[0];
+  if (!detection) {
+    throw new Error("Translation provider returned no detection result.");
   }
 
-  // If we can't detect, assume English
-  return { language: "en", confidence: 0.5 };
+  return {
+    language: detection.language,
+    confidence: detection.confidence || 1.0,
+  };
 }
 
 /**
@@ -214,35 +212,38 @@ async function translate(text, targetLanguage, sourceLanguage = null) {
     return { translatedText: text, detectedLanguage: sourceLanguage };
   }
 
-  // If API key is configured, use Google Cloud Translation
-  if (TRANSLATION_API_KEY) {
-    try {
-      const params = {
-        q: text,
-        target: targetLanguage,
-        key: TRANSLATION_API_KEY,
-      };
-
-      if (sourceLanguage) {
-        params.source = sourceLanguage;
-      }
-
-      const response = await axios.post(TRANSLATION_API_URL, null, { params });
-
-      const translation = response.data?.data?.translations?.[0];
-      if (translation) {
-        return {
-          translatedText: translation.translatedText,
-          detectedLanguage: translation.detectedSourceLanguage || null,
-        };
-      }
-    } catch (err) {
-      console.warn("[TRANSLATION] API error:", err.message);
-    }
+  // No real translation is possible without a configured provider.
+  // Previously this fell through to a fallback that silently returned the
+  // original, untranslated text as if it were the translation — which is
+  // exactly the reported bug (translated text identical to the original).
+  // Failing loudly here lets the caller surface "translation unavailable"
+  // instead of misleading the user with an untranslated message labeled as
+  // English.
+  if (!TRANSLATION_API_KEY) {
+    throw new Error("Translation is unavailable — no translation provider is configured.");
   }
 
-  // Fallback: return original text
-  return { translatedText: text, detectedLanguage: sourceLanguage };
+  const params = {
+    q: text,
+    target: targetLanguage,
+    key: TRANSLATION_API_KEY,
+  };
+
+  if (sourceLanguage) {
+    params.source = sourceLanguage;
+  }
+
+  const response = await axios.post(TRANSLATION_API_URL, null, { params });
+
+  const translation = response.data?.data?.translations?.[0];
+  if (!translation) {
+    throw new Error("Translation provider returned no translation result.");
+  }
+
+  return {
+    translatedText: translation.translatedText,
+    detectedLanguage: translation.detectedSourceLanguage || null,
+  };
 }
 
 /**
