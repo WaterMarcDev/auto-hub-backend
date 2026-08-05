@@ -267,7 +267,7 @@ exports.sendReply = async (req, res) => {
  */
 exports.translateMessage = async (req, res) => {
   try {
-    const { messageId, targetLanguage = "en" } = req.body;
+    const { messageId } = req.body;
     const conversation = await Conversation.findById(req.params.id);
 
     if (!conversation) {
@@ -279,22 +279,45 @@ exports.translateMessage = async (req, res) => {
       return res.status(404).json({ success: false, message: "Message not found" });
     }
 
+    const sourceText = message.originalText || message.text;
+
+    // Reuse a previously-computed translation rather than calling the
+    // translation API again — translatedText/originalLanguage are
+    // persisted below the first time a message is translated (this
+    // includes English messages, cached as originalLanguage: "en", so
+    // even the language-detection step is never repeated for the same
+    // message).
+    if (message.translatedText && message.originalLanguage) {
+      return res.json({
+        success: true,
+        data: {
+          originalText: sourceText,
+          originalLanguage: message.originalLanguage,
+          translatedText: message.translatedText,
+        },
+      });
+    }
+
     const result = await translationService.translateToEnglish(
-      message.originalText || message.text,
+      sourceText,
       message.originalLanguage
     );
+
+    message.originalLanguage = result.originalLanguage;
+    message.translatedText = result.translatedText;
+    await conversation.save();
 
     res.json({
       success: true,
       data: {
-        originalText: message.originalText || message.text,
+        originalText: sourceText,
         originalLanguage: result.originalLanguage,
         translatedText: result.translatedText,
       },
     });
   } catch (err) {
     console.error("[CONVERSATION] Translate error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: "Translation unavailable." });
   }
 };
 
