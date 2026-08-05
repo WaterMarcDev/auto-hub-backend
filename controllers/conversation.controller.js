@@ -299,6 +299,37 @@ exports.translateMessage = async (req, res) => {
 };
 
 /**
+ * POST /api/conversations/:id/detect-language
+ * Detect the source language of a single message — used by the frontend
+ * to decide whether to show the "Translate to English" action at all
+ * (never shown for messages already in English). Detection only, no
+ * translation performed and nothing persisted; reuses the existing
+ * translationService.detectLanguage() used internally by translateMessage.
+ */
+exports.detectMessageLanguage = async (req, res) => {
+  try {
+    const { messageId } = req.body;
+    const conversation = await Conversation.findById(req.params.id);
+
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: "Conversation not found" });
+    }
+
+    const message = conversation.messages.id(messageId);
+    if (!message) {
+      return res.status(404).json({ success: false, message: "Message not found" });
+    }
+
+    const { language } = await translationService.detectLanguage(message.originalText || message.text);
+
+    res.json({ success: true, data: { language } });
+  } catch (err) {
+    console.error("[CONVERSATION] Detect language error:", err);
+    res.status(500).json({ success: false, message: "Language detection unavailable." });
+  }
+};
+
+/**
  * POST /api/conversations/:id/notes
  * Add an internal note (never sent to customer).
  */
