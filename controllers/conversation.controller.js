@@ -316,8 +316,8 @@ exports.translateMessage = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[CONVERSATION] Translate error:", err);
-    res.status(500).json({ success: false, message: "Translation unavailable." });
+    console.error("[CONVERSATION] Translate error:", err.message);
+    res.status(500).json({ success: false, message: "Translation service unavailable." });
   }
 };
 
