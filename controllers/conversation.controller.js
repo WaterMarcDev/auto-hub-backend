@@ -139,12 +139,6 @@ exports.getById = async (req, res) => {
       return res.status(404).json({ success: false, message: "Conversation not found" });
     }
 
-    // Same defensive chronological sort as getMessages — this endpoint also
-    // returns the full messages array, so it must be consistent.
-    if (conversation.messages) {
-      conversation.messages = sortMessagesChronologically(conversation.messages);
-    }
-
     res.json({ success: true, data: conversation });
   } catch (err) {
     console.error("[CONVERSATION] Get by ID error:", err);
@@ -443,18 +437,9 @@ exports.getMessages = async (req, res) => {
       return res.status(404).json({ success: false, message: "Conversation not found" });
     }
 
-    // Messages are stored as an embedded array, appended in whatever order
-    // they were synced/sent — which can diverge from chronological order
-    // (e.g. a later historical sync backfilling older messages after a live
-    // reply was already appended). Sort strictly oldest -> newest by each
-    // message's own authoritative timestamp before pagination, so the API
-    // always returns correct chronological order regardless of insertion
-    // order. Nothing in the database is reordered — only the in-memory copy
-    // used for this response.
-    const chronologicalMessages = sortMessagesChronologically(conversation.messages);
-
-    const totalMessages = chronologicalMessages.length;
-    const messages = chronologicalMessages
+    // Reverse for newest-first pagination
+    const totalMessages = conversation.messages.length;
+    const messages = conversation.messages
       .slice(-(skip + parseInt(limit)))
       .slice(0, parseInt(limit));
 
