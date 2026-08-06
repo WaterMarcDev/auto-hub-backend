@@ -22,7 +22,7 @@ const mongoose = require("mongoose");
 const CarIntake = require("../models/carInTake.model");
 
 const APPLY = process.argv.includes("--apply");
-const MATCH_FILTER = { status: "price-uploaded" };
+const MATCH_FILTER = { status: "parts-uploaded" };
 
 function redact(uri) {
   return uri ? uri.replace(/:\/\/([^:@/]+):([^@/]+)@/, "://$1:<redacted>@") : uri;
@@ -44,7 +44,7 @@ async function run() {
     console.log("Connected to MongoDB:", redact(mongoUri));
 
     const total = await CarIntake.countDocuments(MATCH_FILTER);
-    console.log(`\nRecords with status = "price-uploaded": ${total}`);
+    console.log(`\nRecords with status = "parts-uploaded": ${total}`);
 
     if (total === 0) {
       console.log("Nothing to migrate. Exiting.");
