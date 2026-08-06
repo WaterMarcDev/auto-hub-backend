@@ -59,6 +59,16 @@ const inventorySchema = new mongoose.Schema(
       trim: true,
       default: "Uncategorized",
     },
+    // Manual per-part selling price. Additive/optional so existing
+    // documents are unaffected (they simply read back as null, rendered
+    // as "N/A" on the frontend). Designed to also be the target field for
+    // a future automated Car Intake -> Parts pricing workflow — that
+    // automation can populate this same field without any schema change.
+    price: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
     image: {
       type: String,
       default: null,

@@ -47,7 +47,20 @@ const createInventory = async (req, res) => {
       year,
       color,
       image,
+      price,
     } = req.body;
+
+    // Optional: reject invalid values, coerce blank/omitted to null.
+    let parsedPrice = null;
+    if (price !== undefined && price !== null && price !== "") {
+      const numericPrice = Number(price);
+      if (Number.isNaN(numericPrice) || numericPrice < 0) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Price must be a non-negative number" });
+      }
+      parsedPrice = numericPrice;
+    }
 
     // Resolve Make: accept ObjectId or name
     let makeDoc = null;
@@ -215,6 +228,7 @@ const createInventory = async (req, res) => {
       year,
       color,
       image: image || null,
+      price: parsedPrice,
     });
 
     res
@@ -237,6 +251,45 @@ const getInventoryByVIN = async (req, res) => {
     res
       .status(500)
       .json({ message: "Server error while fetching inventory by VIN" });
+  }
+};
+
+// @desc    Update the manual selling price of a single inventory item
+// @route   PATCH /api/inventory/:id/price
+// @access  Private
+// Deliberately narrow (price only) rather than a generic update endpoint,
+// so this cannot be used to change any other inventory field.
+const updateInventoryPrice = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { price } = req.body;
+
+    let parsedPrice = null;
+    if (price !== undefined && price !== null && price !== "") {
+      const numericPrice = Number(price);
+      if (Number.isNaN(numericPrice) || numericPrice < 0) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Price must be a non-negative number" });
+      }
+      parsedPrice = numericPrice;
+    }
+
+    const inventory = await Inventory.findByIdAndUpdate(
+      id,
+      { price: parsedPrice },
+      { new: true }
+    );
+
+    if (!inventory) {
+      return res.status(404).json({ success: false, message: "Inventory item not found" });
+    }
+
+    res.status(200).json({ success: true, inventory });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Server error while updating price" });
   }
 };
 
@@ -990,6 +1043,7 @@ const deduplicateInventory = async (req, res) => {
 module.exports = {
   createInventory,
   getInventoryByVIN,
+  updateInventoryPrice,
   getPartsMasterList,
   getAllInventories,
   searchByMakeModelYear,
