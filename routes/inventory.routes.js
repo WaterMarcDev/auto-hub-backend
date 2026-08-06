@@ -15,6 +15,7 @@ const { automationBotAuth } = require("../middleware/automationBotAuth"); // add
 const {
   createInventory,
   getInventoryByVIN,
+  updateInventoryPrice,
   getPartsMasterList,
   getAllInventories,
   searchByMakeModelYear,
@@ -75,6 +76,37 @@ router.get("/export", auth, exportInventories); // Specific routes before generi
  */
 //end here
 router.get("/vin/:vin", auth, getInventoryByVIN);
+
+// by shiva
+/**
+ * @swagger
+ * /api/inventory/{id}/price:
+ *   patch:
+ *     summary: Update the manual selling price of a single inventory item
+ *     tags: [Inventory]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               price:
+ *                 type: number
+ *     responses:
+ *       200:
+ *         description: Price updated successfully
+ */
+//end here
+router.patch("/:id/price", auth, updateInventoryPrice);
 
 // by shiva
 /**
