@@ -1,14 +1,6 @@
 const JunkCar = require("../models/junkCar.model");
 const CarIntake = require("../models/carInTake.model");  // by shiva
-const BOT_SOURCES = [
-    "Website",
-    "Instagram",
-    "Facebook",
-    "WhatsApp",
-    "TikTok",
-    "SMS",
-    "Other",
-]
+const { BOT_SOURCES } = require("../utils/requestSources");
 
 exports.createJunkCarRequest = async (req, res) => {
     try {
@@ -51,6 +43,7 @@ exports.createJunkCarRequest = async (req, res) => {
             engineOrVin: engineOrVin || "none",
             condition: condition || "none",
             message: message || "",
+            source: req.body.source || "Manual",  // was previously dropped — see PartRequestController.createRequest for the equivalent pattern
         });
 
         res.status(201).json({
