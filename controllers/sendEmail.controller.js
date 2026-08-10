@@ -27,6 +27,22 @@ function getReplyCount(subject) {
     return 1;
 }
 
+// Normalize a cc field that may arrive as a single string, a comma/semicolon
+// separated string, or an array (multer/express turn repeated form fields of
+// the same name into an array) into a flat list of trimmed, non-empty strings.
+function parseCcList(rawCc) {
+
+    if (!rawCc)
+        return [];
+
+    const arr = Array.isArray(rawCc) ? rawCc : [rawCc];
+
+    return arr
+        .flatMap(v => String(v).split(/[,;]/))
+        .map(v => v.trim())
+        .filter(Boolean);
+}
+
 // Forward count
 function getForwardCount(subject) {
 
@@ -54,6 +70,7 @@ const sendReply = async (req, res) => {
 
         const {
             to,
+            cc,
             subject,
             message
         } = req.body;
@@ -74,6 +91,23 @@ const sendReply = async (req, res) => {
                 error: "Invalid recipient email"
             });
         }
+
+        // CC is optional — validate any provided addresses and dedupe.
+        const rawCcList = parseCcList(cc);
+
+        const invalidCc =
+            rawCcList.filter(addr => !emailRegex.test(addr));
+
+        if (invalidCc.length) {
+
+            return res.status(400).json({
+                error: `Invalid CC email: ${invalidCc.join(", ")}`
+            });
+        }
+
+        const ccList =
+            [...new Set(rawCcList)]
+                .filter(addr => addr.toLowerCase() !== emailOnly.toLowerCase());
 
         const safeSubject =
             subject || "No Subject";
@@ -130,6 +164,8 @@ const sendReply = async (req, res) => {
 
             to: emailOnly,
 
+            ...(ccList.length ? { cc: ccList } : {}),
+
             from:
                 "support@autohubexpress.us",
 
@@ -138,6 +174,9 @@ const sendReply = async (req, res) => {
 
             subject:
                 formattedSubject,
+
+            attachments:
+                sgAttachments,
 
             trackingSettings: {
                 clickTracking: {
@@ -170,6 +209,9 @@ const sendReply = async (req, res) => {
 
                 body:
                     safeMessage,
+
+                cc:
+                    ccList,
 
                 attachments:
                     crmAttachments,
