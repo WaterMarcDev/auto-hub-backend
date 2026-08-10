@@ -1,3 +1,10 @@
+// dotenv must load before any other require() — checkBackInStock.service.js
+// (required below) pulls in sendBackInStockEmail.service.js, which calls
+// sgMail.setApiKey(process.env.SENDGRID_API_KEY) at module load time. With
+// dotenv loading later, that ran with an undefined key, which is what
+// produced the "API key does not start with 'SG.'" startup warning.
+require("dotenv").config({ override: true });   // added override: true by shiva
+
 const express = require("express");
 const nunjucks = require("nunjucks");
 const cors = require("cors");
@@ -15,9 +22,6 @@ const http = require("http");                                // real time update
 const { Server } = require("socket.io");                     // by shiva
 const startBackInStockChecker = require("./services/checkBackInStock.service");    // by shiva
 const ebayRoutes = require("./routes/ebay.routes");   // by shiva
-
-
-require("dotenv").config({ override: true });   // added override: true by shiva
 
 console.log("[ENV CHECK]", {
   envFile: path.join(__dirname, ".env"),

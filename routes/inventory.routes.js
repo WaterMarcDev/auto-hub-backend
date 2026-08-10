@@ -148,7 +148,7 @@ router.get("/parts", auth, getPartsMasterList);
  *         schema:
  *           type: number
  *       - in: query
- *        name: partName
+ *         name: partName
  *         schema:
  *           type: string
  *         description: Part name to search (case-insensitive)

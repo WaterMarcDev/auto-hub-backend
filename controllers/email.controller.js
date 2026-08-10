@@ -46,9 +46,16 @@ const handleInboundEmail = async (req, res) => {
     // attachments handling by shiva
     let attachments = [];
 
+    // BACKEND_URL wasn't resolving on the running process, which produced
+    // literal "undefined/uploads/..." URLs. Fall back to BASE_URL (already
+    // relied on elsewhere, e.g. sendEmail.controller.js) so incoming
+    // attachment links stay valid regardless of which var is set.
+    const backendBaseUrl =
+      process.env.BACKEND_URL || process.env.BASE_URL || "";
+
     const attachmentInfo =
       req.body["attachment-info"];  // SendGrid's attachment metadata
-    
+
       if(attachmentInfo) {
         try {
           const parsedInfo = JSON.parse(attachmentInfo);
@@ -59,10 +66,36 @@ const handleInboundEmail = async (req, res) => {
 
             const uploadedFile = req.files?.find(f => f.fieldname === key);
             if (uploadedFile) {
+              // Some inbound multipart parts omit a filename, so multer's
+              // stored file has no extension and static serving can't infer
+              // Content-Type. SendGrid's own attachment-info metadata (`file`)
+              // still carries the real original filename — reuse it to
+              // recover the extension instead of guessing.
+              let servedFilename = uploadedFile.filename;
+              const hasExt = /\.[a-zA-Z0-9]{2,5}$/.test(uploadedFile.filename);
+
+              if (!hasExt && file?.filename) {
+                const extMatch = file.filename.match(/\.[a-zA-Z0-9]{2,5}$/);
+
+                if (extMatch) {
+                  const renamedFilename = `${uploadedFile.filename}${extMatch[0]}`;
+
+                  try {
+                    fs.renameSync(
+                      uploadedFile.path,
+                      path.join(path.dirname(uploadedFile.path), renamedFilename)
+                    );
+                    servedFilename = renamedFilename;
+                  } catch (renameErr) {
+                    console.error("Attachment rename error:", renameErr);
+                  }
+                }
+              }
+
               attachments.push({
-                filename: uploadedFile.filename,
-                originalname: uploadedFile.originalname,
-                url: `${process.env.BACKEND_URL}/uploads/${uploadedFile.filename}`
+                filename: servedFilename,
+                originalname: file?.filename || uploadedFile.originalname || servedFilename,
+                url: `${backendBaseUrl}/uploads/${servedFilename}`
               });
             }
 

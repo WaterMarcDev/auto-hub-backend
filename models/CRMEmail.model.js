@@ -12,6 +12,12 @@ const CRMEmailSchema = new mongoose.Schema(
     body: {
       type: String,
     },
+    // Optional CC recipients on outgoing replies — defaults to [] so existing
+    // documents without this field keep working.
+    cc: {
+      type: [String],
+      default: [],
+    },
     status: {
       type: String,
       default: "unread",
