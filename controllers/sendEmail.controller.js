@@ -4,6 +4,7 @@ console.log("BASE URL:", process.env.BASE_URL);
 const CRMEmail = require("../models/CRMEmail.model");
 const sgMail = require("@sendgrid/mail");
 const fs = require("fs");
+const path = require("path");
 const emailSignature = require("../utils/emailSignature");
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -61,6 +62,84 @@ function getForwardCount(subject) {
         return count + 1;
 
     return 1;
+}
+
+// No contentType is stored on attachment metadata, so infer it from the
+// extension for the small set of types this app actually handles.
+const EXT_TO_MIME = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".pdf": "application/pdf",
+};
+
+function mimeFromFilename(filename) {
+    return EXT_TO_MIME[path.extname(filename).toLowerCase()] || "application/octet-stream";
+}
+
+const UPLOADS_DIR = path.join(__dirname, "..", "uploads");
+
+// Re-attach the ORIGINAL email's already-stored attachments during forward.
+// originalEmail (parsed from the frontend's payload) already carries the
+// original CRMEmail document, including its attachments array — forwardEmail
+// previously only read subject/sender_email/body from it and dropped the
+// attachments entirely. Reads straight from local disk (same storage the
+// incoming-attachment fix uses) rather than fetching the stored URL.
+function loadOriginalAttachments(originalEmail) {
+
+    const originalAttachments =
+        Array.isArray(originalEmail?.attachments)
+            ? originalEmail.attachments
+            : [];
+
+    const sg = [];
+    const crm = [];
+
+    for (const att of originalAttachments) {
+
+        // path.basename strips any directory traversal component; the
+        // startsWith check below is defense in depth on top of that.
+        const safeName = path.basename(att?.filename || "");
+
+        if (!safeName)
+            continue;
+
+        const filePath = path.join(UPLOADS_DIR, safeName);
+
+        if (!filePath.startsWith(UPLOADS_DIR))
+            continue;
+
+        try {
+
+            const content = fs.readFileSync(filePath).toString("base64");
+
+            sg.push({
+                content,
+                filename: att.originalname || safeName,
+                type: mimeFromFilename(safeName),
+                disposition: "attachment",
+            });
+
+            crm.push({
+                filename: safeName,
+                originalname: att.originalname || safeName,
+                url: att.url,
+            });
+
+        } catch (err) {
+
+            console.error(
+                "Original attachment unavailable for forward:",
+                safeName,
+                err.message
+            );
+        }
+    }
+
+    return { sg, crm };
 }
 
 // SEND REPLY
@@ -323,8 +402,8 @@ const forwardEmail = async (req, res) => {
             });
         }
 
-        // SENDGRID attachments
-        const sgAttachments =
+        // SENDGRID attachments — newly-picked files from the forward modal
+        const newSgAttachments =
             (req.files || []).map(file => ({
 
                 content:
@@ -341,19 +420,25 @@ const forwardEmail = async (req, res) => {
                     "attachment"
             }));
 
-        // CRM attachments
-        const crmAttachments =
+        // CRM attachments — newly-picked files from the forward modal
+        const newCrmAttachments =
             (req.files || []).map(file => ({
 
                 filename:
                     file.filename,
-                
+
                     originalname:
                         file.originalname,
 
                 url:
                     `${process.env.BASE_URL}/uploads/${file.filename}`
             }));
+
+        // Original email's own stored attachments — previously dropped
+        const originalAttachments = loadOriginalAttachments(originalEmail);
+
+        const sgAttachments = [...originalAttachments.sg, ...newSgAttachments];
+        const crmAttachments = [...originalAttachments.crm, ...newCrmAttachments];
 
         // Clean subject
         const cleanSubject =
