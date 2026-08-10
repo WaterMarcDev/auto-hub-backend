@@ -1,18 +1,6 @@
 const PartRequest = require("../models/PartRequest.model");
 const auditLogService = require("../services/auditLog.service");
-
-// Automation Bot (chatbot) — recognized platform sources
-const BOT_SOURCES = [
-    "Website",
-    "Instagram",
-    "Facebook",
-    "WhatsApp",
-    "TikTok",
-    "eBay",
-    "Google Business",
-    "SMS",
-    "Other",
-];
+const { BOT_SOURCES } = require("../utils/requestSources");
 
 exports.createRequest = async (req, res) => {
     console.log("Create part request hit");
