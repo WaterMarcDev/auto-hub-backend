@@ -1,6 +1,6 @@
 const PartRequest = require("../models/PartRequest.model");
 const auditLogService = require("../services/auditLog.service");
-const { BOT_SOURCES } = require("../utils/requestSources");
+const { normalizeRequestSource } = require("../utils/requestSources");
 
 exports.createRequest = async (req, res) => {
     console.log("Create part request hit");
@@ -116,7 +116,7 @@ exports.createAutomationBotRequest = async (req, res) => {
             parsedYear = parseInt(yearStr, 10);
         }
 
-        const resolvedSource = BOT_SOURCES.includes(source) ? source : "Other";
+        const resolvedSource = normalizeRequestSource(source, "Other");
 
         const request = await PartRequest.create({
             name: name || "none",
