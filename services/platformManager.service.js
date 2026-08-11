@@ -294,11 +294,15 @@ async function disconnect(platform, account) {
  *
  * @param {string} platform - Platform name
  * @param {Object} payload - Raw webhook payload
+ * @param {Object} [meta] - Transport-level extras (headers, raw body bytes)
+ *   for adapters that need to verify a signature (e.g. TikTok). Existing
+ *   adapters that only declare receiveWebhook(payload) simply ignore this
+ *   extra argument — no behavior change for them.
  * @returns {Promise<Object>} Processing result
  */
-async function receiveWebhook(platform, payload) {
+async function receiveWebhook(platform, payload, meta = {}) {
   const adapter = getAdapter(platform);
-  return await adapter.receiveWebhook(payload);
+  return await adapter.receiveWebhook(payload, meta);
 }
 
 // ─── Export ────────────────────────────────────────────────────────────────

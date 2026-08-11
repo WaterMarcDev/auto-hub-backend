@@ -125,7 +125,16 @@ app.use(cors(corsOptionsDelegate));
 
 app.use(morgan("dev"));
 
-app.use(express.json());
+// `verify` stashes the exact raw bytes onto req.rawBody without changing
+// parsing behavior at all — needed by the TikTok webhook adapter to verify
+// the Tiktok-Signature HMAC (which must be computed over the raw body, not
+// a re-serialized copy of the parsed JSON). Every other route/consumer is
+// unaffected: req.body still parses exactly as before.
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  },
+}));
 // Uploads path by shiva
 app.use(
   "/uploads",
@@ -300,6 +309,9 @@ require("./services/adapters/whatsappAdapter");
 
 // eBay adapter — self-registers with PlatformManager on require
 require("./services/adapters/ebayAdapter");
+
+// TikTok adapter — self-registers with PlatformManager on require
+require("./services/adapters/tiktokAdapter");
 
 // Entry Fee routes
 app.use("/api/entry-fee", require("./routes/entryFee.routes"));

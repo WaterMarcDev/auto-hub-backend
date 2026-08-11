@@ -77,8 +77,14 @@ exports.receiveWebhookEndpoint = async (req, res) => {
       return res.json(unsupportedPlatformResponse(platform));
     }
 
-    // Process the webhook payload through the platform manager
-    const result = await platformManager.receiveWebhook(platform, req.body);
+    // Process the webhook payload through the platform manager. headers/
+    // rawBody are only consumed by adapters that verify a signature (e.g.
+    // TikTok) — passed through generically so adding another
+    // signature-verifying platform later needs no controller change.
+    const result = await platformManager.receiveWebhook(platform, req.body, {
+      headers: req.headers,
+      rawBody: req.rawBody,
+    });
 
     // Acknowledge the webhook (platforms expect a 200 OK quickly)
     res.json({ success: true, data: result });
