@@ -1,6 +1,6 @@
 const JunkCar = require("../models/junkCar.model");
 const CarIntake = require("../models/carInTake.model");  // by shiva
-const { BOT_SOURCES } = require("../utils/requestSources");
+const { normalizeRequestSource } = require("../utils/requestSources");
 
 exports.createJunkCarRequest = async (req, res) => {
     try {
@@ -90,9 +90,7 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
             parsedYear = parseInt(yearStr, 10);
         }
 
-        const resolvedSource = BOT_SOURCES.includes(source)
-            ? source
-            : "Other";
+        const resolvedSource = normalizeRequestSource(source, "Other");
 
         const newRequest = await JunkCar.create({
             name: name || "none",
