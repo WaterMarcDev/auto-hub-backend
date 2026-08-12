@@ -67,12 +67,29 @@ class TikTokApiClient {
 
     const statusCode = err.response?.status || 500;
     const body = err.response?.data || {};
+
+    console.log("[TIKTOK TOKEN EXCHANGE RAW RESPONSE]", {
+      statusCode,
+      error: body.error || null,
+      error_description: body.error_description || null,
+      log_id: body.log_id || null,
+      // message: err.message,
+    });
     const errorMessage =
       body.error?.message ||
       body.error_description ||
       err.message ||
       "TikTok API request failed";
     const errorCode = body.error?.code || body.error || null;
+
+    // const error = statusCode === 401 || statusCode === 403
+    //   ? new TikTokAuthError(errorMessage, errorCode)
+    //   : new TikTokApiError(errorMessage, statusCode, errorCode);
+
+    // // Preserve TikTok diagnostic information without logging secrets.
+    // error.tiktokResponse = body;
+
+    // return error;
 
     if (statusCode === 401 || statusCode === 403) {
       return new TikTokAuthError(errorMessage, errorCode);
