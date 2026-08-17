@@ -2,31 +2,7 @@ const Inventory = require("../models/Inventory.model");
 const carInTake = require("../models/carInTake.model");
 
 const { resolvePartPrice } = require("../utils/partPricing");
-
-/**
- * Determine whether an inventory item's vehicle should be priced from the
- * CSV's "German Car Price" column instead of "Standard Price".
- *
- * NOT YET WIRED IN. There is currently no reliable existing backend field
- * that marks a vehicle/Make as "German":
- *   - models/Make.js only has name/shortName/description — no country/type flag.
- *   - Inventory has no vehicle-classification field.
- *   - CarIntake.vinDetails (NHTSA VIN-decode data, when present) has a
- *     PlantCountry-style field, but that reflects assembly location, not
- *     brand nationality, and is only populated for VIN-decoded intakes —
- *     not a reliable substitute.
- * Until the business supplies the exact list of Makes to treat as "German",
- * every vehicle is priced as Standard so no part is ever silently priced
- * using an invented classification. This still uses the new CSV's
- * authoritative Standard prices (an improvement over the old flat
- * part_prices.json for every part). Flip this to a real implementation
- * (e.g. checking item.make?.name against a business-provided list) once
- * that information is available — everything else in the pricing pipeline
- * already supports it via resolvePartPrice({ partName, isGerman }).
- */
-function isGermanVehicle(item, intake) {
-  return false;
-}
+const { isGermanVehicle } = require("../utils/vehicleClassification");
 
 // Connecting wix inventory and collection by shiva
 
@@ -281,7 +257,7 @@ const mapAndMarkItem = async (item, productIdMap = {}) => {
 
   const { price } = resolvePartPrice({
     partName: item.partName,
-    isGerman: isGermanVehicle(item, intake),
+    isGerman: isGermanVehicle(item.make?.name),
   });
 
   console.log({
@@ -804,7 +780,7 @@ const exportAndSyncDeduplicated = async (req, res) => {
 
       const { price } = resolvePartPrice({
         partName: item.partName,
-        isGerman: isGermanVehicle(item, intake),
+        isGerman: isGermanVehicle(item.make?.name),
       });
 
       const totalQuantity = await Inventory.countDocuments({
