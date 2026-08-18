@@ -496,7 +496,10 @@ const getCarIntakes = async (req, res) => {
       )
       .populate("createdBy", "first_name last_name email")
       .populate("scrapedBy", "first_name last_name email")
-      .sort({ updatedAt: -1 })
+      // Sort by original intake/creation date, not last-modified time — a
+      // car edited today (e.g. a status update, KYC save) must not jump
+      // ahead of cars intaked more recently but not touched since.
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
