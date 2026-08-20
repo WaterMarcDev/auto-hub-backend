@@ -445,6 +445,24 @@ const getCarIntakes = async (req, res) => {
       if (statuses.length === 1) filter.status = statuses[0];
       else if (statuses.length > 1) filter.status = { $in: statuses };
     }
+    // Support excluding statuses (e.g. Car Intake List hiding cars already
+    // moved to Ready-to-Scrap) at the query layer so the returned page and
+    // the total/pages count stay consistent with each other. Only applies
+    // when no explicit inclusive status filter was requested above.
+    if (!filter.status && req.query.excludeStatus) {
+      const raw = req.query.excludeStatus;
+      const excludes = Array.isArray(raw)
+        ? raw
+            .map((s) => String(s || ""))
+            .flatMap((s) => s.split(","))
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : String(raw)
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+      if (excludes.length) filter.status = { $nin: excludes };
+    }
     if (req.query.make) {
       filter.make = new RegExp(req.query.make, "i");
     }
