@@ -1,50 +1,49 @@
 Part,Standard Price (USD),German Car Price (+20%),Source
-Wiring Harness,500.00,600.00,Client-confirmed
-Fuel Tank,150.00,180.00,Client-confirmed
-Steering Rack & Pinion,200.00,240.00,Client-confirmed
-Dashboard (Complete),500.00,600.00,Client-confirmed
-Windscreen (Windshield),52.65,63.18,PYP reference (NA item)
-Coolant Bottle (Reservoir),65.00,78.00,Client-confirmed
-Radiator,95.00,114.00,Client-confirmed
-Fuel Pump,175.00,210.00,Client-confirmed
-Latches (Door/Hood/Trunk),30.00,36.00,Client-confirmed
-Trunk Gate / Liftgate / Tailgate,200.00,240.00,Client-confirmed
-Transmission,1125.00,1350.00,Client-confirmed
-Window Switches,45.00,54.00,Client-confirmed
-Fuse Box,125.00,150.00,Client-confirmed
-Battery,50.00,60.00,Client-confirmed
-Air Intake Manifold,200.00,240.00,Client-confirmed
-Alternator,125.00,150.00,Client-confirmed
-AC Compressor,125.00,150.00,Client-confirmed
-Tyre,60.00,72.00,Client-confirmed
-Rims,120.00,144.00,Client-confirmed
-Odometer (Instrument Cluster),137.50,165.00,Client-confirmed
-Rear / Back Seat,150.00,180.00,Client-confirmed
-Co-Passenger Seat,150.00,180.00,Client-confirmed
-Driver Seat,175.00,210.00,Client-confirmed
-Right Side Mirror,95.00,114.00,Client-confirmed
-Left Side Mirror,95.00,114.00,Client-confirmed
-Rear Left Door,200.00,240.00,Client-confirmed
-Rear Right Door,200.00,240.00,Client-confirmed
-Front Right Door,250.00,300.00,Client-confirmed
-Front Left Door,250.00,300.00,Client-confirmed
-Hood,200.00,240.00,Client-confirmed
-Right Headlight,125.00,150.00,Client-confirmed
-Left Headlight,125.00,150.00,Client-confirmed
-Right Fender,125.00,150.00,Client-confirmed
-Left Fender,125.00,150.00,Client-confirmed
-Rear Bumper,200.00,240.00,Client-confirmed
-Engine (Complete),2000.00,2400.00,Client-confirmed
-Brake Disc (Rotor),23.80,28.56,PYP reference (NA item)
+Wiring Harness,500,600,Client-confirmed
+Fuel Tank,150,180,Client-confirmed
+Steering Rack & Pinion,200,240,Client-confirmed
+Dashboard (Complete),500,600,Client-confirmed
+Coolant Bottle (Reservoir),65,78,Client-confirmed
+Radiator,95,114,Client-confirmed
+Fuel Pump,175,210,Client-confirmed
+Latches (Door/Hood/Trunk),30,36,Client-confirmed
+Trunk Gate / Liftgate / Tailgate,200,240,Client-confirmed
+Transmission,1125,1350,Client-confirmed
+Window Switches,45,54,Client-confirmed
+Fuse Box,125,150,Client-confirmed
+Battery,50,60,Client-confirmed
+Air Intake Manifold,200,240,Client-confirmed
+Alternator,125,150,Client-confirmed
+AC Compressor,125,150,Client-confirmed
+Tyre,60,72,Client-confirmed
+Rims,120,144,Client-confirmed
+Odometer (Instrument Cluster),137.5,165,Client-confirmed
+Rear / Back Seat,150,180,Client-confirmed
+Co-Passenger Seat,150,180,Client-confirmed
+Driver Seat,175,210,Client-confirmed
+Right Side Mirror,95,114,Client-confirmed
+Left Side Mirror,95,114,Client-confirmed
+Rear Left Door,200,240,Client-confirmed
+Rear Right Door,200,240,Client-confirmed
+Front Right Door,250,300,Client-confirmed
+Front Left Door,250,300,Client-confirmed
+Hood,200,240,Client-confirmed
+Right Headlight,125,150,Client-confirmed
+Left Headlight,125,150,Client-confirmed
+Right Fender,125,150,Client-confirmed
+Left Fender,125,150,Client-confirmed
+Rear Bumper,200,240,Client-confirmed
+Engine (Complete),2000,2400,Client-confirmed
+Brake Disc (Rotor),23.8,28.56,PYP reference (NA item)
 Base Chassis Plate (Subframe),89.13,106.96,PYP reference (NA item)
-Brake Drum,23.80,28.56,PYP reference (NA item)
-Chassis,592.10,710.52,PYP reference (NA item)
-Engine Control Module,125.00,150.00,Client-confirmed
-Floor Carpet,150.00,180.00,Client-confirmed
-Foot Rest (Dead Pedal),35.75,42.90,PYP reference (NA item)
-Front Bumper,375.00,450.00,Client-confirmed
-Heated Seats,200.00,240.00,Client-confirmed
-Heated Side Mirrors,175.00,210.00,Client-confirmed
-Heated Steering Wheel,100.00,120.00,Client-confirmed
-Heated Windshield,35.10,42.12,PYP reference (NA item)
-Rear Windshield,29.25,35.10,PYP reference (NA item)
+Brake Drum,23.8,28.56,PYP reference (NA item)
+Chassis,592.1,710.52,PYP reference (NA item)
+Engine Control Module,125,150,Client-confirmed
+Floor Carpet,150,180,Client-confirmed
+Foot Rest (Dead Pedal),35.75,42.9,PYP reference (NA item)
+Front Bumper,375,450,Client-confirmed
+Heated Seats,200,240,Client-confirmed
+Heated Side Mirrors,175,210,Client-confirmed
+Heated Steering Wheel,100,120,Client-confirmed
+Heated Windshield,35.1,42.12,PYP reference (NA item)
+Heated Rear Windshield,29.25,35.1,PYP reference (NA item)
