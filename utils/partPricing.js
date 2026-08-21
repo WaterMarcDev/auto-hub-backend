@@ -59,6 +59,35 @@ function toPartKey(name) {
 //     spelling the catalog used for a given entry, so this one is explicit)
 // Every other CSV row matches the catalog automatically via toPartKey()
 // once a trailing "(...)" clarification is stripped.
+//
+// UPDATE (2026-08-21, when the CSV was updated to add productType/category/
+// image/description/title/slug columns): the CSV no longer has a row
+// literally named "Windscreen (Windshield)" or "Rear Windshield" — it was
+// reworded to "Heated Windshield" and "Heated Rear Windshield" respectively.
+//
+//   - "Heated Windshield" auto-resolves fine via toPartKey() ("heatedWindshield")
+//     with no override needed — confirmed against a real Inventory.partName
+//     of exactly "heatedWindshield" already in the database, a separate part
+//     from "windShield" below (not a renaming of it).
+//   - "Heated Rear Windshield" does NOT auto-resolve to the real catalog
+//     name: toPartKey() derives "heatedRearWindshield", but the real,
+//     existing Inventory.partName for this part is "rearWindShield" (capital
+//     S, confirmed directly from the database — assets/part_prices.json's
+//     "rearWindshield", lowercase, is a stale/unused key from an older
+//     convention and was not the source of truth here). Its description
+//     ("...with integrated defroster grid...") confirms this is the same
+//     physical rear-windshield part the old "Rear Windshield" CSV row
+//     priced, just reworded — not a new distinct part — so the override
+//     below was added.
+//   - "windShield" (plain/non-heated windscreen) is a real, separate,
+//     still-existing Inventory.partName that the new CSV no longer prices
+//     AT ALL (no "Windscreen"/plain-windshield row exists anymore, only the
+//     "Heated" variant). Left WITHOUT an override deliberately: redirecting
+//     it to "Heated Windshield"'s price would be a guess about whether a
+//     plain windshield costs the same as a heated one, which could produce
+//     an actively wrong price rather than a merely-missing one. This part
+//     currently prices at $0 until the business adds it back to the CSV or
+//     confirms it should map to "Heated Windshield".
 const PART_NAME_KEY_OVERRIDES = {
   "Steering Rack & Pinion": "steering",
   "Windscreen (Windshield)": "windShield",
@@ -70,6 +99,7 @@ const PART_NAME_KEY_OVERRIDES = {
   "Heated Steering Wheel": "heatedSteering",
   "Trunk Gate / Liftgate / Tailgate": "trunkGate",
   "Rear Windshield": "rearWindShield",
+  "Heated Rear Windshield": "rearWindShield",
 };
 
 function deriveCsvRowKey(rawPartName) {
@@ -180,4 +210,9 @@ module.exports = {
   resolvePartPrice,
   getAllPriceListRows,
   toPartKey,
+  // Additive export only — same function already used internally to build
+  // PRICE_INDEX. Exposed so other CSV-column consumers (e.g. the Wix sync
+  // metadata reader) key their lookups identically to pricing, without a
+  // second copy of the alias table drifting out of sync with this one.
+  deriveCsvRowKey,
 };

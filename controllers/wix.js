@@ -3,6 +3,11 @@ const carInTake = require("../models/carInTake.model");
 
 const { resolvePartPrice } = require("../utils/partPricing");
 const { isGermanVehicle } = require("../utils/vehicleClassification");
+const {
+  resolvePartMetadata,
+  resolveTemplate,
+  splitImageUrls,
+} = require("../utils/partSyncMetadata");
 
 // Connecting wix inventory and collection by shiva
 
@@ -27,6 +32,15 @@ const syncProductFieldsThroughVelo = async ({
   brand,
   category,
   quantity,
+  title,
+  merchantCategory,
+  merchantProductType,
+  fieldtype,
+  handledSlug,
+  productImage,
+  productImages,
+  description,
+  shippingWeight,
 }) => {
   const veloUrl = `${String(process.env.WIX_VELO_BASE_URL || "").replace(
     /\/$/,
@@ -47,6 +61,15 @@ const syncProductFieldsThroughVelo = async ({
       brand,
       category,
       quantity,
+      title,
+      merchantCategory,
+      merchantProductType,
+      fieldtype,
+      handledSlug,
+      productImage,
+      productImages,
+      description,
+      shippingWeight,
     },
     {
       headers: {
@@ -815,12 +838,84 @@ const exportAndSyncDeduplicated = async (req, res) => {
       <li><p>Drive Train:${val(cd.drive, vd.DriveType)}</p></li>
       </ul>`;
 
-      const description = `${formattedPartName}, Condition: Used, ` +
+      // Existing inline-built description — kept exactly as-is and used as
+      // the fallback when the CSV has no matching row for this part (this
+      // was already the ONLY description behavior before this change, so
+      // "fallback" here means "unchanged pre-existing behavior", not a new
+      // invention).
+      const fallbackDescription = `${formattedPartName}, Condition: Used, ` +
         `Year: ${item.year}, Make: ${item.make?.name}, ` +
         `Model: ${item.model?.name}, Trim: ${item.trim?.name}`;
 
+      // CSV-sourced product metadata (description/image/slug/category/
+      // productType). Matched by the exact same part key pricing already
+      // uses, so a part's price and its metadata always come from the same
+      // CSV row — see utils/partSyncMetadata.js.
+      const csvMeta = resolvePartMetadata({ partName: item.partName });
+
+      const description = csvMeta.found
+        ? resolveTemplate(csvMeta.descriptionTemplate, {
+            year: item.year,
+            make: item.make?.name,
+            model: item.model?.name,
+          })
+        : fallbackDescription;
+
+      const productImages = csvMeta.found
+        ? splitImageUrls(csvMeta.productImageUrl)
+        : [];
+      const primaryImage = productImages[0] || undefined;
+
+      // Business-constant Google Merchant fields. CSV-sourced when a row
+      // matches (the CSV's own productType/category columns already carry
+      // exactly these business values for every row); fall back to the same
+      // constants directly when no CSV row matches, so this never regresses
+      // to "missing" for a part price already resolves for via the legacy
+      // JSON fallback.
+      const merchantProductType = csvMeta.productType || "Auto Part";
+      const merchantCategory = csvMeta.category || "Used Auto Parts";
+      // Distinct business concept from productType/category above — see the
+      // "Fieldtype" clarification: this is always the constant "Product",
+      // never derived from the CSV (the CSV has no such column).
+      const fieldtype = "Product";
+
+      // Deterministic slug: CSV's part-level handleIdSlug combined with the
+      // vehicle so each distinct Year+Make+Model+Part product (this sync's
+      // own grouping key, see getGroupKey()) gets a unique slug — the base
+      // handleIdSlug alone (e.g. "front-bumper") would collide across every
+      // vehicle that has that same part. Omitted (not invented) when no CSV
+      // row matches, since there is no part-level base slug to build from.
+      const handledSlug = csvMeta.found
+        ? [csvMeta.handleIdSlug, item.year, item.make?.name, item.model?.name]
+            .filter(Boolean)
+            .join("-")
+            .toLowerCase()
+            .replace(/[^a-z0-9-]+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "")
+        : undefined;
+
+      // Business-required Title, distinct from `name`/productName above and
+      // NOT sent as a replacement for it — Wix's own product-name field
+      // keeps using productName exactly as before. Format is fixed by the
+      // business: "{Year} {Make} {Model}(Used, Good Condition)" (no space
+      // before the parenthesis). Falls back to VIN-decoded vinDetails and
+      // then "N/A" using the same val() convention already used for the
+      // Source Vehicle section above, rather than inventing a value.
+      const title = `${val(item.year, vd.ModelYear)} ${val(item.make?.name, vd.Make)} ${val(item.model?.name, vd.Model)}(Used, Good Condition)`;
+
+      // Shipping Weight — authoritative source is the CSV's own
+      // "Weight (lbs)" column (see utils/partSyncMetadata.js), matched via
+      // the SAME csvMeta lookup already used for description/image/slug/
+      // category/productType above, so weight never disagrees with a part's
+      // other metadata about which CSV row it came from. Undefined (never
+      // invented, never sourced from Inventory.weight) when no CSV row
+      // matches or the CSV's weight value is missing/invalid.
+      const shippingWeight = csvMeta.weightLbs;
+
       syncPayloads.push({
         productName,
+        title,
         sku,
         price,
         quantity,
@@ -828,6 +923,13 @@ const exportAndSyncDeduplicated = async (req, res) => {
         intake,
         sourceVehicleHtml,
         description,
+        productImages,
+        primaryImage,
+        merchantProductType,
+        merchantCategory,
+        fieldtype,
+        handledSlug,
+        shippingWeight,
         formattedPartName,
         groupItems,
       });
@@ -842,8 +944,23 @@ const exportAndSyncDeduplicated = async (req, res) => {
       year: p.item.year,
       brand: extractBrandName(p.item),
       name: p.productName,
+      title: p.title,
       sku: p.sku,
       productType: 1,
+      // New Google-Merchant-facing business fields. Named distinctly from
+      // the existing `category`/`productType` keys above (which represent
+      // the CRM's own part-category taxonomy and Wix's PHYSICAL/1 product
+      // classification respectively) so this addition never overwrites
+      // those already-working values.
+      merchantCategory: p.merchantCategory,
+      merchantProductType: p.merchantProductType,
+      fieldtype: p.fieldtype,
+      // HandledSlug (deterministic, undefined when no CSV row matched —
+      // never a random/invented value) and product image(s) from the CSV.
+      handledSlug: p.handledSlug,
+      product_image: p.primaryImage,
+      productImages: p.productImages,
+      shippingWeight: p.shippingWeight,
       visible: true,
       category: p.item.category,
       price: p.price,
@@ -964,6 +1081,15 @@ const exportAndSyncDeduplicated = async (req, res) => {
                 brand: extractBrandName(p.item),
                 category: p.item.category,
                 quantity: p.quantity,
+                title: p.title,
+                merchantCategory: p.merchantCategory,
+                merchantProductType: p.merchantProductType,
+                fieldtype: p.fieldtype,
+                handledSlug: p.handledSlug,
+                productImage: p.primaryImage,
+                productImages: p.productImages,
+                description: p.description,
+                shippingWeight: p.shippingWeight,
               });
 
               console.log(`[WIX BACKGROUND] Existing Wix product synced: ${pid}`);
@@ -1011,12 +1137,20 @@ const exportAndSyncDeduplicated = async (req, res) => {
               {
                 secret: process.env.PART_SYNC_SECRET,
                 productName: p.productName,
+                title: p.title,
                 sku: p.sku,
                 price: Number(p.price || 0),
                 brand: extractBrandName(p.item),
                 category: p.item.category || "Uncategorized",
+                merchantCategory: p.merchantCategory,
+                merchantProductType: p.merchantProductType,
+                fieldtype: p.fieldtype,
+                handledSlug: p.handledSlug,
+                productImage: p.primaryImage,
+                productImages: p.productImages,
                 quantity: Number(p.quantity || 0),
                 description: p.description || "",
+                shippingWeight: p.shippingWeight,
               },
               {
                 headers: {
