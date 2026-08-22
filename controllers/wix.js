@@ -8,6 +8,7 @@ const {
   resolveTemplate,
   splitImageUrls,
 } = require("../utils/partSyncMetadata");
+const { isWixExcludedPart } = require("../utils/wixExportExclusions");
 
 // Connecting wix inventory and collection by shiva
 
@@ -104,10 +105,16 @@ const WIX_FIELDS_IDS = {
 const syncWithWix = async (req, res) => {
   try {
     // all inventory where wixSync is true
-    const inventoriesToSync = await Inventory.find({ wixSynced: false })     // wixSynced: false by shiva
+    const unsyncedInventories = await Inventory.find({ wixSynced: false })     // wixSynced: false by shiva
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
+
+    // Wix export boundary only — windShield/a1/a2 stay in Inventory/CRM,
+    // they just never enter a Wix-bound payload.
+    const inventoriesToSync = unsyncedInventories.filter(
+      (item) => !isWixExcludedPart(item.partName)
+    );
 
     console.log("UNSYNCED INVENTORIES:", inventoriesToSync.length);   //temp debug by shiva
     // Prepare data for Wix
@@ -378,10 +385,14 @@ const exportAndSyncAllParts = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const items = await Inventory.find({ wixSynced: false }).limit(10)
+    const fetchedItems = await Inventory.find({ wixSynced: false }).limit(10)
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
+
+    // Wix export boundary only — windShield/a1/a2 stay in Inventory/CRM,
+    // they just never enter a Wix-bound payload.
+    const items = fetchedItems.filter((item) => !isWixExcludedPart(item.partName));
 
     if (!items.length) {
       return res.status(200).json({
@@ -412,10 +423,14 @@ const exportAndSyncByMake = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const items = await Inventory.find({ wixSynced: false })
+    const fetchedItems = await Inventory.find({ wixSynced: false })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
+
+    // Wix export boundary only — windShield/a1/a2 stay in Inventory/CRM,
+    // they just never enter a Wix-bound payload.
+    const items = fetchedItems.filter((item) => !isWixExcludedPart(item.partName));
 
     if (!items.length) {
       return res.status(200).json({ success: true, exported: 0, groups: {} });
@@ -450,10 +465,14 @@ const exportAndSyncByYear = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const items = await Inventory.find({ wixSynced: false })
+    const fetchedItems = await Inventory.find({ wixSynced: false })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
+
+    // Wix export boundary only — windShield/a1/a2 stay in Inventory/CRM,
+    // they just never enter a Wix-bound payload.
+    const items = fetchedItems.filter((item) => !isWixExcludedPart(item.partName));
 
     if (!items.length) {
       return res.status(200).json({ success: true, exported: 0, groups: {} });
@@ -488,10 +507,14 @@ const exportAndSyncByModel = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const items = await Inventory.find({ wixSynced: false })
+    const fetchedItems = await Inventory.find({ wixSynced: false })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
+
+    // Wix export boundary only — windShield/a1/a2 stay in Inventory/CRM,
+    // they just never enter a Wix-bound payload.
+    const items = fetchedItems.filter((item) => !isWixExcludedPart(item.partName));
 
     if (!items.length) {
       return res.status(200).json({ success: true, exported: 0, groups: {} });
@@ -765,9 +788,15 @@ const exportAndSyncDeduplicated = async (req, res) => {
       return res.status(200).json({ success: true, exported: 0, parts: [] });
     }
 
+    // Wix export boundary only — windShield/a1/a2 stay in Inventory/CRM,
+    // they just never enter a Wix-bound payload. Any group made up entirely
+    // of excluded parts simply never gets a key in groupMap below, so no
+    // empty/invalid Wix product is ever built for it.
+    const syncableItems = validItems.filter((item) => !isWixExcludedPart(item.partName));
+
     // ── Group unsynced items by Year + Make + Model + Part Name ──────────────
     const groupMap = {};
-    for (const item of validItems) {
+    for (const item of syncableItems) {
       const key = getGroupKey(item);
       if (!groupMap[key]) {
         groupMap[key] = [];
