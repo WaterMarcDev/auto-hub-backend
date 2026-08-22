@@ -3,6 +3,7 @@ const CarModel = require("../models/Model.model");
 const Trim = require("../models/Trim.model");
 const Inventory = require("../models/Inventory.model");
 const Part = require("../models/Part.model");
+const { isWixExcludedPart } = require("../utils/wixExportExclusions");
 
 
 const mongoose = require("mongoose");
@@ -867,7 +868,13 @@ const syncInventoriesV3 = async (req, res) => {
       },
     ]);
 
-    const formattedProducts = inventories.map(item => {
+    // Wix export boundary only — windShield/a1/a2 stay in Inventory/CRM,
+    // they just never enter a Wix-bound payload.
+    const syncableInventories = inventories.filter(
+      (item) => !isWixExcludedPart(item.partName)
+    );
+
+    const formattedProducts = syncableInventories.map(item => {
       const formattedPartName = toTitleFromCamelCase(item.partName);
       const cd = item.cd || {};
       const vd = item.vd || {};
