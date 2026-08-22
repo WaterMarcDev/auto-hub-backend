@@ -795,6 +795,10 @@ const syncInventoriesV3 = async (req, res) => {
   try {
     const axios = require("axios");
     const inventories = await Inventory.aggregate([
+      // Active Inventory is the source of truth: exclude soft-deleted records
+      // before any join/formatting happens.
+      { $match: { isDeleted: { $ne: true } } },
+
       // Join with Make
       {
         $lookup: {

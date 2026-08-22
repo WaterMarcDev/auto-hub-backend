@@ -104,8 +104,14 @@ const WIX_FIELDS_IDS = {
 
 const syncWithWix = async (req, res) => {
   try {
-    // all inventory where wixSync is true
-    const unsyncedInventories = await Inventory.find({ wixSynced: false })     // wixSynced: false by shiva
+    // Active Inventory is the source of truth: exclude soft-deleted records,
+    // and treat "not yet synced" as wixSynced !== true (covers legacy docs
+    // stored before the wixSynced field existed, which have no such key and
+    // would never match a strict `wixSynced: false` equality query).
+    const unsyncedInventories = await Inventory.find({
+      isDeleted: { $ne: true },
+      wixSynced: { $ne: true },
+    })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
@@ -385,7 +391,16 @@ const exportAndSyncAllParts = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const fetchedItems = await Inventory.find({ wixSynced: false }).limit(10)
+    // Active Inventory is the source of truth: exclude soft-deleted records.
+    // Previously capped at .limit(10) — that silently truncated this
+    // "export ALL unsynced parts" endpoint to 10 records regardless of how
+    // many were actually eligible; removed to match the identical (unlimited)
+    // query shape already used by the sibling by-make/by-year/by-model
+    // endpoints below.
+    const fetchedItems = await Inventory.find({
+      isDeleted: { $ne: true },
+      wixSynced: { $ne: true },
+    })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
@@ -423,7 +438,13 @@ const exportAndSyncByMake = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const fetchedItems = await Inventory.find({ wixSynced: false })
+    // Active Inventory is the source of truth: exclude soft-deleted records,
+    // and treat "not yet synced" as wixSynced !== true (covers legacy docs
+    // with no wixSynced field at all).
+    const fetchedItems = await Inventory.find({
+      isDeleted: { $ne: true },
+      wixSynced: { $ne: true },
+    })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
@@ -465,7 +486,13 @@ const exportAndSyncByYear = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const fetchedItems = await Inventory.find({ wixSynced: false })
+    // Active Inventory is the source of truth: exclude soft-deleted records,
+    // and treat "not yet synced" as wixSynced !== true (covers legacy docs
+    // with no wixSynced field at all).
+    const fetchedItems = await Inventory.find({
+      isDeleted: { $ne: true },
+      wixSynced: { $ne: true },
+    })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
@@ -507,7 +534,13 @@ const exportAndSyncByModel = async (req, res) => {
   try {
     const productIdMap = req.body?.productIdMap || {};
 
-    const fetchedItems = await Inventory.find({ wixSynced: false })
+    // Active Inventory is the source of truth: exclude soft-deleted records,
+    // and treat "not yet synced" as wixSynced !== true (covers legacy docs
+    // with no wixSynced field at all).
+    const fetchedItems = await Inventory.find({
+      isDeleted: { $ne: true },
+      wixSynced: { $ne: true },
+    })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
@@ -749,7 +782,13 @@ const exportAndSyncDeduplicated = async (req, res) => {
 
     // ── Limit: control how many items to process per sync ────────
     const limit = parseInt(req.query?.limit, 10) || 0;
-    const query = Inventory.find({ wixSynced: false })
+    // Active Inventory is the source of truth: exclude soft-deleted records,
+    // and treat "not yet synced" as wixSynced !== true (covers legacy docs
+    // with no wixSynced field at all).
+    const query = Inventory.find({
+      isDeleted: { $ne: true },
+      wixSynced: { $ne: true },
+    })
       .populate("make", "name")
       .populate("model", "name")
       .populate("trim", "name");
@@ -840,7 +879,7 @@ const exportAndSyncDeduplicated = async (req, res) => {
         model: item.model._id,
         year: item.year,
         partName: item.partName,
-        isDeleted: false,
+        isDeleted: { $ne: true },
       });
       const quantity = totalQuantity;
 
