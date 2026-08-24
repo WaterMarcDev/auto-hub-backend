@@ -570,7 +570,7 @@ const searchByMakeModelYear = async (req, res) => {
       .sort({ updatedAt: -1 })
       .lean();
 
-    const parts = items.map((it) => {
+    const endpoint = items.map((it) => {
       const isGerman = isGermanVehicle(it.make?.name);
 
       const priceResult = resolvePartPrice({
@@ -582,7 +582,8 @@ const searchByMakeModelYear = async (req, res) => {
         make: it.make?.name || "",
         model: it.model?.name || "",
         year: it.year || "",
-        part: [
+        partName: it.partName || "",
+        urlEndpoint: [
           it.year,
           it.make?.name,
           it.model?.name,
@@ -598,7 +599,7 @@ const searchByMakeModelYear = async (req, res) => {
     });
 
     res.status(200).json({
-      parts,
+      parts: endpoint,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
   } catch (error) {
