@@ -592,7 +592,8 @@ const searchByMakeModelYear = async (req, res) => {
         ]
           .filter(Boolean)
           .join("-")
-          .toLowerCase(),
+          .toLowerCase()
+          .replace(/\s+/g, "-"),
         price: priceResult?.price ?? null,
         condition: it.quality || "",
       };
