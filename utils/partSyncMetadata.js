@@ -11,14 +11,15 @@
  * handle correctly once columns after price stop being simple values — so a
  * proper quote-aware parser is needed for this half of the row.
  *
- * Row matching reuses partPricing.js's own `deriveCsvRowKey()` (same alias
- * table, same trailing-"(...)" stripping) so a given Inventory.partName
+ * Row matching reuses partPricing.js's own `deriveAllCsvRowKeys()` (same
+ * alias table, same trailing-"(...)" stripping, same extra-key coverage for
+ * parts whose catalog name changed over time) so a given Inventory.partName
  * always resolves to the identical CSV row for both price and metadata —
  * they can never disagree about which row a part matches.
  */
 const fs = require("fs");
 const path = require("path");
-const { deriveCsvRowKey } = require("./partPricing");
+const { deriveAllCsvRowKeys } = require("./partPricing");
 
 const CSV_PATH = path.join(__dirname, "..", "assets", "German_Cars_Price_List_20pct.csv");
 
@@ -89,14 +90,15 @@ function buildMetadataIndex() {
   const index = new Map();
 
   for (const row of rows) {
-    const key = deriveCsvRowKey(row.partName);
-    if (index.has(key)) {
-      console.warn(
-        `[PART_SYNC_METADATA] Duplicate part key "${key}" — CSV rows "${index.get(key).partName}" and "${row.partName}" both resolve to it. Keeping the first.`
-      );
-      continue;
+    for (const key of deriveAllCsvRowKeys(row.partName)) {
+      if (index.has(key)) {
+        console.warn(
+          `[PART_SYNC_METADATA] Duplicate part key "${key}" — CSV rows "${index.get(key).partName}" and "${row.partName}" both resolve to it. Keeping the first.`
+        );
+        continue;
+      }
+      index.set(key, row);
     }
-    index.set(key, row);
   }
 
   return index;

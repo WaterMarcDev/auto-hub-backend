@@ -110,6 +110,33 @@ function deriveCsvRowKey(rawPartName) {
   return toPartKey(withoutTrailingParenthetical);
 }
 
+// Extra index keys for a CSV row, on top of deriveCsvRowKey()'s single
+// primary key. Needed only where the Part catalog's name for a part changed
+// over time: older Inventory records created before a catalog rename keep
+// their original partName key, while newer records created after the
+// catalog was updated use a different one — both must resolve to the same
+// CSV row. Purely additive: never removes or replaces the primary key.
+//
+//   - "Heated Rear Windshield": PART_NAME_KEY_OVERRIDES above targets the
+//     older "rearWindShield" key (kept for the pre-existing plain rear
+//     windshield records this CSV row's predecessor priced). Newer
+//     Inventory records using the current catalog's own casing convention
+//     for this part are keyed "heatedRearWindShield" (capital "WindShield",
+//     matching "windShield"/"rearWindShield" elsewhere) — toPartKey() alone
+//     can't produce that casing (it would title-case to
+//     "heatedRearWindshield", lowercase "shield"), so it's listed here
+//     explicitly rather than guessing which key is the one actually in use.
+const EXTRA_CSV_ROW_KEY_ALIASES = {
+  "Heated Rear Windshield": ["heatedRearWindShield"],
+};
+
+/** All index keys a CSV row should be registered under: primary + aliases. */
+function deriveAllCsvRowKeys(rawPartName) {
+  const primary = deriveCsvRowKey(rawPartName);
+  const extras = EXTRA_CSV_ROW_KEY_ALIASES[rawPartName] || [];
+  return [primary, ...extras];
+}
+
 /**
  * Minimal, dependency-free CSV parser for this specific file's shape
  * (Part, Standard Price (USD), German Car Price (+20%), Source — no
@@ -145,14 +172,15 @@ function buildPriceIndex() {
   const index = new Map();
 
   for (const row of rows) {
-    const key = deriveCsvRowKey(row.partName);
-    if (index.has(key)) {
-      console.warn(
-        `[PART_PRICING] Duplicate part key "${key}" — CSV rows "${index.get(key).partName}" and "${row.partName}" both resolve to it. Keeping the first.`
-      );
-      continue;
+    for (const key of deriveAllCsvRowKeys(row.partName)) {
+      if (index.has(key)) {
+        console.warn(
+          `[PART_PRICING] Duplicate part key "${key}" — CSV rows "${index.get(key).partName}" and "${row.partName}" both resolve to it. Keeping the first.`
+        );
+        continue;
+      }
+      index.set(key, row);
     }
-    index.set(key, row);
   }
 
   return { rows, index };
@@ -215,4 +243,8 @@ module.exports = {
   // metadata reader) key their lookups identically to pricing, without a
   // second copy of the alias table drifting out of sync with this one.
   deriveCsvRowKey,
+  // Same reasoning as deriveCsvRowKey above, but including the extra
+  // alias keys (see EXTRA_CSV_ROW_KEY_ALIASES) — so a consumer that indexes
+  // its own CSV-backed map gets identical multi-key coverage to PRICE_INDEX.
+  deriveAllCsvRowKeys,
 };
