@@ -561,7 +561,7 @@ const searchByMakeModelYear = async (req, res) => {
       .populate("model", "name shortName")
       .populate("trim", "name shortName")
       .select(
-        "partName unit cleaned quality location weight dimensions sku year color"
+        "partName unit cleaned quality location weight dimensions sku year color price"
       )
       .skip(skip)
       .limit(limit)
@@ -574,6 +574,8 @@ const searchByMakeModelYear = async (req, res) => {
       unit: it.unit,
       cleaned: it.cleaned,
       quality: it.quality,
+      condition: it.quality,
+      price: it.price,
       location: it.location,
       weight: it.weight,
       dimensions: it.dimensions,
