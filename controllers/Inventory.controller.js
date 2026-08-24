@@ -4,6 +4,8 @@ const Trim = require("../models/Trim.model");
 const Inventory = require("../models/Inventory.model");
 const Part = require("../models/Part.model");
 const { isWixExcludedPart } = require("../utils/wixExportExclusions");
+const { resolvePartPrice } = require("../utils/partPricing");
+const { isGermanVehicle } = require("../utils/vehicleClassification");
 
 
 const mongoose = require("mongoose");
@@ -568,24 +570,32 @@ const searchByMakeModelYear = async (req, res) => {
       .sort({ updatedAt: -1 })
       .lean();
 
-    const parts = items.map((it) => ({
-      _id: it._id,
-      partName: it.partName,
-      unit: it.unit,
-      cleaned: it.cleaned,
-      quality: it.quality,
-      condition: it.quality,
-      price: it.price,
-      location: it.location,
-      weight: it.weight,
-      dimensions: it.dimensions,
-      sku: it.sku,
-      year: it.year,
-      color: it.color,
-      make: it.make ? { _id: it.make._id, name: it.make.name } : null,
-      model: it.model ? { _id: it.model._id, name: it.model.name } : null,
-      trim: it.trim ? { _id: it.trim._id, name: it.trim.name } : null,
-    }));
+    const parts = items.map((it) => {
+      const isGerman = isGermanVehicle(it.make?.name);
+
+      const priceResult = resolvePartPrice({
+        partName: it.partName,
+        isGerman,
+      });
+
+      return {
+        make: it.make?.name || "",
+        model: it.model?.name || "",
+        year: it.year || "",
+        part: [
+          it.year,
+          it.make?.name,
+          it.model?.name,
+          it.trim?.name,
+          it.partName,
+        ]
+          .filter(Boolean)
+          .join("-")
+          .toLowerCase(),
+        price: priceResult?.price ?? null,
+        condition: it.quality || "",
+      };
+    });
 
     res.status(200).json({
       parts,
