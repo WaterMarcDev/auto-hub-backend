@@ -787,7 +787,18 @@ const exportAndSyncDeduplicated = async (req, res) => {
     // with no wixSynced field at all).
     const query = Inventory.find({
       isDeleted: { $ne: true },
-      wixSynced: { $ne: true },
+      $or: [
+        { wixSynced: { $ne: true } },
+        {
+          $or: [
+            { wixProductId: { $exists: false } },
+            { wixProductId: null },
+            { wixProductId: "" },
+            { wixProductId: "null" },
+            { wixProductId: "undefined" },
+          ],
+        },
+      ],
     })
       .populate("make", "name")
       .populate("model", "name")
@@ -1106,9 +1117,6 @@ const exportAndSyncDeduplicated = async (req, res) => {
       let errorCount = 0;
 
       for (const p of syncPayloads) {
-        const existingWixId = nameToWixId[p.productName];
-        let resolvedWixProductId = existingWixId || p.item._id.toString();
-
         try {
           // let pid =
           //   p.groupItems.find((groupItem) => groupItem.wixProductId)?.wixProductId ||
