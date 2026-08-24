@@ -588,7 +588,7 @@ const searchByMakeModelYear = async (req, res) => {
           it.make?.name,
           it.model?.name,
           it.trim?.name,
-          it.partName,
+          toTitleFromCamelCase(it.partName || ""),
         ]
           .filter(Boolean)
           .join("-")
