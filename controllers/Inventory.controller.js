@@ -420,6 +420,14 @@ const getPartsMasterList = async (req, res) => {
 const searchByMakeModelYear = async (req, res) => {
   try {
     const { make, model, year, partName } = req.query;
+
+    if (!make || !model || !year) {
+      return res.status(400).json({
+        success: false,
+        message: "Make, model, and year are required",
+      });
+    }
+    
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 25;
     const skip = (page - 1) * limit;
