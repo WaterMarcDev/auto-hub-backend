@@ -6,15 +6,26 @@ const Part = require("../models/Part.model");
 const { isWixExcludedPart } = require("../utils/wixExportExclusions");
 const { resolvePartPrice } = require("../utils/partPricing");
 const { isGermanVehicle } = require("../utils/vehicleClassification");
+const {
+  toTitleFromCamelCase,
+  buildCaseInsensitiveNameQuery,
+} = require("../utils/productIdentity");
 
 
 const mongoose = require("mongoose");
 
-function toTitleFromCamelCase(input) {
-  if (typeof input !== "string") return "";
-  return input
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/\b\w/g, char => char.toUpperCase());
+/**
+ * Resolves a Make document by name, case-insensitively (e.g. "toyota",
+ * "TOYOTA", and "Toyota" all resolve to the same existing "Toyota"
+ * document instead of each falling through to createInventory's
+ * create-if-missing fallback and producing duplicate Make records that
+ * differ only in casing). Read-only — never mutates existing Make
+ * documents; a caller deciding to create a new Make on a miss is
+ * unaffected by this helper.
+ */
+async function findMakeByNameCaseInsensitive(rawName) {
+  if (!rawName) return null;
+  return Make.findOne(buildCaseInsensitiveNameQuery(rawName));
 }
 
 const generateShortName = (name) => {
@@ -73,7 +84,10 @@ const createInventory = async (req, res) => {
       if (makeDoc) makeId = makeDoc._1d || makeDoc._id;
     }
     if (!makeDoc && make) {
-      makeDoc = await Make.findOne({ name: make });
+      // Case-insensitive: "toyota"/"TOYOTA"/"Toyota" all resolve to the
+      // same existing Make document instead of each creating a new,
+      // differently-cased duplicate below.
+      makeDoc = await findMakeByNameCaseInsensitive(make);
     }
     if (!makeDoc && make) {
       makeDoc = await Make.create({
@@ -435,9 +449,14 @@ const searchByMakeModelYear = async (req, res) => {
     const filter = {};
 
     if (make) {
+      // Case-insensitive Make lookup: a caller sending "toyota"/"TOYOTA"
+      // must resolve the same existing "Toyota" document that a
+      // differently-cased intake channel created, rather than finding no
+      // match and returning an empty result for a part that genuinely
+      // exists in Inventory.
       const makeDoc = mongoose.Types.ObjectId.isValid(make)
         ? await Make.findById(make)
-        : await Make.findOne({ name: make });
+        : await findMakeByNameCaseInsensitive(make);
       if (!makeDoc) {
         return res.status(200).json({
           parts: [],

@@ -3,12 +3,16 @@ const carInTake = require("../models/carInTake.model");
 
 const { resolvePartPrice } = require("../utils/partPricing");
 const { isGermanVehicle } = require("../utils/vehicleClassification");
-const {
-  resolvePartMetadata,
-  resolveTemplate,
-  splitImageUrls,
-} = require("../utils/partSyncMetadata");
 const { isWixExcludedPart } = require("../utils/wixExportExclusions");
+
+// Canonical deduplicated-sync engine (see services/wixPartSync.service.js).
+// exportAndSyncDeduplicated below delegates its actual selection/grouping/
+// Wix-create-or-update logic to these — this file only owns the HTTP
+// request/response shape for that endpoint now.
+const {
+  prepareWixSyncGroups,
+  executeWixSyncForGroups,
+} = require("../services/wixPartSync.service");
 
 // Connecting wix inventory and collection by shiva
 
@@ -585,20 +589,6 @@ const extractBrandName = (item) => {
 };
 
 /**
- * Generates a stable, unique grouping key based on Year + Brand + Model + Part Name.
- * Products with the same key are considered identical and aggregated into one Wix product.
- */
-const getGroupKey = (item) => {
-  const year = item.year || "0000";
-  const make = (item.make?.name || "Unknown").toUpperCase();
-  const model = (item.model?.name || "Unknown").toUpperCase();
-  const partName = item.partName
-    .replace(/\s+/g, "")
-    .replace(/^./, (c) => c.toLowerCase());
-  return `${year}-${make}-${model}-${partName}`;
-};
-
-/**
  * Generates a consistent readable SKU from the product name for Wix.
  */
 const generateSku = (productName) => {
@@ -773,245 +763,24 @@ const getWixCollectionIds = (category) => {
 
 const exportAndSyncDeduplicated = async (req, res) => {
   try {
-    // const axios = require("axios");
-    // const WIX_HEADERS = {
-    //   "Content-Type": "application/json",
-    //   "Authorization": process.env.WIX_API_KEY,
-    //   "wix-site-id": process.env.WIX_SITE_ID,
-    // };
-
     // ── Limit: control how many items to process per sync ────────
     const limit = parseInt(req.query?.limit, 10) || 0;
-    // Active Inventory is the source of truth: exclude soft-deleted records,
-    // and treat "not yet synced" as wixSynced !== true (covers legacy docs
-    // with no wixSynced field at all).
-    const query = Inventory.find({
-      isDeleted: { $ne: true },
-      $or: [
-        { wixSynced: { $ne: true } },
-        {
-          $or: [
-            { wixProductId: { $exists: false } },
-            { wixProductId: null },
-            { wixProductId: "" },
-            { wixProductId: "null" },
-            { wixProductId: "undefined" },
-          ],
-        },
-      ],
-    })
-      .populate("make", "name")
-      .populate("model", "name")
-      .populate("trim", "name");
 
-    if (limit > 0) {
-      query.limit(limit);
-    }
+    // Canonical prepare phase (selection -> validity -> exclusion ->
+    // Year+Make+Model+Trim+Part identity grouping -> per-group payload
+    // construction). No Wix API calls and no DB writes happen here — see
+    // services/wixPartSync.service.js for the full behavioral notes on
+    // what changed (Trim added to identity) and what didn't (everything
+    // else, carried over field-for-field from the original inline logic
+    // that used to live in this function).
+    const { payloads: syncPayloads, totalItems } = await prepareWixSyncGroups({ limit });
 
-    const items = await query;
-
-    // Check valid product details or not by shiva
-    const validItems = items.filter((item) => {
-      const isValid =
-        item &&
-        item._id &&
-        item.partName &&
-        item.make?._id &&
-        item.model?._id &&
-        item.trim?._id;
-
-      if (!isValid) {
-        console.warn("[WIX BACKGROUND] Skipping invalid inventory record:", {
-          inventoryId: item?._id?.toString() || null,
-          partName: item?.partName || null,
-          make: item?.make || null,
-          model: item?.model || null,
-          trim: item?.trim || null,
-        });
-      }
-
-      return isValid;
-    });
-    // end here
-
-    if (!validItems.length) {
+    // Matches the original early-return exactly: zero VALID (not
+    // necessarily zero syncable) inventory records short-circuits with no
+    // `totalItems` field, distinct from the normal-path response below
+    // which always includes `totalItems` even when it's 0.
+    if (!totalItems) {
       return res.status(200).json({ success: true, exported: 0, parts: [] });
-    }
-
-    // Wix export boundary only — windShield/a1/a2 stay in Inventory/CRM,
-    // they just never enter a Wix-bound payload. Any group made up entirely
-    // of excluded parts simply never gets a key in groupMap below, so no
-    // empty/invalid Wix product is ever built for it.
-    const syncableItems = validItems.filter((item) => !isWixExcludedPart(item.partName));
-
-    // ── Group unsynced items by Year + Make + Model + Part Name ──────────────
-    const groupMap = {};
-    for (const item of syncableItems) {
-      const key = getGroupKey(item);
-      if (!groupMap[key]) {
-        groupMap[key] = [];
-      }
-      groupMap[key].push(item);
-    }
-
-    // ── Build sync payloads from local data (no Wix API calls yet) ──────────
-    // Each entry: { productName, sku, price, quantity, item, intake, sourceVehicleHtml, description, groupItems }
-    const syncPayloads = [];
-
-    for (const [groupKey, groupItems] of Object.entries(groupMap)) {
-      const item = groupItems[0];
-
-      const formattedPartName = item.partName
-        .replace(/([A-Z])/g, " $1")
-        .replace(/^./, (str) => str.toUpperCase())
-        .trim();
-
-      const vehicleName = [
-        item.year,
-        item.make?.name?.toUpperCase(),
-        item.model?.name,
-        item.trim?.name,
-      ]
-        .filter(Boolean)
-        .join(" ");
-
-      const productName = `${vehicleName} - ${formattedPartName}`;
-      const sku = generateSku(productName);
-
-      const intake = await carInTake.findOne({ vin: item.vin }).lean();
-
-      const { price } = resolvePartPrice({
-        partName: item.partName,
-        isGerman: isGermanVehicle(item.make?.name),
-      });
-
-      const totalQuantity = await Inventory.countDocuments({
-        make: item.make._id,
-        model: item.model._id,
-        year: item.year,
-        partName: item.partName,
-        isDeleted: { $ne: true },
-      });
-      const quantity = totalQuantity;
-
-      const val = (...args) => {
-        for (const arg of args) {
-          if (arg && arg !== "N/A" && arg !== "") return arg;
-        }
-        return "N/A";
-      };
-
-      const cd = intake?.carDetails || {};
-      const vd = intake?.vinDetails || {};
-
-      const sourceVehicleHtml = `<ul>
-      <li><p>Year:${val(item.year, vd.ModelYear)}</p></li>
-      <li><p>Make:${val(item.make?.name, vd.Make)}</p></li>
-      <li><p>Model:${val(item.model?.name, vd.Model)}</p></li>
-      <li><p>Model Type:${val(item.trim?.name, vd.Trim)}</p></li>
-      <li><p>Body:${val(cd.bodyClass, vd.BodyClass)}</p></li>
-      <li><p>Door Structure:${val(cd.doorCount, vd.Doors)}</p></li>
-      <li><p>Cylinders:${val(cd.cylinders, vd.EngineCylinders)}</p></li>
-      <li><p>Engine Size:${val(cd.engine, vd.DisplacementL)}</p></li>
-      <li><p>Transmission:${val(cd.transmission, vd.TransmissionStyle)}</p></li>
-      <li><p>Drive Train:${val(cd.drive, vd.DriveType)}</p></li>
-      </ul>`;
-
-      // Existing inline-built description — kept exactly as-is and used as
-      // the fallback when the CSV has no matching row for this part (this
-      // was already the ONLY description behavior before this change, so
-      // "fallback" here means "unchanged pre-existing behavior", not a new
-      // invention).
-      const fallbackDescription = `${formattedPartName}, Condition: Used, ` +
-        `Year: ${item.year}, Make: ${item.make?.name}, ` +
-        `Model: ${item.model?.name}, Trim: ${item.trim?.name}`;
-
-      // CSV-sourced product metadata (description/image/slug/category/
-      // productType). Matched by the exact same part key pricing already
-      // uses, so a part's price and its metadata always come from the same
-      // CSV row — see utils/partSyncMetadata.js.
-      const csvMeta = resolvePartMetadata({ partName: item.partName });
-
-      const description = csvMeta.found
-        ? resolveTemplate(csvMeta.descriptionTemplate, {
-            year: item.year,
-            make: item.make?.name,
-            model: item.model?.name,
-          })
-        : fallbackDescription;
-
-      const productImages = csvMeta.found
-        ? splitImageUrls(csvMeta.productImageUrl)
-        : [];
-      const primaryImage = productImages[0] || undefined;
-
-      // Business-constant Google Merchant fields. CSV-sourced when a row
-      // matches (the CSV's own productType/category columns already carry
-      // exactly these business values for every row); fall back to the same
-      // constants directly when no CSV row matches, so this never regresses
-      // to "missing" for a part price already resolves for via the legacy
-      // JSON fallback.
-      const merchantProductType = csvMeta.productType || "Auto Part";
-      const merchantCategory = csvMeta.category || "Used Auto Parts";
-      // Distinct business concept from productType/category above — see the
-      // "Fieldtype" clarification: this is always the constant "Product",
-      // never derived from the CSV (the CSV has no such column).
-      const fieldtype = "Product";
-
-      // Deterministic slug: CSV's part-level handleIdSlug combined with the
-      // vehicle so each distinct Year+Make+Model+Part product (this sync's
-      // own grouping key, see getGroupKey()) gets a unique slug — the base
-      // handleIdSlug alone (e.g. "front-bumper") would collide across every
-      // vehicle that has that same part. Omitted (not invented) when no CSV
-      // row matches, since there is no part-level base slug to build from.
-      const handledSlug = csvMeta.found
-        ? [csvMeta.handleIdSlug, item.year, item.make?.name, item.model?.name]
-            .filter(Boolean)
-            .join("-")
-            .toLowerCase()
-            .replace(/[^a-z0-9-]+/g, "-")
-            .replace(/-+/g, "-")
-            .replace(/^-|-$/g, "")
-        : undefined;
-
-      // Business-required Title, distinct from `name`/productName above and
-      // NOT sent as a replacement for it — Wix's own product-name field
-      // keeps using productName exactly as before. Format is fixed by the
-      // business: "{Year} {Make} {Model}(Used, Good Condition)" (no space
-      // before the parenthesis). Falls back to VIN-decoded vinDetails and
-      // then "N/A" using the same val() convention already used for the
-      // Source Vehicle section above, rather than inventing a value.
-      const title = `${val(item.year, vd.ModelYear)} ${val(item.make?.name, vd.Make)} ${val(item.model?.name, vd.Model)}(Used, Good Condition)`;
-
-      // Shipping Weight — authoritative source is the CSV's own
-      // "Weight (lbs)" column (see utils/partSyncMetadata.js), matched via
-      // the SAME csvMeta lookup already used for description/image/slug/
-      // category/productType above, so weight never disagrees with a part's
-      // other metadata about which CSV row it came from. Undefined (never
-      // invented, never sourced from Inventory.weight) when no CSV row
-      // matches or the CSV's weight value is missing/invalid.
-      const shippingWeight = csvMeta.weightLbs;
-
-      syncPayloads.push({
-        productName,
-        title,
-        sku,
-        price,
-        quantity,
-        item,
-        intake,
-        sourceVehicleHtml,
-        description,
-        productImages,
-        primaryImage,
-        merchantProductType,
-        merchantCategory,
-        fieldtype,
-        handledSlug,
-        shippingWeight,
-        formattedPartName,
-        groupItems,
-      });
     }
 
     // ── Respond immediately with the prepared data ──────────────────────────
@@ -1057,10 +826,10 @@ const exportAndSyncDeduplicated = async (req, res) => {
       },
     }));
 
-    const totalItems = validItems.length;
     const exportedCount = responseParts.length;
 
-    // Send response first — background Wix sync continues after
+    // Send response first — background Wix sync continues after. Preserves
+    // the exact response shape/timing of the original implementation.
     res.status(200).json({
       success: true,
       exported: exportedCount,
@@ -1069,215 +838,15 @@ const exportAndSyncDeduplicated = async (req, res) => {
     });
 
     // ── Background: sync with Wix API (runs after response is sent) ────────
-    try {
-      console.log(`[WIX BACKGROUND] Starting Wix sync for ${exportedCount} product groups (${totalItems} items)...`);
-
-      // Build name → existing Wix ID map by querying Wix
-      // const nameToWixId = {};
-      // const productNames = syncPayloads.map((p) => p.productName);
-      // const WIX_BATCH_SIZE = 50;
-
-      // for (let i = 0; i < productNames.length; i += WIX_BATCH_SIZE) {
-      //   const batchNames = productNames.slice(i, i + WIX_BATCH_SIZE);
-      //   try {
-      //     const queryResp = await axios.post(
-      //       "https://www.wixapis.com/stores/v3/products/query",
-      //       {
-      //         query: {
-      //           filter: { name: { $in: batchNames } },
-      //           fields: ["id", "name"],
-      //         },
-      //       },
-      //       { headers: WIX_HEADERS }
-      //     );
-      //     const existingProducts = queryResp.data?.products || [];
-      //     for (const prod of existingProducts) {
-      //       if (prod.name) nameToWixId[prod.name] = prod.id;
-      //     }
-      //   } catch (queryErr) {
-      //     console.error("[WIX BACKGROUND] Query error for name batch:", queryErr.response?.data || queryErr.message);
-      //   }
-      // }
-
-      // Wix Catalog V3 does not support filtering products by name.
-      // CRM records are marked wixSynced only after Wix product + Velo sync succeed.
-      const nameToWixId = {};
-
-      console.log(
-        "[WIX BACKGROUND] EXISTING PRODUCTS FOUND:",
-        Object.keys(nameToWixId).length
-      );
-
-      console.log("[WIX BACKGROUND] PRODUCT NAMES:",
-        Object.keys(nameToWixId)
-      );
-
-      // Process each group: update if exists, create if new
-      let syncedCount = 0;
-      let errorCount = 0;
-
-      for (const p of syncPayloads) {
-        try {
-          // let pid =
-          //   p.groupItems.find((groupItem) => groupItem.wixProductId)?.wixProductId ||
-          //   existingWixId ||
-          //   null;
-
-          // if (pid) {
-          //   console.log(
-          //     `[WIX BACKGROUND] Syncing existing Wix product ${pid} through Velo`
-          //   );
-
-          //   await syncProductFieldsThroughVelo({
-          //     productId: pid,
-          //     brand: extractBrandName(p.item),
-          //     category: p.item.category,
-          //     quantity: p.quantity,
-          //   });
-
-          //   console.log(`[WIX BACKGROUND] Existing Wix product synced: ${pid}`);
-          // } 
-          let pid =
-            p.groupItems.find(
-              (groupItem) =>
-                  groupItem.wixProductId &&
-              groupItem.wixProductId !== "null" &&
-              groupItem.wixProductId !== "undefined"
-            )?.wixProductId || null;
-          
-          let productWasCreated = false;
-          if (pid) {
-            try {
-              console.log(
-                `[WIX BACKGROUND] Syncing existing Wix product ${pid} through Velo`
-              );
-
-              await syncProductFieldsThroughVelo({
-                productId: pid,
-                brand: extractBrandName(p.item),
-                category: p.item.category,
-                quantity: p.quantity,
-                title: p.title,
-                merchantCategory: p.merchantCategory,
-                merchantProductType: p.merchantProductType,
-                fieldtype: p.fieldtype,
-                handledSlug: p.handledSlug,
-                productImage: p.primaryImage,
-                productImages: p.productImages,
-                description: p.description,
-                shippingWeight: p.shippingWeight,
-              });
-
-              console.log(`[WIX BACKGROUND] Existing Wix product synced: ${pid}`);
-            } catch (existingProductError) {
-              const wixErrorMessage =
-                existingProductError.response?.data?.error ||
-                existingProductError.message ||
-                "";
-
-              const productNotFound =
-                existingProductError.response?.status === 500 &&
-                wixErrorMessage.includes("was not found");
-
-              if (!productNotFound) {
-                throw existingProductError;
-              }
-
-              console.warn(
-                  `[WARN BACKGROUND] Stored Wix ID ${pid} no longer exists in Wix. Creating a new product instead.`
-              );
-
-              pid = null;
-            }
-          }
-          if (!pid) {
-            const veloBaseUrl = String(process.env.WIX_VELO_BASE_URL || "").replace(
-              /\/$/,
-              ""
-            );
-
-            if (!veloBaseUrl) {
-              throw new Error("WIX_VELO_BASE_URL is missing in .env");
-            }
-
-            if (!process.env.PART_SYNC_SECRET) {
-              throw new Error("PART_SYNC_SECRET is missing in .env");
-            }
-
-            console.log(
-              `[WIX BACKGROUND] Sending "${p.productName}" to Wix Velo for creation`
-            );
-
-            const veloResponse = await axios.post(
-              `${veloBaseUrl}/_functions/partSync`,
-              {
-                secret: process.env.PART_SYNC_SECRET,
-                productName: p.productName,
-                title: p.title,
-                sku: p.sku,
-                price: Number(p.price || 0),
-                brand: extractBrandName(p.item),
-                category: p.item.category || "Uncategorized",
-                merchantCategory: p.merchantCategory,
-                merchantProductType: p.merchantProductType,
-                fieldtype: p.fieldtype,
-                handledSlug: p.handledSlug,
-                productImage: p.primaryImage,
-                productImages: p.productImages,
-                quantity: Number(p.quantity || 0),
-                description: p.description || "",
-                shippingWeight: p.shippingWeight,
-              },
-              {
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                timeout: 30000,
-              }
-            );
-
-            const veloData = veloResponse.data;
-
-            if (!veloData?.success || !veloData?.productId) {
-              throw new Error(
-                `Wix Velo create failed: ${veloData?.error || "No productId returned"}`
-              );
-            }
-
-            pid = veloData.productId;
-            productWasCreated = true;
-
-            console.log(`[WIX BACKGROUND] Velo created Wix product ${pid}`);
-          }
-
-          // Mark all CRM inventory records in this group as synced only AFTER
-          // product + Wix Velo fields are both successful.
-          for (const gItem of p.groupItems) {
-            await Inventory.findByIdAndUpdate(gItem._id, {
-              wixSynced: true,
-              wixSyncedAt: new Date(),
-              wixProductId: pid,
-            });
-          }
-
-          syncedCount++;
-        } catch (wixErr) {
-          errorCount++;
-          console.error(`[WIX BACKGROUND] Wix API error for "${p.productName}":`, {
-            status: wixErr.response?.status,
-            statusText: wixErr.response?.statusText,
-            data: wixErr.response?.data,
-            headers: wixErr.response?.headers,
-            message: wixErr.message,
-            stack: wixErr.stack,
-          });
-        }
-      }
-
-      console.log(`[WIX BACKGROUND] Sync complete: ${syncedCount} success, ${errorCount} errors.`);
-    } catch (bgError) {
-      console.error("[WIX BACKGROUND] Background sync failed:", bgError);
-    }
+    // Canonical execute phase: per-group existence check (fresh DB read,
+    // not a stale in-memory snapshot) -> update-or-create via Wix Velo,
+    // recreating on a stale stored ID -> persist wixSynced/wixProductId
+    // only after Wix succeeds. Serialized per product identity so two
+    // overlapping sync runs can never both create a product for the same
+    // identity — see services/wixPartSync.service.js for full details.
+    executeWixSyncForGroups(syncPayloads).catch((bgError) => {
+      console.error("[WIX SYNC] Background sync failed:", bgError);
+    });
   } catch (error) {
     // If response has already been sent, just log; otherwise send error response
     if (res.headersSent) {
