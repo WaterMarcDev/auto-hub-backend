@@ -64,6 +64,7 @@
  * order — is carried over as-is.
  */
 const axios = require("axios");
+const crypto = require("crypto");
 
 const Inventory = require("../models/Inventory.model");
 const carInTake = require("../models/carInTake.model");
@@ -112,14 +113,44 @@ const extractBrandName = (item) => {
   return (item.make?.name || "Unknown").toUpperCase();
 };
 
-/** Carried over verbatim from controllers/wix.js's generateSku(). */
-const generateSku = (productName) => {
-  return productName
+/**
+ * Generates a deterministic Wix SKU from the canonical product identity.
+ * 
+ * Important:
+ * - Maximum 40 characters.
+ * - Same identity always produces the same SKU.
+ * - Different identities receive different deterministic suffixes.
+ * - Does not use Inventory _id or randomness.
+ * - Existing-product update flow does not overwrite SKU.
+ */
+
+const generateSku = (identityKey) => {
+  const identity = String(identityKey || "").trim();
+
+  if (!identity) {
+    throw new Error("Cannot generate SKU without a canonical identity key");
+  }
+
+  const normalized = identity
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "-")
+    .replace(/[^A-Z0-9]+/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .substring(0, 40);
+    .replace(/^-|-$/g, "");
+
+  // Deterministic SHA-256 hash of the FULL canonical identity.
+  const hashSuffix = crypto
+    .createHash("sha256")
+    .update(identity, "utf8")
+    .digest("hex")
+    .slice(0, 12)
+    .toUpperCase();
+  
+
+  // Wix SKU maximum: 40 characters.
+  const maxPrefixLength = 40 - hashSuffix.length - 1;
+  const prefix = normalized.slice(0, Math.max(0, maxPrefixLength));
+
+  return `${prefix}-${hashSuffix}`;
 };
 
 /** Carried over verbatim from controllers/wix.js's syncProductFieldsThroughVelo(). */
@@ -407,7 +438,7 @@ function buildSyncPayloadForGroup(identityKey, groupItems, { intake, quantity })
     .join(" ");
 
   const productName = `${vehicleName} - ${formattedPartName}`;
-  const sku = generateSku(productName);
+  const sku = generateSku(identityKey);
 
   const { price } = resolvePartPrice({
     partName: item.partName,
