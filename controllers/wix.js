@@ -773,7 +773,16 @@ const exportAndSyncDeduplicated = async (req, res) => {
     // what changed (Trim added to identity) and what didn't (everything
     // else, carried over field-for-field from the original inline logic
     // that used to live in this function).
-    const { payloads: syncPayloads, totalItems } = await prepareWixSyncGroups({ limit });
+
+    const filters = {};
+    
+    if (req.query?.make) filters.make = req.query.make;
+    if (req.query?.model) filters.model = req.query.model;
+    if (req.query?.year) filters.year = Number(req.query.year);
+    if (req.query?.trim) filters.trim = req.query.trim;
+    if (req.query?.partName) filters.partName = req.query.partName;
+
+    const { payloads: syncPayloads, totalItems } = await prepareWixSyncGroups({ limit, filters });
 
     // Matches the original early-return exactly: zero VALID (not
     // necessarily zero syncable) inventory records short-circuits with no

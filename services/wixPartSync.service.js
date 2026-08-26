@@ -214,6 +214,7 @@ async function fetchEligibleInventory(filters = {}, limit = 0) {
   if (filters.model) query.model = filters.model;
   if (filters.year) query.year = filters.year;
   if (filters.trim) query.trim = filters.trim;
+  if (filters.partName) query.partName = filters.partName;
 
   let cursor = Inventory.find(query)
     // Projection: the canonical sync pipeline (this file) only ever reads
