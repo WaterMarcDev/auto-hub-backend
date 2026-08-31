@@ -319,11 +319,11 @@ const getAllInventories = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
     if (req.query.make) filter.make = req.query.make;
     if (req.query.model) filter.model = req.query.model;
     if (req.query.trim) filter.trim = req.query.trim;
-    
+
     if (req.query.search?.trim()) {
 
       console.log("Search Query:", req.query.search);
@@ -365,7 +365,7 @@ const getPartsMasterList = async (req, res) => {
     const limit = parseInt(req.query.limit) || 25;
     const skip = (page - 1) * limit;
 
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
     if (req.query.make) filter.make = req.query.make;
     if (req.query.model) filter.model = req.query.model;
     if (req.query.trim) filter.trim = req.query.trim;
