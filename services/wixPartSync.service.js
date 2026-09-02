@@ -157,6 +157,7 @@ const generateSku = (identityKey) => {
 const syncProductFieldsThroughVelo = async ({
   productId,
   productName,
+  partName,
   sku,
   price,
   brand,
@@ -183,6 +184,7 @@ const syncProductFieldsThroughVelo = async ({
       secret: process.env.PART_SYNC_SECRET,
       productId,
       productName,
+      partName,
       sku,
       price,
       brand,
@@ -512,6 +514,7 @@ function buildSyncPayloadForGroup(identityKey, groupItems, { intake, quantity })
   return {
     identityKey,
     productName,
+    partName: item.partName,
     title,
     sku,
     price,
@@ -760,6 +763,7 @@ async function syncGroupWithWix(p) {
           await syncProductFieldsThroughVelo({
             productId: pid,
             productName: p.productName,
+            partName: p.partName,
             sku: p.sku,
             price: Number(p.price || 0),
             brand: extractBrandName(p.item),
