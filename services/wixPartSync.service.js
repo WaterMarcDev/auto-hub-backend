@@ -156,6 +156,9 @@ const generateSku = (identityKey) => {
 /** Carried over verbatim from controllers/wix.js's syncProductFieldsThroughVelo(). */
 const syncProductFieldsThroughVelo = async ({
   productId,
+  productName,
+  sku,
+  price,
   brand,
   category,
   quantity,
@@ -179,6 +182,9 @@ const syncProductFieldsThroughVelo = async ({
     {
       secret: process.env.PART_SYNC_SECRET,
       productId,
+      productName,
+      sku,
+      price,
       brand,
       category,
       quantity,
@@ -753,6 +759,9 @@ async function syncGroupWithWix(p) {
 
           await syncProductFieldsThroughVelo({
             productId: pid,
+            productName: p.productName,
+            sku: p.sku,
+            price: Number(p.price || 0),
             brand: extractBrandName(p.item),
             category: p.item.category,
             quantity: p.quantity,
