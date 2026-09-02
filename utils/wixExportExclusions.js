@@ -12,7 +12,7 @@
  * controllers/Inventory.controller.js createInventory), so it is not
  * guaranteed to always be exactly "windShield"/"a1"/"a2".
  */
-const WIX_EXCLUDED_PART_NAMES = new Set(["windshield", "a1", "a2"]);
+const WIX_EXCLUDED_PART_NAMES = new Set(["windshield", "A1", "A2"]);
 
 function isWixExcludedPart(partName) {
   return WIX_EXCLUDED_PART_NAMES.has(String(partName || "").trim().toLowerCase());

@@ -365,7 +365,15 @@ const getPartsMasterList = async (req, res) => {
     const limit = parseInt(req.query.limit) || 25;
     const skip = (page - 1) * limit;
 
-    const filter = { isDeleted: { $ne: true } };
+    const filter = { 
+      isDeleted: { $ne: true },
+      $nor: [
+        { partName: /^A1$/i },
+        { partName: /^A2$/i },
+        { partName: /^Wind\s*shield$/i },
+        { partName: /^Windshield$/i },
+        { partName: /^Wind[_-]?Shield$/i },
+      ] };
     if (req.query.make) filter.make = req.query.make;
     if (req.query.model) filter.model = req.query.model;
     if (req.query.trim) filter.trim = req.query.trim;
