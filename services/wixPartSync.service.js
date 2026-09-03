@@ -692,10 +692,53 @@ async function resolveCurrentWixProductId(groupItems) {
 async function persistGroupSyncState(groupItems, wixProductId) {
   const ids = groupItems.map((gItem) => gItem._id);
 
-  await Inventory.updateMany(
+  if (!ids.length) {
+    throw new Error("Cannot persist Wix sync state: no inventory IDs supplied");
+  }
+
+  if (!wixProductId) {
+    throw new Error("Cannot persist Wix sync state: wixProductId is missing");
+  }
+
+  const result = await Inventory.updateMany(
     { _id: { $in: ids } },
-    { wixSynced: true, wixSyncedAt: new Date(), wixProductId }
+    {
+      $set: {
+        wixSynced: true,
+        wixSyncedAt: new Date(),
+        wixProductId,
+      },
+    }
   );
+
+  const matchedCount =
+    typeof result.matchedCount === "number"
+      ? result.matchedCount
+      : result.n;
+
+  const modifiedCount =
+    typeof result.modifiedCount === "number"
+      ? result.modifiedCount
+      : result.nModified;
+
+  console.log("[WIX SYNC] Mongo persistence result:", {
+    inventoryIds: ids.map((id) => String(id)),
+    wixProductId,
+    matchedCount,
+    modifiedCount,
+  });
+
+  if (matchedCount !== ids.length) {
+    throw new Error(
+      `Mongo persistence mismatch: expected ${ids.length} inventory record(s), matched ${matchedCount}. ` +
+      `inventoryIds=${ids.map((id) => String(id)).join(",")}`
+    );
+  }
+
+  return {
+    matchedCount,
+    modifiedCount,
+  };
 }
 
 /**
