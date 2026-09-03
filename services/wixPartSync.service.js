@@ -66,6 +66,62 @@
 const axios = require("axios");
 const crypto = require("crypto");
 
+const WIX_VELO_TIMEOUT_MS = 120000;
+const WIX_VELO_MAX_RETRIES = 2;
+const WIX_VELO_RETRY_DELAY_MS = 2000;
+
+function isTransientWixError(error) {
+  const status = error?.response?.status;
+
+  return (
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    error?.code === "ECONNABORTED" ||
+    error?.code === "ETIMEDOUT" ||
+    error?.code === "ECONNRESET"
+  );
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function postToWixVelo(url, payload) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= WIX_VELO_MAX_RETRIES; attempt++) {
+    try {
+      return await axios.post(url, payload, {
+        headers: { "Content-Type": "application/json" },
+        timeout: WIX_VELO_TIMEOUT_MS,
+      });
+    } catch (error) {
+      lastError = error;
+
+      if (!isTransientWixError(error) || attempt === WIX_VELO_MAX_RETRIES) {
+        throw error;
+      }
+
+      console.warn(
+        `[WIX SYNC] Transient Wix request failure. ` +
+        `Retrying attempt ${attempt + 2}/${WIX_VELO_MAX_RETRIES + 1} ` +
+        `after ${WIX_VELO_RETRY_DELAY_MS}ms.`,
+        {
+          status: error?.response?.status,
+          code: error?.code,
+          message: error?.message,
+        }
+      );
+
+      await sleep(WIX_VELO_RETRY_DELAY_MS);
+    }
+  }
+
+  throw lastError;
+}
+
+
 const Inventory = require("../models/Inventory.model");
 const carInTake = require("../models/carInTake.model");
 
@@ -178,7 +234,8 @@ const syncProductFieldsThroughVelo = async ({
     ""
   )}/_functions/partSync`;
 
-  const response = await axios.post(
+  // const response = await axios.post(
+  const response = await postToWixVelo(
     veloUrl,
     {
       secret: process.env.PART_SYNC_SECRET,
@@ -200,10 +257,10 @@ const syncProductFieldsThroughVelo = async ({
       description,
       shippingWeight,
     },
-    {
-      headers: { "Content-Type": "application/json" },
-      timeout: 30000,
-    }
+    // {
+    //   headers: { "Content-Type": "application/json" },
+    //   timeout: 30000,
+    // }
   );
 
   if (!response.data?.success) {
@@ -854,7 +911,8 @@ async function syncGroupWithWix(p) {
 
         console.log(`[WIX SYNC] Sending "${p.productName}" to Wix Velo for creation`, context);
 
-        const veloResponse = await axios.post(
+        // const veloResponse = await axios.post(
+        const veloResponse = await postToWixVelo(
           `${veloBaseUrl}/_functions/partSync`,
           {
             secret: process.env.PART_SYNC_SECRET,
@@ -874,10 +932,10 @@ async function syncGroupWithWix(p) {
             description: p.description || "",
             shippingWeight: p.shippingWeight,
           },
-          {
-            headers: { "Content-Type": "application/json" },
-            timeout: 30000,
-          }
+          // {
+          //   headers: { "Content-Type": "application/json" },
+          //   timeout: 30000,
+          // }
         );
 
         const veloData = veloResponse.data;
