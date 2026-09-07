@@ -503,7 +503,52 @@ function buildSyncPayloadForGroup(identityKey, groupItems, { intake, quantity })
     .filter(Boolean)
     .join(" ");
 
-  const productName = `${vehicleName} - ${formattedPartName}`;
+  // Wix limits product names to 80 characters.
+  // Preserve the existing full name whenever possible. If the full
+  // vehicle name is too long, progressively remove the trim first,
+  // then shorten the vehicle portion only as a final fallback.
+  const MAX_WIX_PRODUCT_NAME_LENGTH = 80;
+  const productNameSuffix = ` - ${formattedPartName}`;
+
+  const vehicleNameWithoutTrim = [
+    item.year,
+    item.make?.name?.toUpperCase(),
+    item.model?.name,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const productNameCandidates = [
+    vehicleName,
+    vehicleNameWithoutTrim,
+    [item.year, item.make?.name?.toUpperCase()].filter(Boolean).join(" "),
+    String(item.year || "").trim(),
+  ];
+
+  let productName = "";
+
+  for (const candidateVehicleName of productNameCandidates) {
+    const candidate = `${candidateVehicleName}${productNameSuffix}`;
+
+    if (candidate.length <= MAX_WIX_PRODUCT_NAME_LENGTH) {
+      productName = candidate;
+      break;
+    }
+  }
+
+  // Final safety net: never allow a Wix-invalid name, and never cut
+  // the part name itself.
+  if (!productName) {
+    const maxVehicleLength =
+      MAX_WIX_PRODUCT_NAME_LENGTH - productNameSuffix.length;
+
+    const safeVehicleName = vehicleName
+      .slice(0, Math.max(0, maxVehicleLength))
+      .trim();
+
+    productName = `${safeVehicleName}${productNameSuffix}`;
+  }
+
   const sku = generateSku(identityKey);
 
   const { price } = resolvePartPrice({
