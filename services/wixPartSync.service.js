@@ -134,6 +134,7 @@ const {
 } = require("../utils/partSyncMetadata");
 const { isWixExcludedPart } = require("../utils/wixExportExclusions");
 const { buildProductIdentity } = require("../utils/productIdentity");
+const { resolveWixPartCategory } = require("../utils/wixPartCategories");
 
 // ── In-process per-identity queue ───────────────────────────────────────
 // See module doc comment above for what this does and does not protect
@@ -506,7 +507,52 @@ function buildSyncPayloadForGroup(identityKey, groupItems, { intake, quantity })
     .filter(Boolean)
     .join(" ");
 
-  const productName = `${vehicleName} - ${formattedPartName}`;
+  // Wix limits product names to 80 characters.
+  // Preserve the existing full name whenever possible. If the full
+  // vehicle name is too long, progressively remove the trim first,
+  // then shorten the vehicle portion only as a final fallback.
+  const MAX_WIX_PRODUCT_NAME_LENGTH = 80;
+  const productNameSuffix = ` - ${formattedPartName}`;
+
+  const vehicleNameWithoutTrim = [
+    item.year,
+    item.make?.name?.toUpperCase(),
+    item.model?.name,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const productNameCandidates = [
+    vehicleName,
+    vehicleNameWithoutTrim,
+    [item.year, item.make?.name?.toUpperCase()].filter(Boolean).join(" "),
+    String(item.year || "").trim(),
+  ];
+
+  let productName = "";
+
+  for (const candidateVehicleName of productNameCandidates) {
+    const candidate = `${candidateVehicleName}${productNameSuffix}`;
+
+    if (candidate.length <= MAX_WIX_PRODUCT_NAME_LENGTH) {
+      productName = candidate;
+      break;
+    }
+  }
+
+  // Final safety net: never allow a Wix-invalid name, and never cut
+  // the part name itself.
+  if (!productName) {
+    const maxVehicleLength =
+      MAX_WIX_PRODUCT_NAME_LENGTH - productNameSuffix.length;
+
+    const safeVehicleName = vehicleName
+      .slice(0, Math.max(0, maxVehicleLength))
+      .trim();
+
+    productName = `${safeVehicleName}${productNameSuffix}`;
+  }
+
   const sku = generateSku(identityKey);
 
   const { price } = resolvePartPrice({
@@ -558,6 +604,10 @@ function buildSyncPayloadForGroup(identityKey, groupItems, { intake, quantity })
   const merchantCategory = csvMeta.category || "Used Auto Parts";
   const fieldtype = "Product";
 
+  // Wix category is determined by the canonical partName mapping.
+  // Do not rely on Mongo Inventory.category, which may be "Uncategorized".
+  const wixCategory = resolveWixPartCategory(item.partName);
+
   const handledSlug = csvMeta.found
     ? [csvMeta.handleIdSlug, item.year, item.make?.name, item.model?.name]
         .filter(Boolean)
@@ -589,6 +639,7 @@ function buildSyncPayloadForGroup(identityKey, groupItems, { intake, quantity })
     merchantProductType,
     merchantCategory,
     fieldtype,
+    wixCategory,
     handledSlug,
     shippingWeight,
     formattedPartName,
@@ -877,7 +928,7 @@ async function syncGroupWithWix(p) {
             sku: p.sku,
             price: Number(p.price || 0),
             brand: extractBrandName(p.item),
-            category: p.item.category,
+            category: p.wixCategory,
             quantity: p.quantity,
             title: p.title,
             merchantCategory: p.merchantCategory,
@@ -931,7 +982,7 @@ async function syncGroupWithWix(p) {
             sku: p.sku,
             price: Number(p.price || 0),
             brand: extractBrandName(p.item),
-            category: p.item.category || "Uncategorized",
+            category: p.wixCategory,
             merchantCategory: p.merchantCategory,
             merchantProductType: p.merchantProductType,
             fieldtype: p.fieldtype,
