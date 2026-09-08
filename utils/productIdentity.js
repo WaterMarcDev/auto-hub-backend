@@ -1,5 +1,5 @@
 /**
- * Canonical Product Identity (Year + Make + Model + Trim + Part)
+ * Canonical Product Identity (Year + Make + Model + Trim + Part + SKU + VIN)
  *
  * Single source of truth for turning a vehicle+part combination into a
  * stable, deterministic identity key used to decide whether two Inventory
@@ -82,10 +82,12 @@ function normalizePartNameSegment(partName) {
 }
 
 /**
- * Builds the canonical product identity for a Year+Make+Model+Trim+Part
- * combination. Deterministic: the same logical vehicle+trim+part always
- * produces the same key, regardless of casing/spacing/separator
- * differences in the source data.
+  * Builds the canonical product identity for a
+ * Year+Make+Model+Trim+Part+SKU+VIN combination.
+ *
+ * Deterministic: the same logical inventory record always produces
+ * the same key, regardless of casing/spacing/separator differences
+ * in the source data.
  *
  * @param {Object} params
  * @param {string|number} params.year
@@ -93,18 +95,22 @@ function normalizePartNameSegment(partName) {
  * @param {string} params.model
  * @param {string} params.trim
  * @param {string} params.partName
- * @returns {{ key: string, segments: { year: string, make: string, model: string, trim: string, partName: string } }}
+ * @param {string} params.sku
+ * @param {string} params.vin
+ * @returns {{ key: string, segments: { year: string, make: string, model: string, trim: string, partName: string, sku: string, vin: string } }}
  */
-function buildProductIdentity({ year, make, model, trim, partName }) {
+function buildProductIdentity({ year, make, model, trim, partName, sku, vin }) {
   const segments = {
     year: normalizeIdentitySegment(year),
     make: normalizeIdentitySegment(make),
     model: normalizeIdentitySegment(model),
     trim: normalizeIdentitySegment(trim),
     partName: normalizePartNameSegment(partName),
+    sku: normalizeIdentitySegment(sku), 
+    vin: normalizeIdentitySegment(vin), 
   };
 
-  const key = [segments.year, segments.make, segments.model, segments.trim, segments.partName]
+  const key = [segments.year, segments.make, segments.model, segments.trim, segments.partName, segments.sku, segments.vin,]
     .filter(Boolean)
     .join("-");
 
