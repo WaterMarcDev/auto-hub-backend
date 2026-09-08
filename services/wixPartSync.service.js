@@ -24,7 +24,7 @@
  *   2. The "does a Wix product already exist for this identity" check
  *      (resolveCurrentWixProductId) is a fresh DB read taken at the moment
  *      each group is actually processed, matched by the group's IDENTITY
- *      FIELDS (make+model+trim+year+partName) rather than by this group's
+ *      FIELDS (make+model+trim+year+partName+sku+vin) rather than by this group's
  *      own Inventory _ids. This closes two distinct gaps — see that
  *      function's own doc comment for the full detail:
  *        a) same-process race: two overlapping sync runs pick up the same
@@ -326,7 +326,7 @@ async function fetchEligibleInventory(filters = {}, limit = 0) {
     // If a future change needs another Inventory field here, add it to this
     // .select() too, or symptoms will show up as `undefined` deep in a Wix
     // payload rather than a clear error.
-    .select("_id partName make model trim year vin category")
+    .select("_id partName make model trim year vin sku category")
     .populate("make", "name")
     .populate("model", "name")
     .populate("trim", "name");
@@ -387,6 +387,8 @@ function groupInventoryItemsByIdentity(items) {
       model: item.model?.name,
       trim: item.trim?.name,
       partName: item.partName,
+      sku: item.sku,
+      vin: item.vin,
     });
 
     if (!groupMap.has(key)) groupMap.set(key, []);
@@ -407,8 +409,8 @@ function groupInventoryItemsByIdentity(items) {
  * from fetchGroupLevelLookups()'s batched aggregation result instead of
  * issuing one countDocuments() call per group.
  */
-function buildQuantityCountKey({ make, model, trim, year, partName }) {
-  return [String(make), String(model), String(trim), year, partName].join("::");
+function buildQuantityCountKey({ make, model, trim, year, partName, sku, vin }) {
+  return [String(make), String(model), String(trim), year, partName, String(sku || ""), String(vin || "")].join("::");
 }
 
 /**
@@ -451,13 +453,15 @@ async function fetchGroupLevelLookups(groupMap) {
       trim: item.trim._id,
       year: item.year,
       partName: item.partName,
+      sku: item.sku,
+      vin: item.vin,
     }));
 
     const counts = await Inventory.aggregate([
       { $match: { isDeleted: { $ne: true }, $or: orClauses } },
       {
         $group: {
-          _id: { make: "$make", model: "$model", trim: "$trim", year: "$year", partName: "$partName" },
+          _id: { make: "$make", model: "$model", trim: "$trim", year: "$year", partName: "$partName", sku: "$sku", vin: "$vin", },
           count: { $sum: 1 },
         },
       },
@@ -640,6 +644,8 @@ async function prepareWixSyncGroups({ filters = {}, limit = 0 } = {}) {
       trim: item.trim._id,
       year: item.year,
       partName: item.partName,
+      sku: item.sku,
+      vin: item.vin,
     });
 
     let quantity = quantityByKey.get(quantityKey);
@@ -654,6 +660,8 @@ async function prepareWixSyncGroups({ filters = {}, limit = 0 } = {}) {
         trim: item.trim._id,
         year: item.year,
         partName: item.partName,
+        sku: item.sku,
+        vin: item.vin,
         isDeleted: { $ne: true },
       });
     }
@@ -722,6 +730,8 @@ async function resolveCurrentWixProductId(groupItems) {
       trim: item.trim._id,
       year: item.year,
       partName: item.partName,
+      sku: item.sku,
+      vin: item.vin,
       isDeleted: { $ne: true },
       wixProductId: { $nin: [null, "", "null", "undefined"] },
     },
