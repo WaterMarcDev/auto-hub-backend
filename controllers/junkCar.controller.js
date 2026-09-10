@@ -43,7 +43,7 @@ exports.createJunkCarRequest = async (req, res) => {
             engineOrVin: engineOrVin || "none",
             condition: condition || "none",
             message: message || "",
-            source: req.body.source || "Manual",  // was previously dropped — see PartRequestController.createRequest for the equivalent pattern
+            source: req.body.source || "Manual",  // was previously dropped — see PartRequestController.createRequest for the equivalent pattern (kept byte-for-byte symmetric with it: raw passthrough, no normalization, so Junk Car can never diverge from Part Request's own casing/behavior)
         });
 
         res.status(201).json({
