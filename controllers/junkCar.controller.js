@@ -33,6 +33,18 @@ exports.createJunkCarRequest = async (req, res) => {
         }
         //end here
 
+        const rawSource = req.body.source?.toString().trim().toLowerCase();
+
+        let normalizedSource = "website";
+
+        if (rawSource === "instagram") {
+            normalizedSource = "instagram";
+        } else if (rawSource === "facebook") {
+            normalizedSource = "facebook";
+        } else if (rawSource === "website" || rawSource === "online") {
+            normalizedSource = "website";
+        }
+
         const newRequest = await JunkCar.create({
             name: name || "none",
             email: email || "none",
@@ -43,7 +55,7 @@ exports.createJunkCarRequest = async (req, res) => {
             engineOrVin: engineOrVin || "none",
             condition: condition || "none",
             message: message || "",
-            source: req.body.source || "Manual",  // was previously dropped — see PartRequestController.createRequest for the equivalent pattern (kept byte-for-byte symmetric with it: raw passthrough, no normalization, so Junk Car can never diverge from Part Request's own casing/behavior)
+            source: normalizedSource,  // was previously dropped — see PartRequestController.createRequest for the equivalent pattern (kept byte-for-byte symmetric with it: raw passthrough, no normalization, so Junk Car can never diverge from Part Request's own casing/behavior)
         });
 
         res.status(201).json({
@@ -90,7 +102,17 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
             parsedYear = parseInt(yearStr, 10);
         }
 
-        const resolvedSource = normalizeRequestSource(source, "Other");
+        const rawSource = source?.toString().trim().toLowerCase();
+
+        let resolvedSource = "website";
+
+        if (rawSource === "instagram") {
+            resolvedSource = "instagram";
+        } else if (rawSource === "facebook") {
+            resolvedSource = "facebook";
+        } else if (rawSource === "website" || rawSource === "online") {
+            resolvedSource = "website";
+        }
 
         const newRequest = await JunkCar.create({
             name: name || "none",
@@ -288,9 +310,21 @@ exports.updateJunkCarSource = async (req, res) => {
         const { id } = req.params;
         const { source } = req.body;
 
+        const rawSource = source?.toString().trim().toLowerCase();
+
+        let normalizedSource = "website";
+
+        if (rawSource === "instagram") {
+            normalizedSource = "instagram";
+        } else if (rawSource === "facebook") {
+            normalizedSource = "facebook";
+        } else if (rawSource === "website" || rawSource === "online") {
+            normalizedSource = "website";
+        }
+
         const updated = await JunkCar.findByIdAndUpdate(
             { _id: id },
-            { $set: { source } },
+            { $set: { source: normalizedSource } },
             { new: true }
         );
 
