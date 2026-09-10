@@ -104,15 +104,30 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
 
         const rawSource = source?.toString().trim().toLowerCase();
 
-        let resolvedSource = "website";
+        const sourceMap = {
+            manual: "manual",
+            website: "website",
+            online: "website",
+            instagram: "instagram",
+            facebook: "facebook",
+            tiktok: "tiktok",
+            ebay: "ebay",
+            "google business": "google business",
+            whatsapp: "whatsApp",
+            // "whatsapp": "whatsApp",
+            sms: "sms",
+            other: "other",
+        };
 
-        if (rawSource === "instagram") {
-            resolvedSource = "instagram";
-        } else if (rawSource === "facebook") {
-            resolvedSource = "facebook";
-        } else if (rawSource === "website" || rawSource === "online") {
-            resolvedSource = "website";
-        }
+        const resolvedSource = sourceMap[rawSource] || "other";
+
+        // if (rawSource === "instagram") {
+        //     resolvedSource = "instagram";
+        // } else if (rawSource === "facebook") {
+        //     resolvedSource = "facebook";
+        // } else if (rawSource === "website" || rawSource === "online") {
+        //     resolvedSource = "website";
+        // }
 
         const newRequest = await JunkCar.create({
             name: name || "none",
@@ -312,15 +327,30 @@ exports.updateJunkCarSource = async (req, res) => {
 
         const rawSource = source?.toString().trim().toLowerCase();
 
-        let normalizedSource = "website";
+        const sourceMap = {
+            manual: "manual",
+            website: "website",
+            online: "website",
+            instagram: "instagram",
+            facebook: "facebook",
+            tiktok: "tiktok",
+            ebay: "ebay",
+            "google business": "google business",
+            whatsapp: "whatsApp",
+            // "whatsapp": "whatsApp",
+            sms: "sms",
+            other: "other",
+        };
 
-        if (rawSource === "instagram") {
-            normalizedSource = "instagram";
-        } else if (rawSource === "facebook") {
-            normalizedSource = "facebook";
-        } else if (rawSource === "website" || rawSource === "online") {
-            normalizedSource = "website";
-        }
+        const normalizedSource = sourceMap[rawSource] || "other";
+
+        // if (rawSource === "instagram") {
+        //     normalizedSource = "instagram";
+        // } else if (rawSource === "facebook") {
+        //     normalizedSource = "facebook";
+        // } else if (rawSource === "website" || rawSource === "online") {
+        //     normalizedSource = "website";
+        // }
 
         const updated = await JunkCar.findByIdAndUpdate(
             { _id: id },
