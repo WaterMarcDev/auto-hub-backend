@@ -1,6 +1,6 @@
 const JunkCar = require("../models/junkCar.model");
 const CarIntake = require("../models/carInTake.model");  // by shiva
-const { normalizeRequestSource } = require("../utils/requestSources");
+// const { normalizeRequestSource } = require("../utils/requestSources");
 
 exports.createJunkCarRequest = async (req, res) => {
     try {
@@ -33,17 +33,17 @@ exports.createJunkCarRequest = async (req, res) => {
         }
         //end here
 
-        const rawSource = req.body.source?.toString().trim().toLowerCase();
+        // const rawSource = req.body.source?.toString().trim().toLowerCase();
 
-        let normalizedSource = "website";
+        const normalizedSource = "website";
 
-        if (rawSource === "instagram") {
-            normalizedSource = "instagram";
-        } else if (rawSource === "facebook") {
-            normalizedSource = "facebook";
-        } else if (rawSource === "website" || rawSource === "online") {
-            normalizedSource = "website";
-        }
+        // if (rawSource === "instagram") {
+        //     normalizedSource = "instagram";
+        // } else if (rawSource === "facebook") {
+        //     normalizedSource = "facebook";
+        // } else if (rawSource === "website" || rawSource === "online") {
+        //     normalizedSource = "website";
+        // }
 
         const newRequest = await JunkCar.create({
             name: name || "none",
@@ -74,6 +74,7 @@ exports.createJunkCarRequest = async (req, res) => {
 
 exports.createAutomationBotJunkCarRequest = async (req, res) => {
     try {
+        console.log("JUNK CAR AUTOMATION BODY:", JSON.stringify(req.body, null, 2));
         const {
             name,
             email,
@@ -105,7 +106,7 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
         const rawSource = source?.toString().trim().toLowerCase();
 
         const sourceMap = {
-            manual: "manual",
+            // manual: "manual",
             website: "website",
             online: "website",
             instagram: "instagram",
@@ -328,7 +329,7 @@ exports.updateJunkCarSource = async (req, res) => {
         const rawSource = source?.toString().trim().toLowerCase();
 
         const sourceMap = {
-            manual: "manual",
+            // manual: "manual",
             website: "website",
             online: "website",
             instagram: "instagram",
