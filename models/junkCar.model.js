@@ -47,7 +47,7 @@ const junkCarSchema = new mongoose.Schema(
         source: {
             type: String,
             enum: [
-                "manual",
+                // "manual",
                 "website",
                 "instagram",
                 "facebook",
@@ -58,7 +58,7 @@ const junkCarSchema = new mongoose.Schema(
                 "sms",
                 "other",
             ],
-            default: "manual",
+            default: "website",
         },
 
         // added by shiva paymentStatus
