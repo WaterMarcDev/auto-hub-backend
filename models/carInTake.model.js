@@ -153,6 +153,11 @@ const carIntakeSchema = new mongoose.Schema(
         type: Number,
         min: [0, "Final price cannot be negative"],
       },
+      // Optional towing fee (separate billing line; not part of negotiation math)
+      towingFee: {
+        type: Number,
+        min: [0, "Towing fee cannot be negative"],
+      },
       priceDescription: {
         type: String,
         trim: true,
@@ -167,6 +172,11 @@ const carIntakeSchema = new mongoose.Schema(
       pickupType: {
         type: String,
         enum: ["You Pull", "We Pull", "Bulk", "Location", "Brought In"],
+      },
+      // Where the vehicle came from (handover/provenance fact stored with pickupType)
+      vehicleSource: {
+        type: String,
+        enum: ["Towing Company", "Customer"],
       },
       documents: {
         driversLicense: String,
