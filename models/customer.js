@@ -21,6 +21,14 @@ const CustomerSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
+    // Optional discriminator: distinguishes a Waiver "Seller" vs "Buyer".
+    // Intentionally NOT required and with no default so existing Customer
+    // documents (which predate this field) remain fully valid. Only the
+    // live Waiver flow supplies this value.
+    type: {
+      type: String,
+      enum: ["seller", "buyer"],
+    },
     idProofType: {
       type: String,
     },
