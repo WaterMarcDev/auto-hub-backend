@@ -184,15 +184,21 @@
         <div class="totals">
           <div class="box">
             <div class="line"><div class="k">Subtotal</div><div class="v">${{ (invoiceDoc and invoiceDoc.subtotal) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
+            {# HIDDEN (preserved, not deleted): Taxes line
             <div class="line"><div class="k">Taxes</div><div class="v">${{ (invoiceDoc and invoiceDoc.taxAmount) or (transaction and transaction.taxAmount) or 0 | round(2) }}</div></div>
+            #}
             <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
-            <div class="line"><div class="k">Total</div><div class="v total">${{ (invoiceDoc and invoiceDoc.total) or (transaction and transaction.netAmount) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
+            {# Total now equals the base sale amount (subtotal / transaction.amount); tax is no longer added to the displayed total #}
+            <div class="line"><div class="k">Total</div><div class="v total">${{ (invoiceDoc and invoiceDoc.subtotal) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
+            {# HIDDEN (preserved, not deleted): Adjusted entry fee + Grand Total block
             {% if adjustedEntryFee %}
               <div class="line"><div class="k">Adjusted entry fee</div><div class="v">${{ adjustedEntryFee | round(2) }}</div></div>
               {% set finalTotal = ((invoiceDoc and invoiceDoc.total) or (transaction and transaction.netAmount) or (transaction and transaction.amount) or 0) + adjustedEntryFee %}
               <div class="line"><div class="k">Grand Total</div><div class="v total">${{ finalTotal | round(2) }}</div></div>
             {% endif %}
-            <div class="line"><div class="k">Amount Paid</div><div class="v">${{ (elementSell and transaction and transaction.netAmount) or (invoiceDoc and invoiceDoc.amountPaid) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
+            #}
+            {# Amount Paid aligned with the displayed Total (base sale amount) #}
+            <div class="line"><div class="k">Amount Paid</div><div class="v">${{ (invoiceDoc and invoiceDoc.amount) or (transaction and transaction.amount) or 0 | round(2) }}</div></div>
             <div style="padding:12px">
               {% if elementSell %}
                 {# For element sells, balance is always 0 since payment is made at time of sale #}

@@ -113,11 +113,16 @@
           </div>
         </div>
 
-        {# Compute derived amounts when items are missing: prefer transaction.amount for carIntake #}
+        {# Compute derived amounts when items are missing: prefer purchaseAmount for carIntake #}
         {% if not (items and items | length) %}
-          {# Prefer paymentSlip snapshot when available, otherwise fallback to transaction/invoice #}
+          {# Vehicle Purchase Amount is passed by the controller from carIntake.price.finalPrice (net to seller). #}
+          {% set baseAmount = purchaseAmount if purchaseAmount is not none else (paymentSlip and paymentSlip.netAmount) or (transaction and transaction.amount) or invoice.total or 0 %}
+          {# Towing Fee: optional separate billing line; only displayed when greater than zero. #}
+          {% set towingFeeDisplay = towingFee or 0 %}
+          {# Payment Total = Vehicle Purchase Amount + Towing Fee (Taxes / Adjusted entry fee hidden, not deleted) #}
+          {% set netDerived = baseAmount + towingFeeDisplay %}
+          {# --- PREVIOUS DERIVATION (preserved for recovery; gross/tax/adjusted-entry-fee are no longer displayed) ---
           {% set baseAmount = (paymentSlip and paymentSlip.grossAmount) or (transaction and transaction.amount) or invoice.total or 0 %}
-          {# determine taxPercent: prefer paymentSlip.taxRate -> transaction.taxRate -> default 6.625% #}
           {% if paymentSlip and (paymentSlip.taxRate is not none) %}
             {% set taxPercent = paymentSlip.taxRate %}
           {% elseif transaction and (transaction.taxRate is not none) %}
@@ -125,7 +130,6 @@
           {% else %}
             {% set taxPercent = 6.625 / 100 %}
           {% endif %}
-          {# determine taxAmount: prefer paymentSlip.taxAmount -> transaction.taxAmount -> compute #}
           {% if paymentSlip and (paymentSlip.taxAmount is not none) %}
             {% set taxAmount = paymentSlip.taxAmount %}
           {% elseif transaction and (transaction.taxAmount is not none) %}
@@ -133,7 +137,6 @@
           {% else %}
             {% set taxAmount = baseAmount * taxPercent %}
           {% endif %}
-          {# determine net (payment total) as gross - tax; prefer paymentSlip.netAmount -> transaction.netAmount -> compute #}
           {% if paymentSlip and (paymentSlip.netAmount is not none) %}
             {% set netDerived = paymentSlip.netAmount + (adjustedEntryFee or 0) %}
           {% elseif transaction and (transaction.netAmount is not none) %}
@@ -141,8 +144,10 @@
           {% else %}
             {% set netDerived = (baseAmount + taxAmount) + (adjustedEntryFee or 0) %}
           {% endif %}
+          --- END PREVIOUS DERIVATION --- #}
         {% else %}
           {% set baseAmount = null %}
+          {% set towingFeeDisplay = 0 %}
           {% set taxPercent = 6.625 / 100 %}
           {% set taxAmount = invoice.taxes or 0 %}
           {% set subtotalDerived = invoice.subtotal or 0 %}
@@ -189,13 +194,21 @@
         <div class="totals">
           <div class="box">
             {% if baseAmount is not null %}
-              <div class="line"><div class="k">Subtotal</div><div class="v total">{{ baseAmount | usCurrency }}</div></div>
+              <div class="line"><div class="k">Vehicle Purchase Amount</div><div class="v total">{{ baseAmount | usCurrency }}</div></div>
+              {# Towing Fee line shown only when a positive value was supplied #}
+              {% if towingFeeDisplay and towingFeeDisplay > 0 %}
+                <div class="line"><div class="k">Towing Fee</div><div class="v">{{ towingFeeDisplay | usCurrency }}</div></div>
+              {% endif %}
+              {# HIDDEN (preserved, not deleted): Taxes line
               <div class="line"><div class="k">Taxes ({{ (taxPercent * 100) | round(3) }}%)</div><div class="v">{{ taxAmount | usCurrency }}</div></div>
+              #}
+              {# HIDDEN (preserved, not deleted): Adjusted entry fee line
               {% if adjustedEntryFee %}
                 <div class="line"><div class="k">Adjusted entry fee</div><div class="v">{{ adjustedEntryFee | usCurrency }}</div></div>
               {% endif %}
+              #}
               <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
-              {# Show Payment Total and Amount Paid as net amount after tax deduction, balance zero #}
+              {# Payment Total = Vehicle Purchase Amount + Towing Fee; balance zero #}
               <div class="line"><div class="k">Payment Total</div><div class="v total">{{ netDerived | usCurrency }}</div></div>
               <div class="line"><div class="k">Amount Paid</div><div class="v">{{ netDerived | usCurrency }}</div></div>
               <div style="padding:12px">
@@ -204,12 +217,14 @@
               </div>
             {% else %}
               <div class="line"><div class="k">Subtotal</div><div class="v total">{{ invoice.subtotal | usCurrency }}</div></div>
+              {# HIDDEN (preserved, not deleted): Taxes line
               <div class="line"><div class="k">Taxes</div><div class="v">{{ invoice.taxes | usCurrency }}</div></div>
+              #}
               <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
-              <div class="line"><div class="k">Payment Total</div><div class="v total">{{ invoice.total | usCurrency }}</div></div>
-              <div class="line"><div class="k">Amount Paid</div><div class="v">{{ invoice.amountPaid | usCurrency }}</div></div>
+              <div class="line"><div class="k">Payment Total</div><div class="v total">{{ invoice.subtotal | usCurrency }}</div></div>
+              <div class="line"><div class="k">Amount Paid</div><div class="v">{{ invoice.subtotal | usCurrency }}</div></div>
               <div style="padding:12px">
-                <div class="balance-pill">Balance Due&nbsp;&nbsp;{{ invoice.balanceDue | usCurrency }}</div>
+                <div class="balance-pill">Balance Due&nbsp;&nbsp;{{ 0 | usCurrency }}</div>
               </div>
             {% endif %}
           </div>

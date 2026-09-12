@@ -44,6 +44,34 @@ const hasPaymentIn = (data) => {
   return hasPaid || hasMethod;
 };
 
+// Strict parser for the optional Towing Fee.
+// Returns undefined ONLY for intentionally omitted input; throws on invalid supplied input.
+const parseOptionalTowingFee = (value) => {
+  // Only intentionally empty/missing input may resolve to undefined.
+  if (value === undefined || value === null) return undefined;
+  const type = typeof value;
+  if (type === "string") {
+    if (value.trim() === "") return undefined;
+  } else if (type !== "number") {
+    // Reject booleans, arrays, objects, functions, symbols, etc. instead of
+    // letting Number() coerce them (e.g. [] -> 0, true -> 1).
+    throw new Error("Towing fee must be a valid number");
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) throw new Error("Towing fee must be a valid number");
+  if (n < 0) throw new Error("Towing fee cannot be negative");
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+};
+
+// Non-throwing reader for render/snapshot paths. Reads already-validated stored
+// data defensively and never coerces raw user input.
+const readTowingFee = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0
+    ? Math.round((n + Number.EPSILON) * 100) / 100
+    : 0;
+};
+
 // Determine status based on which step data is present
 const computeStatusFrom = (data) => {
   // prefer explicit status if provided and valid
@@ -132,33 +160,33 @@ const createCarIntake = async (req, res) => {
     formData.vin = String(formData.vin || "").trim().toUpperCase();
 
     // auto detect manual VIN
-    formData.manualVinMode = 
+    formData.manualVinMode =
       formData.manualVinMode === true ||
       formData.manualVinMode === "true" ||
       formData.vin.length < 17;
 
-      // safe defaults
-      formData.year = formData.year ? Number(formData.year) : undefined;
+    // safe defaults
+    formData.year = formData.year ? Number(formData.year) : undefined;
 
-      formData.make = formData.make?.toString().trim() || undefined;
-      formData.model = formData.model?.toString().trim() || undefined;
-      formData.trim = formData.trim?.toString().trim() || undefined;
-      formData.color = formData.color?.toString().trim() || undefined;
-      formData.bodyClass = formData.bodyClass?.toString().trim() || undefined;
-      formData.fuelType = formData.fuelType?.toString().trim() || undefined;
+    formData.make = formData.make?.toString().trim() || undefined;
+    formData.model = formData.model?.toString().trim() || undefined;
+    formData.trim = formData.trim?.toString().trim() || undefined;
+    formData.color = formData.color?.toString().trim() || undefined;
+    formData.bodyClass = formData.bodyClass?.toString().trim() || undefined;
+    formData.fuelType = formData.fuelType?.toString().trim() || undefined;
 
-      // normalize drive
-      const allowedDrive = ["2WD", "4WD", "AWD", "FWD"];
-      if (!allowedDrive.includes(formData.drive)) {
-        formData.drive = "FWD";
-      }
+    // normalize drive
+    const allowedDrive = ["2WD", "4WD", "AWD", "FWD"];
+    if (!allowedDrive.includes(formData.drive)) {
+      formData.drive = "FWD";
+    }
 
-      // normalize transmission
-      const allowedTransmission = ["Automatic", "Manual"];
-      if (!allowedTransmission.includes(formData.transmission)) {
-        formData.transmission = "Automatic";
-      }
-      // end here
+    // normalize transmission
+    const allowedTransmission = ["Automatic", "Manual"];
+    if (!allowedTransmission.includes(formData.transmission)) {
+      formData.transmission = "Automatic";
+    }
+    // end here
 
     // Seller is now ObjectId from Customer
     let sellerId = formData.sellerId || formData.seller;
@@ -170,8 +198,8 @@ const createCarIntake = async (req, res) => {
         .status(400)
         .json({ error: "Invalid seller ObjectId format" });
     } // end here
-    
-    
+
+
     // if (!sellerId) {
     //   return res
     //     .status(400)
@@ -299,6 +327,7 @@ const createCarIntake = async (req, res) => {
       },
 
       price: {
+        towingFee: parseOptionalTowingFee(formData.towingFee),
         actualWeight:
           formData.actualWeight !== undefined
             ? parseFloat(formData.actualWeight)
@@ -332,6 +361,7 @@ const createCarIntake = async (req, res) => {
         seller: sellerId || undefined,    // undefined by shiva
         sellingDate: formData.sellingDate || undefined,
         pickupType: formData.pickupType || undefined,
+        vehicleSource: formData.vehicleSource || undefined,
         documents: formData.documents || {},
         sellerSignature: formData.sellerSignature || undefined,
         kycDescription: formData.kycDescription || undefined,
@@ -394,21 +424,21 @@ const createCarIntake = async (req, res) => {
       carIntake: populatedCarIntake,
     });
   } catch (error) {    // added by shiva
-  console.error("CREATE ERROR FULL:", error);
+    console.error("CREATE ERROR FULL:", error);
 
-  if (error.errors) {
-    Object.keys(error.errors).forEach((key) => {
-      console.error(key, "=>", error.errors[key].message);
+    if (error.errors) {
+      Object.keys(error.errors).forEach((key) => {
+        console.error(key, "=>", error.errors[key].message);
+      });
+    }
+    // end here
+
+    return res.status(400).json({
+      success: false,
+      error: "Car intake creation failed",
+      details: error.message,
     });
   }
-  // end here
-
-  return res.status(400).json({
-    success: false,
-    error: "Car intake creation failed",
-    details: error.message,
-  });
-}
 };
 
 // @desc    Get all car intakes
@@ -453,14 +483,14 @@ const getCarIntakes = async (req, res) => {
       const raw = req.query.excludeStatus;
       const excludes = Array.isArray(raw)
         ? raw
-            .map((s) => String(s || ""))
-            .flatMap((s) => s.split(","))
-            .map((s) => s.trim())
-            .filter(Boolean)
+          .map((s) => String(s || ""))
+          .flatMap((s) => s.split(","))
+          .map((s) => s.trim())
+          .filter(Boolean)
         : String(raw)
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean);
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
       if (excludes.length) filter.status = { $nin: excludes };
     }
     if (req.query.make) {
@@ -729,6 +759,22 @@ const updateCarIntake = async (req, res) => {
     ];
     let anyPrice = false;
     carIntake.price = carIntake.price || {};
+
+    // Optional Towing Fee: strict validation via parseOptionalTowingFee.
+    // - Intentionally empty/missing -> resolves to undefined (clears the field).
+    // - Invalid supplied value (negative / non-numeric) -> rejected with HTTP 400,
+    //   never silently coerced to undefined.
+    if (carIntakeData.towingFee !== undefined) {
+      let parsedTowingFee;
+      try {
+        parsedTowingFee = parseOptionalTowingFee(carIntakeData.towingFee);
+      } catch (e) {
+        return res.status(400).json({ error: e.message });
+      }
+      carIntake.price.towingFee = parsedTowingFee;
+      anyPrice = true;
+    }
+
     priceFields.forEach((f) => {
       if (carIntakeData[f] !== undefined) {
         carIntake.price[f] = carIntakeData[f];
@@ -744,6 +790,7 @@ const updateCarIntake = async (req, res) => {
     const kycFields = [
       "sellingDate",
       "pickupType",
+      "vehicleSource",
       "documents",
       "sellerSignature",
       "kycDescription",
@@ -1224,6 +1271,15 @@ const printPaymentSlip = async (req, res) => {
         ? String(paymentSlipDoc.slipNumber).padStart(7, "0")
         : null;
 
+    // Vehicle Purchase Amount = the net amount the seller receives.
+    // Source of truth is carIntake.price.finalPrice; fall back only if absent.
+    // Never use transaction.netAmount (tax-deduction artifact) or grossAmount.
+    const purchaseAmount =
+      carIntake.price?.finalPrice ??
+      paymentSlipDoc?.netAmount ??
+      transaction?.amount ??
+      0;
+
     const data = {
       carIntake,
       transaction,
@@ -1236,6 +1292,8 @@ const printPaymentSlip = async (req, res) => {
       // Prefer inline base64 logo when available; otherwise template will fall back to /assets/logo-sm1.png
       logoSrc: logoDataUri || "/assets/logo-sm1.png",
       adjustedEntryFee: (await EntryFee.findOne().sort({ createdAt: -1 }))?.entryFee || 2.0,
+      purchaseAmount,
+      towingFee: readTowingFee(carIntake.price?.towingFee),
     };
 
     // If client requests PDF or raw HTML, we can extend later. For now render HTML
@@ -1433,6 +1491,15 @@ const printAllDocuments = async (req, res) => {
         ? String(paymentSlipDoc.slipNumber).padStart(7, "0")
         : null;
 
+    // Vehicle Purchase Amount = the net amount the seller receives.
+    // Source of truth is carIntake.price.finalPrice; fall back only if absent.
+    // Never use transaction.netAmount (tax-deduction artifact) or grossAmount.
+    const purchaseAmount =
+      carIntake.price?.finalPrice ??
+      paymentSlipDoc?.netAmount ??
+      transaction?.amount ??
+      0;
+
     const data = {
       carIntake,
       transaction,
@@ -1446,6 +1513,8 @@ const printAllDocuments = async (req, res) => {
       logoSrc: logoDataUri || "/assets/logo-sm1.png",
       documents, // Array of { title, dataUri }
       adjustedEntryFee: (await EntryFee.findOne().sort({ createdAt: -1 }))?.entryFee || 2.0,
+      purchaseAmount,
+      towingFee: readTowingFee(carIntake.price?.towingFee),
     };
 
     // Render combined template
@@ -1923,10 +1992,14 @@ const bulkUploadScraped = async (req, res) => {
           transactionDateStr,
           generatedBy: req.user
             ? {
-                id: req.user._id,
-                name: req.user.first_name || req.user.name || "",
-              }
+              id: req.user._id,
+              name: req.user.first_name || req.user.name || "",
+            }
             : null,
+          // Vehicle Purchase Amount = net to seller (carIntake.price.finalPrice),
+          // never transaction.netAmount (tax-deduction artifact) or grossAmount.
+          purchaseAmount: carIntake.price?.finalPrice ?? transaction?.amount ?? 0,
+          towingFee: readTowingFee(carIntake.price?.towingFee),
         };
 
         // Render HTML using Nunjucks template
