@@ -7,17 +7,33 @@ const createCustomer = async (req, res) => {
       lastName,
       mobileNo,
       email,
+      type,
       idProofType,
       idProofNumber,
       idProofImage,
       signatureImage,
     } = req.body;
 
+    // Optional Seller/Buyer discriminator. When supplied it must be valid;
+    // when omitted/blank (legacy callers / generic customers) the record is
+    // still created with no type, for backward compatibility.
+    let normalizedType;
+    if (type !== undefined && type !== null && type !== "") {
+      if (!["seller", "buyer"].includes(type)) {
+        return res.status(400).json({
+          error: "Invalid type",
+          details: "type must be either 'seller' or 'buyer'",
+        });
+      }
+      normalizedType = type;
+    }
+
     const newCustomer = new Customer({
       firstName,
       lastName,
       mobileNo,
       email,
+      type: normalizedType,
       idProofType,
       idProofNumber,
       idProofImage,
