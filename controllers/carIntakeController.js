@@ -889,10 +889,25 @@ const updateCarIntake = async (req, res) => {
         ? carIntakeData.paymentDescription
         : carIntakeData.payment && carIntakeData.payment.paymentDescription;
 
-    // Check if we have net amount and tax info from frontend
-    const incomingNetAmount = carIntakeData.netAmount;
-    const incomingTaxAmount = carIntakeData.taxAmount;
-    const incomingTaxRate = carIntakeData.taxRate;
+    // Car Intake vehicle purchase: NO tax.
+    // The authoritative business amount is carIntake.price.finalPrice and it
+    // must remain the exact gross vehicle purchase amount. We therefore create
+    // the Transaction with taxRate 0 and amountIsNet false so the Transaction
+    // model's tax hook leaves amount === finalPrice, taxAmount === 0 and
+    // netAmount === finalPrice (no tax generated / deducted for this flow).
+    // NOTE: transaction.netAmount / grossAmount / netAmount-derived values are
+    // intentionally NOT used to source the purchase amount.
+
+    // PRESERVED (no longer used): previous tax-sourced amount + net/gross flags.
+    // const incomingNetAmount = carIntakeData.netAmount;
+    // const incomingTaxAmount = carIntakeData.taxAmount;
+    // const incomingTaxRate = carIntakeData.taxRate;
+    // ...
+    //   const isNet = incomingPaid === undefined; // finalPrice treated as net
+    //   taxRate: incomingTaxRate ?? 0.06625,
+
+    const purchaseAmount =
+      carIntake.price?.finalPrice ?? incomingPaid ?? 0;
 
     // If payment details provided and transaction not exists, create one
     if (
@@ -901,16 +916,11 @@ const updateCarIntake = async (req, res) => {
         incomingMethod !== undefined) &&
       !(await Transaction.findOne({ carIntake: carIntake._id }))
     ) {
-      // Use paidAmount (gross) if provided, otherwise use finalPrice (net)
-      const transactionAmount =
-        incomingPaid ?? carIntake.price?.finalPrice ?? 0;
-      const isNet = incomingPaid === undefined; // if no paidAmount, finalPrice is net
-
       await new Transaction({
         type: "debit",
-        amount: transactionAmount,
-        amountIsNet: isNet,
-        taxRate: incomingTaxRate ?? 0.06625,
+        amount: purchaseAmount,
+        amountIsNet: false, // finalPrice IS the gross purchase amount
+        taxRate: 0, // no tax for Car Intake vehicle purchasing
         paymentMethod: incomingMethod ?? carIntake.payment?.paymentMethod,
         description: incomingDesc ?? carIntake.payment?.paymentDescription,
         carIntake: carIntake._id,
@@ -918,6 +928,10 @@ const updateCarIntake = async (req, res) => {
         status: "completed",
         createdBy: req.user._id,
         ...transactionData,
+        // Authoritative no-tax values win over any stray transactionData.
+        amount: purchaseAmount,
+        amountIsNet: false,
+        taxRate: 0,
       }).save();
     }
 
@@ -928,19 +942,19 @@ const updateCarIntake = async (req, res) => {
       incomingMethod !== undefined ||
       incomingDesc !== undefined
     ) {
-      const transactionAmount =
-        incomingPaid ?? carIntake.price?.finalPrice ?? 0;
-      const isNet = incomingPaid === undefined;
-
       await Transaction.findOneAndUpdate(
         { carIntake: carIntake._id },
         {
-          amount: transactionAmount,
-          amountIsNet: isNet,
-          taxRate: incomingTaxRate ?? 0.06625,
+          amount: purchaseAmount,
+          amountIsNet: false,
+          taxRate: 0,
           paymentMethod: incomingMethod ?? carIntake.payment?.paymentMethod,
           description: incomingDesc ?? carIntake.payment?.paymentDescription,
           ...transactionData,
+          // Authoritative no-tax values win over any stray transactionData.
+          amount: purchaseAmount,
+          amountIsNet: false,
+          taxRate: 0,
         }
       );
     }
@@ -1199,22 +1213,24 @@ const printPaymentSlip = async (req, res) => {
       if (!paymentSlipDoc) {
         const PaymentSlipModelInst = PaymentSlipModel;
 
-        // Build slip snapshot data
-        // finalPrice is what the seller receives (net amount)
-        const finalPrice = carIntake.price?.finalPrice || 0;
-        const netAmount = finalPrice;
-        const taxRate =
-          (transaction && transaction.taxRate) || carIntake.taxRate || 0.06625;
-
-        // Calculate gross from net: gross = net / (1 - tax_rate)
-        const grossAmount = netAmount / (1 - taxRate);
-        const taxAmount = grossAmount - netAmount;
+        // Build slip snapshot data.
+        // Car Intake vehicle purchase: NO tax. finalPrice IS the actual gross
+        // vehicle purchase amount; no gross = finalPrice / (1 - taxRate)
+        // derivation is performed.
+        // PRESERVED (no longer used): previous net/gross/tax derivation.
+        // const finalPrice = carIntake.price?.finalPrice || 0;
+        // const netAmount = finalPrice;
+        // const taxRate = (transaction && transaction.taxRate) || carIntake.taxRate || 0.06625;
+        // const grossAmount = netAmount / (1 - taxRate);
+        // const taxAmount = grossAmount - netAmount;
+        const slipPurchaseAmount = carIntake.price?.finalPrice || 0;
 
         const slipData = {
-          amount: grossAmount,
-          netAmount: netAmount,
-          taxRate,
-          taxAmount,
+          amount: slipPurchaseAmount,
+          grossAmount: slipPurchaseAmount,
+          netAmount: slipPurchaseAmount,
+          taxRate: 0,
+          taxAmount: 0,
           paymentMethod:
             (transaction && transaction.paymentMethod) ||
             carIntake.payment?.paymentMethod,
@@ -1231,10 +1247,12 @@ const printPaymentSlip = async (req, res) => {
           slipData,
           // store explicit snapshot fields so queries can read them directly
           paymentMethod: slipData.paymentMethod,
-          grossAmount: Math.round((grossAmount + Number.EPSILON) * 100) / 100,
-          netAmount: Math.round((netAmount + Number.EPSILON) * 100) / 100,
-          taxRate: slipData.taxRate,
-          taxAmount: Math.round((taxAmount + Number.EPSILON) * 100) / 100,
+          grossAmount:
+            Math.round((slipPurchaseAmount + Number.EPSILON) * 100) / 100,
+          netAmount:
+            Math.round((slipPurchaseAmount + Number.EPSILON) * 100) / 100,
+          taxRate: 0,
+          taxAmount: 0,
           paymentDate: transaction?.createdAt || new Date(),
           createdBy: req.user?._id,
         });
@@ -1271,9 +1289,9 @@ const printPaymentSlip = async (req, res) => {
         ? String(paymentSlipDoc.slipNumber).padStart(7, "0")
         : null;
 
-    // Vehicle Purchase Amount = the net amount the seller receives.
+    // Vehicle Purchase Amount = the actual gross vehicle purchase amount.
     // Source of truth is carIntake.price.finalPrice; fall back only if absent.
-    // Never use transaction.netAmount (tax-deduction artifact) or grossAmount.
+    // Never use a tax-derived value (transaction.netAmount / grossAmount) for P.
     const purchaseAmount =
       carIntake.price?.finalPrice ??
       paymentSlipDoc?.netAmount ??
@@ -1347,22 +1365,24 @@ const printAllDocuments = async (req, res) => {
       if (!paymentSlipDoc) {
         const PaymentSlipModelInst = PaymentSlipModel;
 
-        // Build slip snapshot data
-        // finalPrice is what the seller receives (net amount)
-        const finalPrice = carIntake.price?.finalPrice || 0;
-        const netAmount = finalPrice;
-        const taxRate =
-          (transaction && transaction.taxRate) || carIntake.taxRate || 0.06625;
-
-        // Calculate gross from net: gross = net / (1 - tax_rate)
-        const grossAmount = netAmount / (1 - taxRate);
-        const taxAmount = grossAmount - netAmount;
+        // Build slip snapshot data.
+        // Car Intake vehicle purchase: NO tax. finalPrice IS the actual gross
+        // vehicle purchase amount; no gross = finalPrice / (1 - taxRate)
+        // derivation is performed.
+        // PRESERVED (no longer used): previous net/gross/tax derivation.
+        // const finalPrice = carIntake.price?.finalPrice || 0;
+        // const netAmount = finalPrice;
+        // const taxRate = (transaction && transaction.taxRate) || carIntake.taxRate || 0.06625;
+        // const grossAmount = netAmount / (1 - taxRate);
+        // const taxAmount = grossAmount - netAmount;
+        const slipPurchaseAmount = carIntake.price?.finalPrice || 0;
 
         const slipData = {
-          amount: grossAmount,
-          netAmount: netAmount,
-          taxRate,
-          taxAmount,
+          amount: slipPurchaseAmount,
+          grossAmount: slipPurchaseAmount,
+          netAmount: slipPurchaseAmount,
+          taxRate: 0,
+          taxAmount: 0,
           paymentMethod:
             (transaction && transaction.paymentMethod) ||
             carIntake.payment?.paymentMethod,
@@ -1379,10 +1399,12 @@ const printAllDocuments = async (req, res) => {
           slipData,
           // store explicit snapshot fields so queries can read them directly
           paymentMethod: slipData.paymentMethod,
-          grossAmount: Math.round((grossAmount + Number.EPSILON) * 100) / 100,
-          netAmount: Math.round((netAmount + Number.EPSILON) * 100) / 100,
-          taxRate: slipData.taxRate,
-          taxAmount: Math.round((taxAmount + Number.EPSILON) * 100) / 100,
+          grossAmount:
+            Math.round((slipPurchaseAmount + Number.EPSILON) * 100) / 100,
+          netAmount:
+            Math.round((slipPurchaseAmount + Number.EPSILON) * 100) / 100,
+          taxRate: 0,
+          taxAmount: 0,
           paymentDate: transaction?.createdAt || new Date(),
           createdBy: req.user?._id,
         });
@@ -1491,9 +1513,9 @@ const printAllDocuments = async (req, res) => {
         ? String(paymentSlipDoc.slipNumber).padStart(7, "0")
         : null;
 
-    // Vehicle Purchase Amount = the net amount the seller receives.
+    // Vehicle Purchase Amount = the actual gross vehicle purchase amount.
     // Source of truth is carIntake.price.finalPrice; fall back only if absent.
-    // Never use transaction.netAmount (tax-deduction artifact) or grossAmount.
+    // Never use a tax-derived value (transaction.netAmount / grossAmount) for P.
     const purchaseAmount =
       carIntake.price?.finalPrice ??
       paymentSlipDoc?.netAmount ??
