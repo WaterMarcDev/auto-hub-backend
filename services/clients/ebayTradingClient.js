@@ -3,24 +3,37 @@ const { XMLParser } = require("fast-xml-parser");
 
 class EbayTradingClient {
     constructor() {
-        const environment = (process.env.EBAY_ENVIRONMENT || "production")
-            .toLowerCase()
-            .trim();
-        this.endpoint =
-            environment === "sandbox"
-                ? "https://api.sandbox.ebay.com/ws/api.dll"
-                : "https://api.ebay.com/ws/api.dll";
-
         this.parser = new XMLParser({
             ignoreAttributes: false,
             attributeNamePrefix: "",
         });
     }
 
+    /**
+     * FAIL CLOSED: resolved fresh on every call rather than cached at
+     * construction, and never defaults to production. A missing/invalid
+     * EBAY_ENVIRONMENT throws here instead of silently targeting
+     * production — this is the same environment ambiguity this class
+     * previously resolved with `|| "production"`.
+     */
+    _getEndpoint() {
+        const environment = (process.env.EBAY_ENVIRONMENT || "")
+            .toLowerCase()
+            .trim();
+        if (environment !== "sandbox" && environment !== "production") {
+            throw new Error(
+                "EBAY_ENVIRONMENT is missing or invalid (must be exactly \"production\" or \"sandbox\") — refusing to guess which eBay environment to call."
+            );
+        }
+        return environment === "sandbox"
+            ? "https://api.sandbox.ebay.com/ws/api.dll"
+            : "https://api.ebay.com/ws/api.dll";
+    }
+
     async call(accessToken, callName, xml) {
         try {
             const response = await axios.post(
-                this.endpoint,
+                this._getEndpoint(),
                 xml,
                 {
                     headers: {

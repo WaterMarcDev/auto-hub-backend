@@ -1065,7 +1065,11 @@ const deduplicateInventory = async (req, res) => {
             vin: "$vin",
           },
           count: { $sum: 1 },
-          ids: { $push: "$_id" },
+          // Was just `$push: "$_id"` — widened to also carry ebayListingId/
+          // wixProductId so a duplicate that already has a LIVE external
+          // listing linked to it (see the eBay-sync-safety guard below) can
+          // be identified without a second query per group.
+          docs: { $push: { id: "$_id", ebayListingId: "$ebayListingId", wixProductId: "$wixProductId" } },
         },
       },
       { $match: { count: { $gt: 1 } } },
@@ -1073,15 +1077,44 @@ const deduplicateInventory = async (req, res) => {
     ]);
 
     let totalRemoved = 0;
+    let totalSkippedLiveLinks = 0;
     const removed = [];
 
     for (const group of duplicates) {
-      const [, ...removeIds] = group.ids; // keep first, remove rest
+      const [, ...candidates] = group.docs; // keep first, consider removing the rest
+
+      // Never hard-delete a duplicate that is the CRM's only record of a
+      // LIVE eBay or Wix listing — doing so would permanently orphan that
+      // listing (no ebayListingId/wixProductId anywhere in Mongo means no
+      // future sync run can ever find, update, or end it again). Route
+      // these to manual review instead of silently destroying the linkage.
+      const removeIds = [];
+      const skippedForLiveLink = [];
+      for (const doc of candidates) {
+        if (doc.ebayListingId || doc.wixProductId) {
+          skippedForLiveLink.push(doc.id);
+        } else {
+          removeIds.push(doc.id);
+        }
+      }
+      if (skippedForLiveLink.length > 0) {
+        totalSkippedLiveLinks += skippedForLiveLink.length;
+        console.warn(
+          `[INVENTORY_DEDUP] Skipped deleting ${skippedForLiveLink.length} duplicate(s) with a live eBay/Wix listing linked (manual review required):`,
+          skippedForLiveLink.map(String)
+        );
+      }
+
+      if (removeIds.length === 0) {
+        continue;
+      }
+
       const result = await Inventory.deleteMany({ _id: { $in: removeIds } });
       totalRemoved += result.deletedCount;
       removed.push({
         key: `${group._id.partName} | ${group._id.make} | ${group._id.model}`,
         removed: result.deletedCount,
+        skippedForLiveLink: skippedForLiveLink.length,
       });
     }
 
@@ -1091,6 +1124,7 @@ const deduplicateInventory = async (req, res) => {
       success: true,
       duplicateGroupsFound: duplicates.length,
       totalRemoved,
+      totalSkippedLiveLinks,
       remaining,
       details: removed,
     });
