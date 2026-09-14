@@ -95,7 +95,50 @@ const inventorySchema = new mongoose.Schema(
       default: null,
     },
     // end here
-    // Soft delete fields
+
+    // ─── eBay Catalog Synchronization Fields ───────────────────────────────
+    // Additive/optional: existing products without these fields remain
+    // fully functional for Wix, CRM, and all other workflows.
+    ebaySku: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    ebayOfferId: {
+      type: String,
+      default: null,
+    },
+    ebayListingId: {
+      type: String,
+      default: null,
+    },
+    ebayMarketplaceId: {
+      type: String,
+      default: null,
+    },
+    ebayCategoryId: {
+      type: String,
+      default: null,
+    },
+    ebaySyncStatus: {
+      type: String,
+      enum: [null, "NOT_SYNCED", "VALIDATING", "PUBLISHED", "UPDATED", "FAILED", "EXCLUDED", "SKIPPED"],
+      default: null,
+    },
+    ebaySyncError: {
+      type: String,
+      default: null,
+    },
+    ebayLastSyncedAt: {
+      type: Date,
+      default: null,
+    },
+    /** Deterministic hash of the last successfully synchronized eBay-relevant state. */
+    ebaySyncHash: {
+      type: String,
+      default: null,
+    },
+    // end eBay fields
     isDeleted: {
       type: Boolean,
       default: false,

@@ -17,14 +17,12 @@ exports.challenge = async (req, res) => {
 
     const verificationToken = process.env.EBAY_VERIFICATION_TOKEN;
 
-    // ===========================
-    // ADD THESE LOGS
-    // ===========================
-    console.log("========== eBay Challenge ==========");
-    console.log("Challenge Code:", challengeCode);
-    console.log("Endpoint:", endpoint);
-    console.log("Verification Token:", verificationToken);
-    // ===========================
+    // SECURITY: EBAY_VERIFICATION_TOKEN is a secret shared only with eBay
+    // (proves this endpoint's ownership for the Marketplace Account
+    // Deletion webhook) — it and the hash derived from it must never be
+    // logged. This previously logged both in plaintext to console, which
+    // is persisted to logs/access.log & logs/error.log on this server.
+    console.log("[EBAY_CHALLENGE] Received challenge_code, endpoint configured:", Boolean(endpoint), "verification token configured:", Boolean(verificationToken));
 
     const hash = crypto
       .createHash("sha256")
@@ -32,14 +30,6 @@ exports.challenge = async (req, res) => {
       .update(verificationToken)
       .update(endpoint)
       .digest("hex");
-
-
-    // ===========================
-    // ADD THESE LOGS
-    // ===========================
-    console.log("Generated Hash:", hash);
-    console.log("===================================");
-    // ===========================
 
     return res.status(200).json({
       challengeResponse: hash,

@@ -61,24 +61,53 @@ class EbayApiClient {
   constructor(options = {}) {
     this.clientId = options.clientId || process.env.EBAY_CLIENT_ID;
     this.clientSecret = options.clientSecret || process.env.EBAY_CLIENT_SECRET;
-    this.environment = options.environment || this._detectEnvironment();
+    // An explicit override must itself be valid — an invalid override
+    // falls through to env-var detection rather than being trusted as-is.
+    const requestedEnv = options.environment ? String(options.environment).toLowerCase().trim() : null;
+    this.environment = (requestedEnv === "sandbox" || requestedEnv === "production")
+      ? requestedEnv
+      : this._detectEnvironment();
     this.timeout = options.timeout || DEFAULT_TIMEOUT;
     this.maxRetries = options.maxRetries !== undefined ? options.maxRetries : MAX_RETRIES;
   }
 
   /**
-   * Detect environment: honor EBAY_ENVIRONMENT when set to a recognized value,
-   * otherwise fall back to inferring it from the client ID (SBX = sandbox).
-   * @returns {string}
+   * Detect environment strictly from EBAY_ENVIRONMENT.
+   *
+   * FAIL CLOSED: returns null (never "production", never inferred from the
+   * Client ID) when the variable is missing or not exactly "production"/
+   * "sandbox". Deliberately does NOT throw here — this runs at
+   * construction time, and several call sites construct a client at
+   * module-load time (e.g. services/ebay/ebayCatalogSync.service.js's
+   * module-level `const client = new EbayApiClient()`); throwing here
+   * would crash the whole module (and everything that requires it) just
+   * from importing it. Instead, `null` propagates to `this.environment`,
+   * and _requireEnvironment() below refuses to resolve any real API URL
+   * until a valid environment is set — so an ambiguous environment blocks
+   * every actual network call without taking the server down to do it.
+   * @returns {string|null}
    */
   _detectEnvironment() {
     const envSetting = (process.env.EBAY_ENVIRONMENT || "").toLowerCase().trim();
     if (envSetting === "sandbox" || envSetting === "production") {
       return envSetting;
     }
+    return null;
+  }
 
-    const clientId = this.clientId || "";
-    return clientId.includes("-SBX-") || clientId.includes("-sandbox-") ? "sandbox" : "production";
+  /**
+   * Throws if this.environment isn't exactly "production" or "sandbox".
+   * Every method that resolves a real eBay URL goes through this, so a
+   * missing/invalid EBAY_ENVIRONMENT can never silently target production.
+   * @returns {string} "production" or "sandbox"
+   */
+  _requireEnvironment() {
+    if (this.environment !== "sandbox" && this.environment !== "production") {
+      throw new Error(
+        "EBAY_ENVIRONMENT is missing or invalid (must be exactly \"production\" or \"sandbox\") — refusing to guess which eBay environment to call."
+      );
+    }
+    return this.environment;
   }
 
   /**
@@ -86,10 +115,9 @@ class EbayApiClient {
    * @returns {string}
    */
   getBaseUrl() {
-    if (this.environment === "sandbox") {
-      return "https://api.sandbox.ebay.com";
-    }
-    return "https://api.ebay.com";
+    return this._requireEnvironment() === "sandbox"
+      ? "https://api.sandbox.ebay.com"
+      : "https://api.ebay.com";
   }
 
   /**
@@ -97,10 +125,9 @@ class EbayApiClient {
    * @returns {string}
    */
   getAuthBaseUrl() {
-    if (this.environment === "sandbox") {
-      return "https://auth.sandbox.ebay.com/oauth2";
-    }
-    return "https://auth.ebay.com/oauth2";
+    return this._requireEnvironment() === "sandbox"
+      ? "https://auth.sandbox.ebay.com/oauth2"
+      : "https://auth.ebay.com/oauth2";
   }
 
   /**
@@ -108,10 +135,9 @@ class EbayApiClient {
    * @returns {string}
    */
   getSignInUrl() {
-    if (this.environment === "sandbox") {
-      return "https://auth.sandbox.ebay.com/oauth2/authorize";
-    }
-    return "https://auth.ebay.com/oauth2/authorize";
+    return this._requireEnvironment() === "sandbox"
+      ? "https://auth.sandbox.ebay.com/oauth2/authorize"
+      : "https://auth.ebay.com/oauth2/authorize";
   }
 
   /**
@@ -362,9 +388,14 @@ class EbayApiClient {
 
     const data = response.data;
 
-    console.log("====== EBAY TOKEN RESPONSE ======");
-    console.log(JSON.stringify(data, null, 2));
-    console.log("==========================");
+    // SECURITY: do NOT log `data` directly — it contains the live
+    // access_token/refresh_token in plaintext, and this server's console
+    // output is persisted to logs/access.log & logs/error.log. A previous
+    // version of this function did `console.log(JSON.stringify(data))`
+    // here, which wrote both live tokens to disk on every OAuth connect —
+    // anyone with log access could have hijacked the eBay seller account.
+    // The structured trace log below already reports everything useful
+    // (token presence/type/expiry/scope) without the secret values.
 
     // ─── DIAGNOSTIC: LOG 6 — after token exchange HTTP call ─────────────────
     console.log(JSON.stringify({
@@ -611,16 +642,89 @@ class EbayApiClient {
   }
 
   /**
-   * Fetch the shipping fulfillment(s) (carrier, tracking number, tracking
-   * URL) for a specific order. eBay's Fulfillment API order object does not
-   * embed tracking info directly on line items — it requires this separate
-   * sub-resource call per order.
-   *
-   * Docs: https://developer.ebay.com/api-docs/sell/fulfillment/resources/shipping_fulfillment/methods/getShippingFulfillments
-   *
+   * Generic PUT request helper with retry and auth.
    * @param {string} accessToken
-   * @param {string} orderId
+   * @param {string} path - API path (e.g. "/sell/inventory/v1/inventory_item/{sku}")
+   * @param {Object} body - Request payload
+   * @param {Object} [options] - Extra axios config options
    * @returns {Promise<Object>}
+   */
+  async put(accessToken, path, body, options = {}) {
+    return this._request(accessToken, "put", path, body, options);
+  }
+
+  /**
+   * Generic DELETE request helper with retry and auth.
+   * @param {string} accessToken
+   * @param {string} path - API path
+   * @param {Object} [options] - Extra axios config options
+   * @returns {Promise<Object>}
+   */
+  async delete(accessToken, path, options = {}) {
+    return this._request(accessToken, "delete", path, undefined, options);
+  }
+
+  /**
+   * Core request method with retry, auth injection, and error normalization.
+   * Extracted so PUT/DELETE are handled identically to GET/POST.
+   */
+  async _request(accessToken, method, path, data = undefined, options = {}) {
+    const url = `${this.getBaseUrl()}${path}`;
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "Content-Language": "en-US",
+      "X-EBAY-C-MARKETPLACE-ID": process.env.EBAY_MARKETPLACE_ID || "EBAY_US",
+      ...(options.headers || {}),
+    };
+
+    let lastError;
+    const maxAttempts = this.maxRetries + 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const config = {
+          method,
+          url,
+          headers,
+          timeout: this.timeout,
+          ...(data !== undefined ? { data } : {}),
+          ...options,
+        };
+        const response = await axios(config);
+        return response.data;
+      } catch (err) {
+        lastError = err;
+
+        // If it's a rate-limit error, use retry-after header
+        if (err.response?.status === 429) {
+          const retryAfter = parseInt(err.response.headers?.["retry-after"] || "5", 10);
+          console.warn(`[EBAY_CLIENT] Rate limited (429). Retrying after ${retryAfter}s (attempt ${attempt}/${maxAttempts})`);
+          await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
+          continue;
+        }
+
+        // Retry on network errors or 5xx
+        if (err.code === "ECONNRESET" || err.code === "ETIMEDOUT" || err.response?.status >= 500) {
+          if (attempt < maxAttempts) {
+            const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 30000);
+            console.warn(`[EBAY_CLIENT] Retryable error (attempt ${attempt}/${maxAttempts}). Retrying in ${Math.round(delay)}ms.`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            continue;
+          }
+        }
+
+        // Non-retryable or exhausted retries — normalize and throw
+        throw classifyEbayError(err);
+      }
+    }
+
+    throw classifyEbayError(lastError);
+  }
+
+/**
+   * Fetch the shipping fulfillment(s) for a specific order.
+   * Docs: https://developer.ebay.com/api-docs/sell/fulfillment/resources/shipping_fulfillment/methods/getShippingFulfillments
    */
   async getShippingFulfillments(accessToken, orderId) {
     return this.get(
@@ -628,9 +732,107 @@ class EbayApiClient {
       `/sell/fulfillment/v1/order/${encodeURIComponent(orderId)}/shipping_fulfillment`
     );
   }
+
+  // ─── Catalog Publishing Methods ──────────────────────────────────────────
+
+  /**
+   * Create or replace an inventory item (PUT /inventory_item/{sku}).
+   */
+  async createOrReplaceInventoryItem(accessToken, sku, body) {
+    return this.put(accessToken, `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`, body);
+  }
+
+  /**
+   * Get an inventory item by SKU (GET /inventory_item/{sku}).
+   */
+  async getInventoryItem(accessToken, sku) {
+    return this.get(accessToken, `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`);
+  }
+
+  /**
+   * Create an offer (POST /offer).
+   */
+  async createOffer(accessToken, body) {
+    return this.post(accessToken, "/sell/inventory/v1/offer", body);
+  }
+
+  /**
+   * Get an offer by offerId (GET /offer/{offerId}).
+   */
+  async getOffer(accessToken, offerId) {
+    return this.get(accessToken, `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`);
+  }
+
+  /**
+   * Update an offer (PUT /offer/{offerId}).
+   */
+  async updateOffer(accessToken, offerId, body) {
+    return this.put(accessToken, `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`, body);
+  }
+
+  /**
+   * Publish an offer (POST /offer/{offerId}/publish).
+   * Returns { listingId: string } on success.
+   */
+  async publishOffer(accessToken, offerId) {
+    return this.post(accessToken, `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish`, {});
+  }
+
+  /**
+   * Create or replace the vehicle-fitment (Year/Make/Model/Trim) compatibility
+   * list for a SKU (PUT /product_compatibility/{sku}). The SKU's inventory
+   * item must already exist (createOrReplaceInventoryItem must run first).
+   *
+   * Docs: https://developer.ebay.com/api-docs/sell/inventory/resources/product_compatibility/methods/createOrReplaceProductCompatibility
+   */
+  async createOrReplaceProductCompatibility(accessToken, sku, body) {
+    return this.put(accessToken, `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}/product_compatibility`, body);
+  }
+
+  /**
+   * Get the current compatibility list for a SKU (GET /product_compatibility/{sku}).
+   * Used for post-publish fitment verification.
+   */
+  async getProductCompatibility(accessToken, sku) {
+    return this.get(accessToken, `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}/product_compatibility`);
+  }
+
+  /**
+   * Get all inventory locations (GET /location).
+   */
+  async getInventoryLocations(accessToken, options = {}) {
+    const { limit = 100, offset = 0 } = options;
+    return this.get(accessToken, "/sell/inventory/v1/location", { limit, offset });
+  }
+
+  /**
+   * Create an inventory location (POST /location/{merchantLocationKey}).
+   */
+  async createInventoryLocation(accessToken, merchantLocationKey, body) {
+    return this.post(accessToken, `/sell/inventory/v1/location/${encodeURIComponent(merchantLocationKey)}`, body);
+  }
+
+  /**
+   * Get fulfillment policies.
+   */
+  async getFulfillmentPolicies(accessToken, marketplaceId) {
+    return this.get(accessToken, "/sell/account/v1/fulfillment_policy", { marketplace_id: marketplaceId });
+  }
+
+  /**
+   * Get payment policies.
+   */
+  async getPaymentPolicies(accessToken, marketplaceId) {
+    return this.get(accessToken, "/sell/account/v1/payment_policy", { marketplace_id: marketplaceId });
+  }
+
+  /**
+   * Get return policies.
+   */
+  async getReturnPolicies(accessToken, marketplaceId) {
+    return this.get(accessToken, "/sell/account/v1/return_policy", { marketplace_id: marketplaceId });
+  }
 }
-
-
 
 module.exports = {
   EbayApiClient,

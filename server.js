@@ -22,6 +22,7 @@ const http = require("http");                                // real time update
 const { Server } = require("socket.io");                     // by shiva
 const startBackInStockChecker = require("./services/checkBackInStock.service");    // by shiva
 const ebayRoutes = require("./routes/ebay.routes");   // by shiva
+const ebayCatalogSyncRoutes = require("./routes/ebayCatalogSync.routes");
 
 console.log("[ENV CHECK]", {
   envFile: path.join(__dirname, ".env"),
@@ -303,6 +304,7 @@ app.use("/api/conversations", require("./routes/conversation.routes"));
 app.use("/api/orders", require("./routes/order.routes"));
 app.use("/api/integrations", require("./routes/integration.routes"));
 app.use("/api/integrations/ebay", ebayRoutes);
+app.use("/api/ebay", ebayCatalogSyncRoutes);
 
 // WhatsApp adapter — self-registers with PlatformManager on require
 require("./services/adapters/whatsappAdapter");
@@ -400,6 +402,17 @@ server.listen(PORT, () => {
     }
   } catch (err) {
     console.error("Failed to start VIN cron job:", err.message || err);
+  }
+
+  // Start the eBay catalog sync (6-hour) cron job.
+  // Automatically syncs CRM Inventory to eBay every 6 hours.
+  // Failure-tolerant: one failed run never prevents future runs.
+  try {
+    const startEbayCatalogSync = require("./jobs/ebayCatalogSyncJob");
+    startEbayCatalogSync();
+    console.log("eBay catalog 6-hour sync cron job started");
+  } catch (err) {
+    console.error("Failed to start eBay catalog sync cron job:", err.message || err);
   }
 });
 
