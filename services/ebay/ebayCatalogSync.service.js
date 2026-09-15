@@ -33,11 +33,13 @@ const Inventory = require("../../models/Inventory.model");
 const IntegrationAccount = require("../../models/IntegrationAccount.model");
 const platformManager = require("../platformManager.service");
 const { EbayApiClient, EbayAuthError, EbayRateLimitError } = require("../clients/ebayApiClient");
+const EbayTradingClient = require("../clients/ebayTradingClient");
 const { mapProduct } = require("./ebayProductMapper");
 const ebayConfig = require("../../config/ebayCatalogConfig");
 const { runWithConcurrency } = require("../wixPartSync.service");
 
 const client = new EbayApiClient();
+const tradingClient = new EbayTradingClient();
 
 /**
  * Ensure a valid eBay access token is available.
@@ -304,10 +306,254 @@ async function syncCatalog(options = {}) {
  * fitment, create/update the offer, publish, verify, and persist state back
  * to Inventory.
  */
+
+function escapeXml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function buildMotorsAddFixedPriceItemXml(inventoryItem, mapped) {
+  const sku = mapped.sku;
+  const product = mapped.inventoryItemPayload.product;
+
+  const title = product.title;
+  const description = mapped.offerPayload.listingDescription;
+  const price = mapped.offerPayload.pricingSummary.price.value;
+  const categoryId = mapped.ebayCategoryId;
+  const imageUrls = product.imageUrls || [];
+  const aspects = product.aspects || {};
+
+  const itemSpecifics = Object.entries(aspects)
+    .map(([name, values]) => {
+      const valueArray = Array.isArray(values) ? values : [values];
+
+      return `
+        <NameValueList>
+          <Name>${escapeXml(name)}</Name>
+          ${valueArray
+            .map((value) => `<Value>${escapeXml(value)}</Value>`)
+            .join("")}
+        </NameValueList>`;
+    })
+    .join("");
+
+  let compatibility = "";
+
+  if (mapped.compatibilityPayload?.compatibleProducts?.length) {
+    const properties =
+      mapped.compatibilityPayload.compatibleProducts[0]
+        .compatibilityProperties || [];
+
+    compatibility = `
+      <ItemCompatibilityList>
+        <Compatibility>
+          ${properties
+            .map(
+              (p) => `
+            <NameValueList>
+              <Name>${escapeXml(p.name)}</Name>
+              <Value>${escapeXml(p.value)}</Value>
+            </NameValueList>`
+            )
+            .join("")}
+        </Compatibility>
+      </ItemCompatibilityList>`;
+  }
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<AddFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+
+  <Item>
+    <Title>${escapeXml(title)}</Title>
+
+    <Description><![CDATA[${description}]]></Description>
+
+    <PrimaryCategory>
+      <CategoryID>${escapeXml(categoryId)}</CategoryID>
+    </PrimaryCategory>
+
+    <StartPrice>${escapeXml(price)}</StartPrice>
+    <Quantity>1</Quantity>
+
+    <ConditionID>3000</ConditionID>
+
+    <SKU>${escapeXml(sku)}</SKU>
+
+    <ListingDuration>GTC</ListingDuration>
+    <ListingType>FixedPriceItem</ListingType>
+
+    <Country>US</Country>
+    <Currency>USD</Currency>
+
+    <Location>Wrightstown, NJ</Location>
+    <PostalCode>08562</PostalCode>
+
+    <DispatchTimeMax>2</DispatchTimeMax>
+
+    <PictureDetails>
+      ${imageUrls
+        .slice(0, 12)
+        .map((url) => `<PictureURL>${escapeXml(url)}</PictureURL>`)
+        .join("")}
+    </PictureDetails>
+
+    <SellerProfiles>
+      <SellerPaymentProfile>
+        <PaymentProfileID>322686018011</PaymentProfileID>
+      </SellerPaymentProfile>
+
+      <SellerShippingProfile>
+        <ShippingProfileID>322686093011</ShippingProfileID>
+      </SellerShippingProfile>
+    </SellerProfiles>
+
+    <ShippingServiceCostOverrideList>
+      <ShippingServiceCostOverride>
+        <ShippingServiceType>Domestic</ShippingServiceType>
+        <ShippingServicePriority>1</ShippingServicePriority>
+        <ShippingServiceCost>10.00</ShippingServiceCost>
+        <ShippingServiceAdditionalCost>0.00</ShippingServiceAdditionalCost>
+      </ShippingServiceCostOverride>
+    </ShippingServiceCostOverrideList>
+
+    <ItemSpecifics>
+      ${itemSpecifics}
+    </ItemSpecifics>
+
+    ${compatibility}
+  </Item>
+</AddFixedPriceItemRequest>`;
+}
+
+async function syncMotorsProduct(inventoryItem, mapped, accessToken, summary) {
+  const sku = mapped.sku;
+
+  console.log(
+    `[EBAY_MOTORS_SYNC] Processing SKU=${sku} category=${mapped.ebayCategoryId}`
+  );
+
+  const existingListingId = inventoryItem.ebayListingId;
+
+  if (existingListingId) {
+    throw new Error(
+      `Motors update path not yet enabled for ItemID=${existingListingId}`
+    );
+  }
+
+  const xml = buildMotorsAddFixedPriceItemXml(
+    inventoryItem,
+    mapped
+  );
+
+  let response;
+
+  try {
+    response = await tradingClient.call(
+      accessToken,
+      "AddFixedPriceItem",
+      xml
+    );
+  } catch (err) {
+    summary.totalApiErrors++;
+    throw wrapStageError(
+      "eBay Motors AddFixedPriceItem failed",
+      err
+    );
+  }
+
+  const result = response?.AddFixedPriceItemResponse;
+
+  if (!result) {
+    summary.totalApiErrors++;
+    throw new Error(
+      "eBay Motors returned an invalid AddFixedPriceItem response"
+    );
+  }
+
+  const ack = String(result.Ack || "").toLowerCase();
+
+  if (ack === "failure") {
+    summary.totalApiErrors++;
+
+    const errors = Array.isArray(result.Errors)
+      ? result.Errors
+      : result.Errors
+        ? [result.Errors]
+        : [];
+
+    const message = errors
+      .map(
+        (e) =>
+          `${e.ErrorCode || ""}: ${
+            e.LongMessage || e.ShortMessage || ""
+          }`
+      )
+      .join(" | ");
+
+    throw new Error(
+      `eBay Motors listing creation failed: ${
+        message || "Unknown eBay error"
+      }`
+    );
+  }
+
+  const listingId = result.ItemID;
+
+  if (!listingId) {
+    summary.totalApiErrors++;
+    throw new Error(
+      "eBay Motors returned success but no ItemID"
+    );
+  }
+
+  console.log(
+    `[EBAY_MOTORS_SYNC] SUCCESS SKU=${sku} ItemID=${listingId}`
+  );
+
+  await Inventory.findByIdAndUpdate(
+    inventoryItem._id,
+    {
+      $set: {
+        ebaySku: sku,
+        ebayListingId: String(listingId),
+        ebayMarketplaceId: "EBAY_MOTORS_US",
+        ebayCategoryId: mapped.ebayCategoryId,
+        ebaySyncStatus: "PUBLISHED",
+        ebaySyncHash: mapped.syncHash,
+        ebayLastSyncedAt: new Date(),
+        ebaySyncError: null,
+      },
+    }
+  );
+
+  summary.totalCreated++;
+  summary.totalPublished++;
+
+  return {
+    listingId: String(listingId),
+  };
+}
+
 async function syncProduct(inventoryItem, mapped, accessToken, summary) {
   const sku = mapped.sku;
   const inventoryItemPayload = mapped.inventoryItemPayload;
   const offerPayload = mapped.offerPayload;
+
+  // eBay Motors Parts & Accessories use the Trading API.
+  if (String(mapped.ebayCategoryId) === "33543") {
+    return syncMotorsProduct(
+      inventoryItem,
+      mapped,
+      accessToken,
+      summary
+    );
+  }
 
   console.log(`[EBAY_SYNC] Processing SKU=${sku} title="${inventoryItemPayload?.product?.title || "N/A"}"`);
 
