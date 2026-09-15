@@ -8,8 +8,12 @@ const CustomerSchema = new mongoose.Schema(
       trim: true,
     },
     lastName: {
+      // Optional: a seller may legitimately provide a single-word name (e.g.
+      // "Ramesh"), in which case only firstName is populated and lastName
+      // stays "". The name-split logic never fabricates a surname, and existing
+      // documents that already carry a lastName remain fully valid.
       type: String,
-      required: [true, "Last name is required"],
+      default: "",
       trim: true,
     },
     mobileNo: {

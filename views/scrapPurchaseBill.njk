@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Scrap Purchase Bill - {{ billPadded or '—' }}</title>
+    <style>
+      @page { size: Letter portrait; margin: 0.6in; }
+      html,body{margin:0;padding:0;font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; color:#0f172a; -webkit-print-color-adjust:exact}
+      body{ padding:18px}
+      .sheet{max-width:800px;margin:0 auto;background:#fff;overflow:hidden}
+      .container{padding:36px}
+
+      /* Header */
+      .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+      .brand{display:flex;gap:16px;align-items:center}
+      .logo{width:auto;min-width:120px;height:auto;border-radius:0;background:transparent;display:flex;align-items:center;justify-content:center;border:0}
+      .logo img{max-width:160px;height:auto;border-radius:0;object-fit:contain;display:block}
+      .company{font-size:14px;font-weight:700}
+      .company .muted{display:block;color:#6b7280;font-weight:500;font-size:12px}
+
+      .bill-meta{text-align:right}
+      .bill-meta h2{margin:0;font-size:20px}
+      .bill-meta .muted{color:#6b7280;font-size:12px}
+
+      hr.sep{border:0;border-top:1px solid #eef4ff;margin:18px 0}
+
+      /* Supplier info */
+      .supplier{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px}
+      .supplier .left{min-width:260px}
+      .section-title{color:#6b7280;font-size:12px;margin-bottom:8px}
+
+      /* Items table */
+      table.items{width:100%;border-collapse:collapse;margin-top:14px}
+      table.items thead th{background:#e7f0fb;color:#0f172a;text-align:left;padding:12px;font-weight:600;border-bottom:1px solid #dfeefb}
+      table.items thead th.center, table.items tbody td.center { text-align:center }
+      table.items thead th.right, table.items tbody td.right { text-align:right }
+      table.items tbody td.right { font-variant-numeric: tabular-nums; }
+      table.items tbody td{padding:14px 12px;border-bottom:1px solid #f1f6fb;vertical-align:top}
+      .item-desc{color:#6b7280;font-size:13px}
+
+      /* Totals */
+      .totals{display:flex;justify-content:flex-end;margin-top:18px}
+      .totals .box{width:320px}
+      .totals .line{display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #f1f6fb}
+      .totals .line .k{color:#6b7280}
+      .totals .total{font-weight:700}
+      .balance-pill{display:inline-block;margin-top:12px;background:#eef6ff;padding:12px 16px;border-radius:8px;font-weight:800;color:#06266b;float:right}
+    </style>
+  </head>
+  <body>
+    <div class="sheet">
+      <div class="container">
+        <div class="top">
+          <div class="brand">
+            <div class="logo">
+              <img src="{{ logoSrc }}" alt="AutoHub Express" style="max-width:160px;height:auto;border-radius:0;display:block;object-fit:contain"/>
+            </div>
+            <div>
+              <div class="company">{{ 'RTX Recycling Inc' }}</div>
+              <div class="muted">{{ '242 Monmouth Road' }}</div>
+              <div class="muted">{{ 'Wrightstown,' }}</div>
+              <div class="muted">{{ 'New Jersey 08562' }}</div>
+              <div class="muted">{{ 'USA' }}</div>
+              <div class="muted">{{ 'hello@autohub.express' }}</div>
+              <div class="muted">Phone: {{ '+1 609 758 1919' }}</div>
+            </div>
+          </div>
+
+          <div class="bill-meta">
+            {% set issueDate = record.paymentDate or generatedAt %}
+            {% set issueDateStr = '' %}
+            {% if issueDate %}
+              {% if issueDate.toLocaleDateString %}
+                {% set issueDateStr = issueDate.toLocaleDateString('en-US') %}
+              {% else %}
+                {% set issueDateStr = issueDate | date('MMM DD, YYYY') %}
+              {% endif %}
+            {% endif %}
+            <h2>Scrap Purchase Bill{% if billPadded %} #{{ billPrefix }}-{{ billPadded }}{% endif %}</h2>
+            <div class="muted">Issue Date: {{ issueDateStr }}</div>
+          </div>
+        </div>
+
+        <hr class="sep" />
+
+        <div class="supplier">
+          <div class="left">
+            <div class="section-title">Supplier Info:</div>
+            <div style="font-weight:700">{{ supplier.name or (supplier.firstName and supplier.lastName and (supplier.firstName ~ ' ' ~ supplier.lastName)) or record.supplierSnapshot.name or '—' }}</div>
+            <div class="muted">{{ supplier.email or record.supplierSnapshot.email or '' }}</div>
+            <div class="muted">Phone: {{ supplier.phone or supplier.mobileNo or record.supplierSnapshot.phone or '' }}</div>
+          </div>
+          <div class="right" style="min-width:220px">
+            <div class="section-title">Purchase Details:</div>
+            <div class="muted">Material: {{ record.materialName or 'Scrap Material' }}</div>
+            <div class="muted">Weight: {{ record.weightLbs or 0 }} lb</div>
+            <div class="muted">Rate: {{ (record.pricePerLb or 0) | usCurrency }} / lb</div>
+            {% if record.paymentMethod %}
+              <div class="muted">Payment: {{ record.paymentMethod }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <table class="items" role="table">
+          <thead>
+            <tr>
+              <th style="width:52%">Material</th>
+              <th class="center" style="width:12%">Quantity</th>
+              <th class="right" style="width:18%">Rate / Price</th>
+              <th class="right" style="width:18%">Line Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in items %}
+            <tr>
+              <td>
+                <div style="font-weight:600">{{ it.name or 'Scrap Material' }}</div>
+                {% if it.description %}
+                  <div class="item-desc">{{ it.description }}</div>
+                {% endif %}
+              </td>
+              <td class="center">{{ it.quantity }}</td>
+              <td class="right">{{ (it.price or 0) | usCurrency }}</td>
+              <td class="right">{{ (it.lineTotal or 0) | usCurrency }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <div class="totals">
+          <div class="box">
+            <div class="line"><div class="k">Purchase Total</div><div class="v total">{{ totalAmount | usCurrency }}</div></div>
+            <div class="line"><div class="k">&nbsp;</div><div class="v" style="height:8px"></div></div>
+            <div class="line"><div class="k">Amount Paid</div><div class="v">{{ totalAmount | usCurrency }}</div></div>
+            <div style="padding:12px">
+              {% set balance = 0 %}
+              <div class="balance-pill">Balance Due&nbsp;&nbsp;{{ balance | usCurrency }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="clear:both"></div>
+
+      </div>
+    </div>
+
+    <script>
+      (function(){
+        try{
+          const params = new URLSearchParams(window.location.search);
+          if (params.get('autoPrint') === '1'){
+            function p(){ try{ window.print() }catch(e){} }
+            if (document.readyState === 'complete') p(); else window.addEventListener('load', p);
+          }
+        }catch(e){}
+      })();
+    </script>
+  </body>
+</html>

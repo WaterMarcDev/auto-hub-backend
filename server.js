@@ -273,6 +273,17 @@ app.use("/api/scrap-element", require("./routes/scrapElement.routes"));
 // Element Hub routes (accumulated elements + history + sell)
 app.use("/api/element-hub", require("./routes/elementHub.routes"));
 
+// Scrap Material Purchase routes (independent module — no Car Intake coupling)
+app.use("/api/scrap-purchase", require("./routes/scrapPurchase.routes"));
+
+// Scrap Material Purchase — dedicated seller routes (independent from the
+// shared Customer collection; mounted on its own base path to avoid any
+// conflict with the /api/scrap-purchase/:id route).
+app.use(
+  "/api/scrap-purchase-sellers",
+  require("./routes/scrapPurchaseSeller.routes")
+);
+
 // Inventory routes
 app.use("/api/inventory", require("./routes/inventory.routes"));
 
@@ -372,7 +383,7 @@ app.use((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
-  
+
   startBackInStockChecker();   // Added by shiva
 
   // Start the eBay token auto-refresh cron job.
