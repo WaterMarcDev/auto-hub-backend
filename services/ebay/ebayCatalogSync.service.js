@@ -545,14 +545,14 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
   const offerPayload = mapped.offerPayload;
 
   // eBay Motors Parts & Accessories use the Trading API.
-  if (String(mapped.ebayCategoryId) === "33543") {
-    return syncMotorsProduct(
-      inventoryItem,
-      mapped,
-      accessToken,
-      summary
-    );
-  }
+  // if (String(mapped.ebayCategoryId) === "33543") {
+  //   return syncMotorsProduct(
+  //     inventoryItem,
+  //     mapped,
+  //     accessToken,
+  //     summary
+  //   );
+  // }
 
   console.log(`[EBAY_SYNC] Processing SKU=${sku} title="${inventoryItemPayload?.product?.title || "N/A"}"`);
 
@@ -573,6 +573,16 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
     summary.totalUnchanged++;
     console.log(`[EBAY_SYNC] SKU=${sku} UNCHANGED (hash match)`);
     return;
+  }
+
+  // eBay Motors Parts & Accessories use the Trading API.
+  if (String(mapped.ebayCategoryId) === "33543") {
+    return syncMotorsProduct(
+      inventoryItem,
+      mapped,
+      accessToken,
+      summary
+    );
   }
 
   // ── Phase A: Create or replace Inventory Item ────────────────────
