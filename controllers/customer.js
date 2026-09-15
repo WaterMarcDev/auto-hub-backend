@@ -1,5 +1,20 @@
 const Customer = require("../models/customer");
 
+// Validates a US-style phone number. Accepts 10 digits, or 11 digits with a
+// leading country code 1, allowing spaces, dashes, parentheses, dots and a
+// leading "+". Any value containing letters is rejected. Kept as a local
+// helper (NOT a schema validator) so the shared Customer schema and all
+// unrelated customer/vehicle workflows remain fully backward compatible.
+const isValidUsPhone = (value) => {
+  if (value === undefined || value === null) return false;
+  const raw = String(value).trim();
+  if (!raw) return false;
+  if (/[a-zA-Z]/.test(raw)) return false;
+  const cleaned = raw.replace(/[\s\-().+]/g, "");
+  if (!/^\d+$/.test(cleaned)) return false;
+  return /^\d{10}$/.test(cleaned) || /^1\d{10}$/.test(cleaned);
+};
+
 const createCustomer = async (req, res) => {
   try {
     const {
@@ -26,6 +41,16 @@ const createCustomer = async (req, res) => {
         });
       }
       normalizedType = type;
+    }
+
+    // Seller-specific phone validation. Scoped to type "seller" only so
+    // generic/legacy customers and unrelated flows are unaffected. This stops
+    // invalid values from bypassing the frontend by calling POST /customers
+    // directly.
+    if (normalizedType === "seller" && !isValidUsPhone(mobileNo)) {
+      return res.status(400).json({
+        error: "Please enter a valid US phone number.",
+      });
     }
 
     const newCustomer = new Customer({
@@ -56,6 +81,14 @@ const getAllCustomers = async (req, res) => {
 
     const filter = {};
     filter.isDeleted = { $ne: true };
+
+    // Optional Seller/Buyer discriminator filter. The Scrap Purchase supplier
+    // dropdown requests ?type=seller; honor it (restricted to the known enum
+    // values) without altering any other filtering behavior or the response
+    // shape. When omitted, behavior is exactly as before.
+    if (req.query.type === "seller" || req.query.type === "buyer") {
+      filter.type = req.query.type;
+    }
 
     if (req.query.search) {
       const searchRegex = new RegExp(req.query.search, "i");
