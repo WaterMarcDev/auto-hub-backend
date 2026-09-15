@@ -343,26 +343,26 @@ function buildMotorsAddFixedPriceItemXml(inventoryItem, mapped) {
 
   let compatibility = "";
 
-  if (mapped.compatibilityPayload?.compatibleProducts?.length) {
-    const properties =
-      mapped.compatibilityPayload.compatibleProducts[0]
-        .compatibilityProperties || [];
+  // if (mapped.compatibilityPayload?.compatibleProducts?.length) {
+  //   const properties =
+  //     mapped.compatibilityPayload.compatibleProducts[0]
+  //       .compatibilityProperties || [];
 
-    compatibility = `
-      <ItemCompatibilityList>
-        <Compatibility>
-          ${properties
-            .map(
-              (p) => `
-            <NameValueList>
-              <Name>${escapeXml(p.name)}</Name>
-              <Value>${escapeXml(p.value)}</Value>
-            </NameValueList>`
-            )
-            .join("")}
-        </Compatibility>
-      </ItemCompatibilityList>`;
-  }
+  //   compatibility = `
+  //     <ItemCompatibilityList>
+  //       <Compatibility>
+  //         ${properties
+  //           .map(
+  //             (p) => `
+  //           <NameValueList>
+  //             <Name>${escapeXml(p.name)}</Name>
+  //             <Value>${escapeXml(p.value)}</Value>
+  //           </NameValueList>`
+  //           )
+  //           .join("")}
+  //       </Compatibility>
+  //     </ItemCompatibilityList>`;
+  // }
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <AddFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
@@ -426,7 +426,6 @@ function buildMotorsAddFixedPriceItemXml(inventoryItem, mapped) {
       ${itemSpecifics}
     </ItemSpecifics>
 
-    ${compatibility}
   </Item>
 </AddFixedPriceItemRequest>`;
 }
