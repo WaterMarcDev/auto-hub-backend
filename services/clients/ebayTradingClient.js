@@ -9,22 +9,17 @@ class EbayTradingClient {
         });
     }
 
-    /**
-     * FAIL CLOSED: resolved fresh on every call rather than cached at
-     * construction, and never defaults to production. A missing/invalid
-     * EBAY_ENVIRONMENT throws here instead of silently targeting
-     * production — this is the same environment ambiguity this class
-     * previously resolved with `|| "production"`.
-     */
     _getEndpoint() {
         const environment = (process.env.EBAY_ENVIRONMENT || "")
             .toLowerCase()
             .trim();
+
         if (environment !== "sandbox" && environment !== "production") {
             throw new Error(
-                "EBAY_ENVIRONMENT is missing or invalid (must be exactly \"production\" or \"sandbox\") — refusing to guess which eBay environment to call."
+                'EBAY_ENVIRONMENT is missing or invalid (must be exactly "production" or "sandbox") — refusing to guess which eBay environment to call.'
             );
         }
+
         return environment === "sandbox"
             ? "https://api.sandbox.ebay.com/ws/api.dll"
             : "https://api.ebay.com/ws/api.dll";
@@ -40,7 +35,8 @@ class EbayTradingClient {
                         "Content-Type": "text/xml",
                         "X-EBAY-API-CALL-NAME": callName,
                         "X-EBAY-API-COMPATIBILITY-LEVEL": "1231",
-                        "X-EBAY-API-SITEID": "0",
+                        "X-EBAY-API-SITEID":
+                            process.env.EBAY_TRADING_SITE_ID || "0",
                         "X-EBAY-API-IAF-TOKEN": accessToken,
                     },
                     timeout: 30000,
@@ -58,8 +54,6 @@ class EbayTradingClient {
 
             throw error;
         }
-
-        // return this.parser.parse(response.data);
     }
 
     async getManualListings(accessToken, page = 1) {
@@ -79,6 +73,30 @@ class EbayTradingClient {
         return this.call(
             accessToken,
             "GetMyeBaySelling",
+            xml
+        );
+    }
+
+    async reviseFixedPriceItem(accessToken, xml) {
+        return this.call(
+            accessToken,
+            "ReviseFixedPriceItem",
+            xml
+        );
+    }
+
+    async endFixedPriceItem(accessToken, xml) {
+        return this.call(
+            accessToken,
+            "EndFixedPriceItem",
+            xml
+        );
+    }
+
+    async getItem(accessToken, xml) {
+        return this.call(
+            accessToken,
+            "GetItem",
             xml
         );
     }
