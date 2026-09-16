@@ -31,24 +31,83 @@ const buildSupplierSnapshot = (seller) => {
   };
 };
 
+// Raised for malformed item input so the routes can answer with HTTP 400
+// instead of silently coercing bad values (e.g. "abc" -> 0) or failing with 500.
+class ScrapItemValidationError extends Error {}
+
+const isBlankInput = (v) =>
+  v === undefined || v === null || (typeof v === "string" && v.trim() === "");
+
+// Strict numeric parse for line fields. Blank -> 0; anything that is not a real
+// finite number (including booleans, arrays and objects) is rejected.
+const requireNumber = (value, field) => {
+  if (isBlankInput(value)) return 0;
+  if (typeof value === "boolean" || typeof value === "object") {
+    throw new ScrapItemValidationError(`${field} must be a valid number`);
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    throw new ScrapItemValidationError(`${field} must be a valid number`);
+  }
+  return n;
+};
+
 // Normalize an incoming items[] array from the client.
+// - Blank rows are dropped (preserves the previous behavior).
+// - Invalid values (negative / non-numeric / NaN / Infinity / objects / arrays)
+//   throw ScrapItemValidationError so the caller can return HTTP 400.
+// - Duplicate material names are rejected; each material appears at most once.
 const normalizeItems = (items) => {
   if (!Array.isArray(items)) return [];
-  return items
-    .map((it) => {
-      const weightLbs = toNumber(it.weightLbs, 0);
-      const pricePerLb = toNumber(it.pricePerLb, 0);
-      const providedTotal = toNumber(it.totalAmount, 0);
-      const totalAmount = providedTotal > 0 ? providedTotal : weightLbs * pricePerLb;
-      return {
-        materialName: (it.materialName || "Scrap Material").toString().trim(),
-        description: (it.description || "").toString().trim(),
-        weightLbs,
-        pricePerLb,
-        totalAmount: round2(totalAmount),
-      };
-    })
-    .filter((it) => it.weightLbs > 0 || it.totalAmount > 0);
+
+  const out = [];
+  const seen = new Set();
+
+  items.forEach((it) => {
+    if (!it || typeof it !== "object") {
+      throw new ScrapItemValidationError("Each item must be an object");
+    }
+
+    const rawWeight = it.weightLbs;
+    const rawPrice = it.pricePerLb;
+    const rawTotal = it.totalAmount;
+
+    // Fully blank row => ignore (matches prior filter behavior).
+    if (isBlankInput(rawWeight) && isBlankInput(rawPrice) && isBlankInput(rawTotal)) {
+      return;
+    }
+
+    const weightLbs = requireNumber(rawWeight, "Weight (lbs)");
+    const pricePerLb = requireNumber(rawPrice, "Price per lb");
+    const providedTotal = requireNumber(rawTotal, "Line total");
+
+    if (weightLbs < 0) throw new ScrapItemValidationError("Weight cannot be negative");
+    if (pricePerLb < 0) throw new ScrapItemValidationError("Price per lb cannot be negative");
+    if (providedTotal < 0) throw new ScrapItemValidationError("Line total cannot be negative");
+
+    // Keep the previous rule: a line needs weight or an explicit total.
+    if (!(weightLbs > 0 || providedTotal > 0)) return;
+
+    const totalAmount = providedTotal > 0 ? providedTotal : weightLbs * pricePerLb;
+    const materialName =
+      (it.materialName || "Scrap Material").toString().trim() || "Scrap Material";
+
+    const key = materialName.toLowerCase();
+    if (seen.has(key)) {
+      throw new ScrapItemValidationError(`Duplicate material: ${materialName}`);
+    }
+    seen.add(key);
+
+    out.push({
+      materialName,
+      description: (it.description || "").toString().trim(),
+      weightLbs,
+      pricePerLb,
+      totalAmount: round2(totalAmount),
+    });
+  });
+
+  return out;
 };
 
 // ─── create ─────────────────────────────────────────────────────────────────
@@ -108,6 +167,9 @@ const createScrapPurchase = async (req, res) => {
     const created = await ScrapPurchase.create(payload);
     return res.status(201).json(created);
   } catch (error) {
+    if (error instanceof ScrapItemValidationError) {
+      return res.status(400).json({ message: error.message });
+    }
     console.error("Error creating scrap purchase:", error);
     return res.status(500).json({ message: "Server error" });
   }
@@ -251,6 +313,9 @@ const updateScrapPurchase = async (req, res) => {
 
     return res.json(record);
   } catch (error) {
+    if (error instanceof ScrapItemValidationError) {
+      return res.status(400).json({ message: error.message });
+    }
     console.error("Error updating scrap purchase:", error);
     return res.status(500).json({ message: "Server error" });
   }
