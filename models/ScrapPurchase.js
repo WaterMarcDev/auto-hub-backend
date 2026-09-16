@@ -167,12 +167,22 @@ ScrapPurchaseSchema.pre("save", async function (next) {
     const providedTotal = Number(this.totalAmount || 0);
 
     if (Array.isArray(this.items) && this.items.length) {
-      // For multi-line bills the top-level total is the sum of the lines.
+      // For multi-line bills the top-level total is the sum of the lines by
+      // default. An explicit top-level override (a provided total that differs
+      // from the summed line totals) is authoritative and is preserved, so the
+      // operator's Grand Total is what gets stored and printed.
       const sum = this.items.reduce(
         (acc, it) => acc + Number(it.totalAmount || 0),
         0
       );
-      this.totalAmount = Math.round((sum + Number.EPSILON) * 100) / 100;
+      const roundedSum = Math.round((sum + Number.EPSILON) * 100) / 100;
+      const useOverride =
+        Number.isFinite(providedTotal) &&
+        providedTotal > 0 &&
+        Math.abs(providedTotal - roundedSum) > 0.009;
+      this.totalAmount = useOverride
+        ? Math.round((providedTotal + Number.EPSILON) * 100) / 100
+        : roundedSum;
     } else {
       const total = providedTotal > 0 ? providedTotal : weight * rate;
       this.totalAmount = Math.round((total + Number.EPSILON) * 100) / 100;
