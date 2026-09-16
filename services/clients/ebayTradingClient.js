@@ -100,6 +100,14 @@ class EbayTradingClient {
             xml
         );
     }
+
+    async getSellerList(accessToken, xml) {
+        return this.call(
+            accessToken,
+            "GetSellerList",
+            xml
+        );
+    }
 }
 
 module.exports = EbayTradingClient;

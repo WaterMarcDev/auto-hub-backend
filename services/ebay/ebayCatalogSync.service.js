@@ -81,6 +81,33 @@ function isDuplicateOfferError(err) {
   return msg.includes("already exists") || msg.includes("duplicate") || msg.includes("offer entity");
 }
 
+// ── Per-SKU in-process sync serialization ───────────────────────────────
+// The global EbaySyncRun Mongo lock only guards a full syncCatalog() run
+// (scheduled job / manual "Sync Now") — syncSingleProduct() (used by the
+// single-product API and retryFailed) never acquires it, so a scheduled
+// run and a manual retry targeting the SAME SKU could previously execute
+// syncProduct() concurrently for that SKU (e.g. both racing to createOffer,
+// or one's Phase D Mongo write clobbering the other's more recent state).
+// A global lock would be the wrong fix here — it would block every OTHER,
+// unrelated product just because one single-product retry is in flight.
+// This mirrors wixPartSync.service.js's withIdentityLock() pattern (same
+// single-process deployment assumption already documented there) but is
+// implemented independently in this eBay-only file rather than importing
+// from or modifying that Wix file — Wix code must stay untouched and must
+// never gain an eBay dependency.
+const ebaySkuQueues = new Map();
+function withSkuLock(sku, task) {
+  const previousTail = ebaySkuQueues.get(sku) || Promise.resolve();
+  const runAfterPrevious = previousTail.catch(() => {}).then(() => task());
+  ebaySkuQueues.set(sku, runAfterPrevious);
+  runAfterPrevious.finally(() => {
+    if (ebaySkuQueues.get(sku) === runAfterPrevious) {
+      ebaySkuQueues.delete(sku);
+    }
+  });
+  return runAfterPrevious;
+}
+
 /**
  * Wraps a lower-level error with a stage-specific message while preserving
  * its classification (statusCode / rate-limit / auth flags from
@@ -160,6 +187,10 @@ async function syncCatalog(options = {}) {
     error: null,
   };
 
+  // Declared here (not inside the try block below) so it's still in scope
+  // at the function's final `return` after the try/catch.
+  const failureDetails = [];
+
   const startTime = Date.now();
   let accessToken = null;
 
@@ -200,6 +231,15 @@ async function syncCatalog(options = {}) {
     const mappedProducts = inventoryItems.map((item) => mapProduct(item, { dryRun }));
 
     const eligibleProducts = [];
+    // Every mapping-stage failure's actual reason, not just its SKU — see
+    // Phase B: previously a FAILED mapProduct() result (CATEGORY_ERROR,
+    // VALIDATION_ERROR, NO_IMAGES, POLICY_CONFIGURATION_ERROR, ...) was
+    // reduced to a bare SKU in `failedSkus`, with `mapped.reason`/
+    // `mapped.errors` computed and then discarded — an operator hitting
+    // POST /catalog-sync/run/:id had no way to see WHY without reading
+    // server logs at the exact moment the run happened, and the Inventory
+    // record itself was never updated (only failures INSIDE syncProduct()
+    // were persisted; a mapping-stage failure never reaches syncProduct()).
     for (let i = 0; i < mappedProducts.length; i++) {
       const mapped = mappedProducts[i];
       if (mapped.status === "EXCLUDED") {
@@ -211,6 +251,28 @@ async function syncCatalog(options = {}) {
         summary.totalValidationErrors++;
         summary.totalFailed++;
         summary.failedSkus.push(mapped.sku);
+
+        failureDetails.push({
+          sku: mapped.sku,
+          reason: mapped.reason,
+          errors: mapped.errors,
+          warnings: mapped.warnings,
+        });
+        console.error(`[EBAY_SYNC] SKU=${mapped.sku} FAILED validation [${mapped.reason}]: ${mapped.errors.join("; ")}`);
+
+        if (!dryRun) {
+          try {
+            await Inventory.findByIdAndUpdate(inventoryItems[i]._id, {
+              $set: {
+                ebaySyncStatus: "FAILED",
+                ebaySyncError: `[${mapped.reason}] ${mapped.errors.join("; ")}`,
+                ebayLastSyncedAt: new Date(),
+              },
+            });
+          } catch (persistErr) {
+            console.error(`[EBAY_SYNC] CRITICAL: failed to persist validation-failure state for SKU=${mapped.sku}: ${persistErr.message}`);
+          }
+        }
         continue;
       }
       // status === "MAPPED"
@@ -224,7 +286,7 @@ async function syncCatalog(options = {}) {
       summary.totalSkipped = inventoryItems.length - summary.totalExcluded - summary.totalFailed;
       const durationMsEarly = Date.now() - startTime;
       console.log(`[EBAY_SYNC] Complete: ${durationMsEarly}ms | discovered=${summary.totalDiscovered} eligible=0 excluded=${summary.totalExcluded} failed=${summary.totalFailed}`);
-      return { summary, durationMs: durationMsEarly, dryRun };
+      return { summary, failureDetails, durationMs: durationMsEarly, dryRun };
     }
 
     // ── Phase 4: Dry run — return mapped payloads without API calls ──
@@ -233,6 +295,7 @@ async function syncCatalog(options = {}) {
       console.log(`[EBAY_SYNC] DRY RUN: Would process ${eligibleProducts.length} products`);
       return {
         summary,
+        failureDetails,
         mappedProducts: eligibleProducts.map((p) => ({
           sku: p.mapped.sku,
           productTitle: p.mapped.inventoryItemPayload?.product?.title || "N/A",
@@ -253,7 +316,7 @@ async function syncCatalog(options = {}) {
     await runWithConcurrency(eligibleProducts, async (product) => {
       const { inventoryItem, mapped } = product;
       try {
-        await syncProduct(inventoryItem, mapped, accessToken, summary);
+        await withSkuLock(mapped.sku, () => syncProduct(inventoryItem, mapped, accessToken, summary));
       } catch (err) {
         summary.totalFailed++;
         summary.failedSkus.push(mapped.sku);
@@ -298,7 +361,7 @@ async function syncCatalog(options = {}) {
   const durationMs = Date.now() - startTime;
   console.log(`[EBAY_SYNC] Complete: ${durationMs}ms | discovered=${summary.totalDiscovered} eligible=${summary.totalEligible} excluded=${summary.totalExcluded} created=${summary.totalCreated} updated=${summary.totalUpdated} published=${summary.totalPublished} failed=${summary.totalFailed}`);
 
-  return { summary, durationMs, dryRun };
+  return { summary, failureDetails, durationMs, dryRun };
 }
 
 /**
@@ -316,7 +379,17 @@ function escapeXml(value) {
     .replace(/'/g, "&apos;");
 }
 
-function buildMotorsAddFixedPriceItemXml(inventoryItem, mapped) {
+/**
+ * Builds the <Item>...</Item> fields shared by AddFixedPriceItem and
+ * ReviseFixedPriceItem, so the two request types can never drift apart
+ * (e.g. one having fitment/policies and the other not). Trading API
+ * Revise calls are PARTIAL updates by default — only fields present in
+ * the request change — so sending this full, freshly-mapped field set on
+ * every revise (not just the changed ones) guarantees the live listing
+ * matches the current CRM state exactly, closing the "stale partial
+ * payload" risk called out earlier in this audit.
+ */
+function buildMotorsItemFieldsXml(mapped) {
   const sku = mapped.sku;
   const product = mapped.inventoryItemPayload.product;
 
@@ -341,35 +414,53 @@ function buildMotorsAddFixedPriceItemXml(inventoryItem, mapped) {
     })
     .join("");
 
+  // Vehicle fitment for the Motors Trading API. Matches eBay's documented
+  // Item.ItemCompatibilityList schema: one <Compatibility> block per
+  // compatible vehicle, each carrying its Year/Make/Model/Trim as sibling
+  // NameValueList entries — the same shape mapProduct() already builds for
+  // the REST Product Compatibility API (see ebayProductMapper.js), just
+  // re-expressed as XML instead of JSON. Previously this block was fully
+  // commented out AND the resulting variable was never even referenced in
+  // the returned template — a Motors listing could never have carried
+  // fitment data even if the comment-out had been the only problem.
   let compatibility = "";
+  if (mapped.compatibilityPayload?.compatibleProducts?.length) {
+    const properties =
+      mapped.compatibilityPayload.compatibleProducts[0]
+        .compatibilityProperties || [];
 
-  // if (mapped.compatibilityPayload?.compatibleProducts?.length) {
-  //   const properties =
-  //     mapped.compatibilityPayload.compatibleProducts[0]
-  //       .compatibilityProperties || [];
+    if (properties.length) {
+      compatibility = `
+    <ItemCompatibilityList>
+      <Compatibility>
+        ${properties
+          .map(
+            (p) => `
+        <NameValueList>
+          <Name>${escapeXml(p.name)}</Name>
+          <Value>${escapeXml(p.value)}</Value>
+        </NameValueList>`
+          )
+          .join("")}
+      </Compatibility>
+    </ItemCompatibilityList>`;
+    }
+  }
 
-  //   compatibility = `
-  //     <ItemCompatibilityList>
-  //       <Compatibility>
-  //         ${properties
-  //           .map(
-  //             (p) => `
-  //           <NameValueList>
-  //             <Name>${escapeXml(p.name)}</Name>
-  //             <Value>${escapeXml(p.value)}</Value>
-  //           </NameValueList>`
-  //           )
-  //           .join("")}
-  //       </Compatibility>
-  //     </ItemCompatibilityList>`;
-  // }
+  // Return policy: only included when explicitly configured (see
+  // config/ebayCatalogConfig.js — no verified Return Profile ID exists yet
+  // for this account, and the two currently-live Motors listings were
+  // created with none, relying on the account's own default return
+  // policy). Adding it is additive/opt-in so this never regresses
+  // currently-working Motors listings.
+  const returnProfile = ebayConfig.EBAY_MOTORS_RETURN_PROFILE_ID
+    ? `
+      <SellerReturnProfile>
+        <ReturnProfileID>${escapeXml(ebayConfig.EBAY_MOTORS_RETURN_PROFILE_ID)}</ReturnProfileID>
+      </SellerReturnProfile>`
+    : "";
 
-  return `<?xml version="1.0" encoding="utf-8"?>
-<AddFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <ErrorLanguage>en_US</ErrorLanguage>
-  <WarningLevel>High</WarningLevel>
-
-  <Item>
+  return `
     <Title>${escapeXml(title)}</Title>
 
     <Description><![CDATA[${description}]]></Description>
@@ -391,8 +482,8 @@ function buildMotorsAddFixedPriceItemXml(inventoryItem, mapped) {
     <Country>US</Country>
     <Currency>USD</Currency>
 
-    <Location>Wrightstown, NJ</Location>
-    <PostalCode>08562</PostalCode>
+    <Location>${escapeXml(ebayConfig.EBAY_MOTORS_LOCATION)}</Location>
+    <PostalCode>${escapeXml(ebayConfig.EBAY_MOTORS_POSTAL_CODE)}</PostalCode>
 
     <DispatchTimeMax>2</DispatchTimeMax>
 
@@ -405,12 +496,12 @@ function buildMotorsAddFixedPriceItemXml(inventoryItem, mapped) {
 
     <SellerProfiles>
       <SellerPaymentProfile>
-        <PaymentProfileID>322686018011</PaymentProfileID>
+        <PaymentProfileID>${escapeXml(ebayConfig.EBAY_MOTORS_PAYMENT_PROFILE_ID)}</PaymentProfileID>
       </SellerPaymentProfile>
 
       <SellerShippingProfile>
-        <ShippingProfileID>322686093011</ShippingProfileID>
-      </SellerShippingProfile>
+        <ShippingProfileID>${escapeXml(ebayConfig.EBAY_MOTORS_SHIPPING_PROFILE_ID)}</ShippingProfileID>
+      </SellerShippingProfile>${returnProfile}
     </SellerProfiles>
 
     <ShippingServiceCostOverrideList>
@@ -425,118 +516,416 @@ function buildMotorsAddFixedPriceItemXml(inventoryItem, mapped) {
     <ItemSpecifics>
       ${itemSpecifics}
     </ItemSpecifics>
+${compatibility}`;
+}
 
+function buildMotorsAddFixedPriceItemXml(mapped) {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<AddFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  <Item>${buildMotorsItemFieldsXml(mapped)}
   </Item>
 </AddFixedPriceItemRequest>`;
 }
 
-async function syncMotorsProduct(inventoryItem, mapped, accessToken, summary) {
-  const sku = mapped.sku;
+function buildMotorsReviseFixedPriceItemXml(mapped, itemId) {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  <Item>
+    <ItemID>${escapeXml(itemId)}</ItemID>${buildMotorsItemFieldsXml(mapped)}
+  </Item>
+</ReviseFixedPriceItemRequest>`;
+}
 
-  console.log(
-    `[EBAY_MOTORS_SYNC] Processing SKU=${sku} category=${mapped.ebayCategoryId}`
-  );
+/**
+ * Builds a GetSellerList request that filters (server-side, via SKUArray)
+ * to just the ONE given SKU — NOT a full seller-listing scan. Per eBay's
+ * own Trading API docs (GetSellerListRequestType), SKUArray "filters
+ * (reduces) the response to only include active listings that the seller
+ * listed with any of the specified SKUs." This call additionally REQUIRES
+ * an EndTimeFrom/EndTimeTo (or StartTimeFrom/StartTimeTo) window no wider
+ * than 120 days — satisfied here with "now" to "now + 119 days", which
+ * reliably covers any currently-active GTC listing regardless of its
+ * original creation date, since a GTC listing's live EndTime is always
+ * recalculated forward at each renewal and therefore always falls within
+ * the next few weeks from "now", well inside this window.
+ */
+function buildGetSellerListBySkuXml(sku) {
+  const now = new Date();
+  const endTimeFrom = now.toISOString();
+  const endTimeTo = new Date(now.getTime() + 119 * 24 * 60 * 60 * 1000).toISOString();
 
-  const existingListingId = inventoryItem.ebayListingId;
+  return `<?xml version="1.0" encoding="utf-8"?>
+<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ErrorLanguage>en_US</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  <SKUArray>
+    <SKU>${escapeXml(sku)}</SKU>
+  </SKUArray>
+  <EndTimeFrom>${endTimeFrom}</EndTimeFrom>
+  <EndTimeTo>${endTimeTo}</EndTimeTo>
+  <Pagination>
+    <EntriesPerPage>10</EntriesPerPage>
+    <PageNumber>1</PageNumber>
+  </Pagination>
+  <GranularityLevel>Fine</GranularityLevel>
+</GetSellerListRequest>`;
+}
 
-  if (existingListingId) {
-    throw new Error(
-      `Motors update path not yet enabled for ItemID=${existingListingId}`
-    );
+/**
+ * Motors SKU reconciliation (Gap #6 from the production-hardening audit):
+ * if Mongo lost `ebayListingId` for a Motors-category product but the SKU
+ * is still actively listed on eBay, this performs a SAFE, TARGETED lookup
+ * (GetSellerList filtered by SKUArray to exactly this one SKU — never a
+ * full-catalog scan) to find the existing ItemID BEFORE syncMotorsProduct
+ * would otherwise call AddFixedPriceItem and create a duplicate listing.
+ * Mirrors the REST path's proven client.getOffers(accessToken, sku)
+ * pre-create reconciliation pattern (see syncProduct's Phase B) — same
+ * shape, same safety property, just the Trading API's equivalent call.
+ * Returns the found ItemID (string) or null if genuinely not found.
+ * Non-fatal on error: falls through to the normal create attempt, exactly
+ * like the REST path's reconciliation try/catch.
+ */
+async function reconcileMotorsListingBySku(accessToken, sku) {
+  let response;
+  try {
+    response = await tradingClient.getSellerList(accessToken, buildGetSellerListBySkuXml(sku));
+  } catch (err) {
+    console.warn(`[EBAY_MOTORS_SYNC] SKU=${sku} GetSellerList reconciliation lookup failed (continuing to create attempt): ${err.message}`);
+    return null;
   }
 
-  const xml = buildMotorsAddFixedPriceItemXml(
-    inventoryItem,
-    mapped
-  );
+  const result = response?.GetSellerListResponse;
+  const ack = String(result?.Ack || "").toLowerCase();
+  if (!result || (ack !== "success" && ack !== "warning")) {
+    console.warn(`[EBAY_MOTORS_SYNC] SKU=${sku} GetSellerList reconciliation returned Ack=${result?.Ack || "unknown"} (continuing to create attempt)`);
+    return null;
+  }
 
+  const rawItems = result.ItemArray?.Item;
+  const items = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
+  const match = items.find((it) => String(xmlTextValue(it?.SKU)) === String(sku));
+  return match ? String(xmlTextValue(match.ItemID)) : null;
+}
+
+function buildMotorsGetItemXml(itemId) {
+  // IncludeItemCompatibilityList=true is REQUIRED for eBay to return
+  // Item.ItemCompatibilityList at all — per eBay's own Trading API docs
+  // (developer.ebay.com/api-docs/user-guides/static/trading-user-guide/
+  // retrieve-compatibility-items.html): "ItemCompatibilityList is only
+  // returned if the seller included item compatibility in the listing AND
+  // IncludeItemCompatibilityList is set to true in the GetItem request."
+  // DetailLevel=ReturnAll alone does NOT return it. Without this flag,
+  // verifyMotorsListing() has no way to confirm fitment was actually saved
+  // by eBay — it would either have to skip the check silently or falsely
+  // claim verification never actually performed.
+  return `<?xml version="1.0" encoding="utf-8"?>
+<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ItemID>${escapeXml(itemId)}</ItemID>
+  <DetailLevel>ReturnAll</DetailLevel>
+  <IncludeItemCompatibilityList>true</IncludeItemCompatibilityList>
+</GetItemRequest>`;
+}
+
+/** fast-xml-parser (ignoreAttributes:false, attributeNamePrefix:"") returns
+ * an element with both text and attributes as { "#text": "...", ...attrs }
+ * — this unwraps that shape uniformly, whether or not attributes exist. */
+function xmlTextValue(node) {
+  if (node === null || node === undefined) return undefined;
+  if (typeof node === "object") return node["#text"];
+  return node;
+}
+
+/**
+ * Post-publish/post-revise verification for the Motors Trading API path —
+ * the REST path has had this since an earlier audit pass; the Motors path
+ * previously had NONE (an "AddFixedPriceItemResponse Ack=Success" was
+ * treated as complete proof, exactly what this audit's Phase 15 forbids).
+ * Retrieves the actual live item via GetItem and cross-checks the fields
+ * that matter before the caller is allowed to mark PUBLISHED/UPDATED.
+ */
+async function verifyMotorsListing(accessToken, itemId, mapped) {
   let response;
-
   try {
-    response = await tradingClient.call(
+    response = await tradingClient.getItem(
       accessToken,
-      "AddFixedPriceItem",
-      xml
+      buildMotorsGetItemXml(itemId)
     );
   } catch (err) {
-    summary.totalApiErrors++;
-    throw wrapStageError(
-      "eBay Motors AddFixedPriceItem failed",
-      err
-    );
+    return { ok: false, error: `GetItem call failed: ${err.message}` };
   }
 
-  const result = response?.AddFixedPriceItemResponse;
-
-  if (!result) {
-    summary.totalApiErrors++;
-    throw new Error(
-      "eBay Motors returned an invalid AddFixedPriceItem response"
-    );
-  }
-
-  const ack = String(result.Ack || "").toLowerCase();
-
-  if (ack === "failure") {
-    summary.totalApiErrors++;
-
-    const errors = Array.isArray(result.Errors)
+  const result = response?.GetItemResponse;
+  const ack = String(result?.Ack || "").toLowerCase();
+  if (!result || (ack !== "success" && ack !== "warning")) {
+    const errors = Array.isArray(result?.Errors)
       ? result.Errors
-      : result.Errors
+      : result?.Errors
         ? [result.Errors]
         : [];
-
     const message = errors
-      .map(
-        (e) =>
-          `${e.ErrorCode || ""}: ${
-            e.LongMessage || e.ShortMessage || ""
-          }`
-      )
+      .map((e) => `${e.ErrorCode || ""}: ${e.LongMessage || e.ShortMessage || ""}`)
       .join(" | ");
-
-    throw new Error(
-      `eBay Motors listing creation failed: ${
-        message || "Unknown eBay error"
-      }`
-    );
+    return { ok: false, error: `GetItem returned Ack=${result?.Ack || "unknown"}: ${message || "no detail"}` };
   }
 
-  const listingId = result.ItemID;
+  const item = result.Item;
+  if (!item) {
+    return { ok: false, error: "GetItem response contained no Item" };
+  }
 
-  if (!listingId) {
-    summary.totalApiErrors++;
-    throw new Error(
-      "eBay Motors returned success but no ItemID"
-    );
+  const remoteSku = xmlTextValue(item.SKU);
+  const remoteTitle = xmlTextValue(item.Title);
+  const remotePrice = xmlTextValue(item.StartPrice) ?? xmlTextValue(item.SellingStatus?.CurrentPrice);
+  const remoteStatus = xmlTextValue(item.SellingStatus?.ListingStatus);
+
+  const expectedSku = mapped.sku;
+  const expectedTitle = mapped.inventoryItemPayload.product.title;
+  const expectedPrice = mapped.offerPayload.pricingSummary.price.value;
+
+  if (remoteSku !== undefined && String(remoteSku) !== String(expectedSku)) {
+    return { ok: false, error: `SKU mismatch (expected ${expectedSku}, eBay reports ${remoteSku})` };
+  }
+  if (remoteTitle !== undefined && String(remoteTitle) !== String(expectedTitle)) {
+    return { ok: false, error: `Title mismatch (expected "${expectedTitle}", eBay reports "${remoteTitle}")` };
+  }
+  if (remotePrice !== undefined && Number(remotePrice) !== Number(expectedPrice)) {
+    return { ok: false, error: `Price mismatch (expected ${expectedPrice}, eBay reports ${remotePrice})` };
+  }
+  if (remoteStatus !== undefined && remoteStatus !== "Active" && remoteStatus !== "Custom") {
+    return { ok: false, error: `Listing status is "${remoteStatus}", expected Active` };
+  }
+
+  // ── Fitment / vehicle compatibility verification ──────────────────────
+  // Only meaningful when this product actually carries fitment data (see
+  // mapProduct()'s Phase 8b — Year/Make/Model can be legitimately absent,
+  // in which case compatibilityPayload is null and there is nothing to
+  // verify). The request now sets IncludeItemCompatibilityList=true (see
+  // buildMotorsGetItemXml) specifically so this comparison is possible at
+  // all — without that flag eBay never returns ItemCompatibilityList, and
+  // this function must NOT claim fitment was verified in that case.
+  const expectedProperties =
+    mapped.compatibilityPayload?.compatibleProducts?.[0]?.compatibilityProperties || [];
+
+  let fitmentVerified = "not_applicable";
+  if (expectedProperties.length > 0) {
+    const rawCompatList = item.ItemCompatibilityList?.Compatibility;
+    const remoteCompatBlocks = Array.isArray(rawCompatList)
+      ? rawCompatList
+      : rawCompatList
+        ? [rawCompatList]
+        : [];
+
+    if (remoteCompatBlocks.length === 0) {
+      return {
+        ok: false,
+        error: `Fitment mismatch: expected vehicle compatibility (${expectedProperties.map((p) => `${p.name}=${p.value}`).join(", ")}) but eBay's GetItem response contained no ItemCompatibilityList`,
+      };
+    }
+
+    // We only ever send ONE Compatibility block per mapProduct()'s Phase 8b
+    // (a single Year/Make/Model/Trim tuple, not a fitment table) — check
+    // that at least one returned block matches every expected property
+    // exactly, rather than assuming array position/order is preserved.
+    const matchFound = remoteCompatBlocks.some((block) => {
+      const rawList = block?.NameValueList;
+      const entries = Array.isArray(rawList) ? rawList : rawList ? [rawList] : [];
+      const remoteMap = {};
+      for (const entry of entries) {
+        const name = xmlTextValue(entry?.Name);
+        const value = xmlTextValue(entry?.Value);
+        if (name !== undefined) remoteMap[String(name).toLowerCase()] = value;
+      }
+      return expectedProperties.every(
+        (p) => String(remoteMap[p.name.toLowerCase()] ?? "") === String(p.value)
+      );
+    });
+
+    if (!matchFound) {
+      return {
+        ok: false,
+        error: `Fitment mismatch: expected vehicle compatibility (${expectedProperties.map((p) => `${p.name}=${p.value}`).join(", ")}) not found in eBay's returned ItemCompatibilityList`,
+      };
+    }
+    fitmentVerified = true;
+  }
+
+  return {
+    ok: true,
+    remoteState: { sku: remoteSku, title: remoteTitle, price: remotePrice, status: remoteStatus, fitmentVerified },
+  };
+}
+
+async function syncMotorsProduct(inventoryItem, mapped, accessToken, summary) {
+  const sku = mapped.sku;
+  let existingListingId = inventoryItem.ebayListingId;
+  let isNewListing = !existingListingId;
+
+  // ── SKU reconciliation (Gap #6, corrected from an earlier audit pass) ──
+  // An earlier pass concluded no safe by-SKU lookup existed on the Trading
+  // API and documented this as a hard limitation. Further research this
+  // session found that's WRONG: GetSellerList's SKUArray field ("filters
+  // (reduces) the response to only include active listings that the seller
+  // listed with any of the specified SKUs" — developer.ebay.com's
+  // GetSellerListRequestType docs) provides exactly the targeted, single-
+  // SKU lookup needed — genuinely analogous to the REST path's
+  // client.getOffers(accessToken, sku), NOT the "expensive full seller-list
+  // scan" this audit was told to avoid. See reconcileMotorsListingBySku()
+  // above. If Mongo ever lost ebayListingId while the SKU is still live on
+  // eBay, this closes that gap the same way the REST path already does.
+  if (isNewListing) {
+    const reconciledItemId = await reconcileMotorsListingBySku(accessToken, sku);
+    if (reconciledItemId) {
+      console.log(`[EBAY_MOTORS_SYNC] SKU=${sku} reconciled existing eBay ItemID=${reconciledItemId} found via GetSellerList before create (Mongo had none)`);
+      existingListingId = reconciledItemId;
+      isNewListing = false;
+      try {
+        await Inventory.findByIdAndUpdate(inventoryItem._id, {
+          $set: { ebaySku: sku, ebayListingId: reconciledItemId, ebayMarketplaceId: "EBAY_MOTORS_US" },
+        });
+      } catch (persistErr) {
+        console.error(`[EBAY_MOTORS_SYNC] CRITICAL: SKU=${sku} reconciled ItemID=${reconciledItemId} but interim persist failed: ${persistErr.message}`);
+      }
+    }
   }
 
   console.log(
-    `[EBAY_MOTORS_SYNC] SUCCESS SKU=${sku} ItemID=${listingId}`
+    `[EBAY_MOTORS_SYNC] SKU=${sku} ACTION=${isNewListing ? "CREATE" : "UPDATE"} CATEGORY=${mapped.ebayCategoryId} PRICE=${mapped.offerPayload.pricingSummary.price.value}`
   );
 
-  await Inventory.findByIdAndUpdate(
-    inventoryItem._id,
-    {
-      $set: {
-        ebaySku: sku,
-        ebayListingId: String(listingId),
-        ebayMarketplaceId: "EBAY_MOTORS_US",
-        ebayCategoryId: mapped.ebayCategoryId,
-        ebaySyncStatus: "PUBLISHED",
-        ebaySyncHash: mapped.syncHash,
-        ebayLastSyncedAt: new Date(),
-        ebaySyncError: null,
-      },
+  let listingId = existingListingId;
+
+  if (isNewListing) {
+    const xml = buildMotorsAddFixedPriceItemXml(mapped);
+    let response;
+    try {
+      response = await tradingClient.call(accessToken, "AddFixedPriceItem", xml);
+    } catch (err) {
+      summary.totalApiErrors++;
+      throw wrapStageError("eBay Motors AddFixedPriceItem failed", err);
     }
-  );
 
-  summary.totalCreated++;
-  summary.totalPublished++;
+    const result = response?.AddFixedPriceItemResponse;
+    if (!result) {
+      summary.totalApiErrors++;
+      throw new Error("eBay Motors returned an invalid AddFixedPriceItem response");
+    }
 
-  return {
-    listingId: String(listingId),
-  };
+    const ack = String(result.Ack || "").toLowerCase();
+    if (ack === "failure") {
+      summary.totalApiErrors++;
+      const errors = Array.isArray(result.Errors) ? result.Errors : result.Errors ? [result.Errors] : [];
+      const message = errors
+        .map((e) => `${e.ErrorCode || ""}: ${e.LongMessage || e.ShortMessage || ""}`)
+        .join(" | ");
+      throw new Error(`eBay Motors listing creation failed: ${message || "Unknown eBay error"}`);
+    }
+
+    listingId = result.ItemID;
+    if (!listingId) {
+      summary.totalApiErrors++;
+      throw new Error("eBay Motors returned success but no ItemID");
+    }
+
+    console.log(`[EBAY_MOTORS_SYNC] SKU=${sku} AddFixedPriceItem SUCCESS ITEM_ID=${listingId}`);
+
+    // Persist the ItemID immediately, before verification — mirrors the
+    // REST path's crash-safety pattern (persist offerId before publish):
+    // if verification below throws/crashes, the next run must see this
+    // ItemID and go through the REVISE branch, never AddFixedPriceItem
+    // again for the same SKU.
+    try {
+      await Inventory.findByIdAndUpdate(inventoryItem._id, {
+        $set: { ebaySku: sku, ebayListingId: String(listingId), ebayMarketplaceId: "EBAY_MOTORS_US" },
+      });
+    } catch (persistErr) {
+      console.error(`[EBAY_MOTORS_SYNC] CRITICAL: SKU=${sku} ItemID=${listingId} created but interim persist failed: ${persistErr.message}`);
+    }
+  } else {
+    const xml = buildMotorsReviseFixedPriceItemXml(mapped, existingListingId);
+    let response;
+    try {
+      response = await tradingClient.reviseFixedPriceItem(accessToken, xml);
+    } catch (err) {
+      summary.totalApiErrors++;
+      throw wrapStageError("eBay Motors ReviseFixedPriceItem failed", err);
+    }
+
+    const result = response?.ReviseFixedPriceItemResponse;
+    if (!result) {
+      summary.totalApiErrors++;
+      throw new Error("eBay Motors returned an invalid ReviseFixedPriceItem response");
+    }
+
+    const ack = String(result.Ack || "").toLowerCase();
+    if (ack === "failure") {
+      summary.totalApiErrors++;
+      const errors = Array.isArray(result.Errors) ? result.Errors : result.Errors ? [result.Errors] : [];
+      const message = errors
+        .map((e) => `${e.ErrorCode || ""}: ${e.LongMessage || e.ShortMessage || ""}`)
+        .join(" | ");
+      throw new Error(`eBay Motors listing revise failed: ${message || "Unknown eBay error"}`);
+    }
+
+    console.log(`[EBAY_MOTORS_SYNC] SKU=${sku} ReviseFixedPriceItem SUCCESS ITEM_ID=${listingId}`);
+  }
+
+  // ── Post-publish/post-revise verification ────────────────────────────
+  const verification = await verifyMotorsListing(accessToken, listingId, mapped);
+
+  if (!verification.ok) {
+    summary.totalApiErrors++;
+    console.error(`[EBAY_MOTORS_SYNC] SKU=${sku} VERIFICATION FAILED: ${verification.error}`);
+    // IDs preserved, hash NOT advanced — mirrors the REST path's
+    // verification-failure handling so the next run retries/re-verifies
+    // instead of silently reporting success.
+    try {
+      await Inventory.findByIdAndUpdate(inventoryItem._id, {
+        $set: {
+          ebaySku: sku,
+          ebayListingId: String(listingId),
+          ebayMarketplaceId: "EBAY_MOTORS_US",
+          ebayCategoryId: mapped.ebayCategoryId,
+          ebaySyncStatus: "FAILED",
+          ebaySyncError: `VERIFICATION_ERROR: ${verification.error}`,
+          ebayLastSyncedAt: new Date(),
+        },
+      });
+    } catch (persistErr) {
+      console.error(`[EBAY_MOTORS_SYNC] CRITICAL: SKU=${sku} verification failed AND persist failed: ${persistErr.message}`);
+    }
+    const verErr = new Error(`Post-publish verification failed: ${verification.error}`);
+    verErr.category = "VERIFICATION_ERROR";
+    verErr.alreadyPersisted = true;
+    throw verErr;
+  }
+
+  console.log(`[EBAY_MOTORS_SYNC] SKU=${sku} VERIFICATION SUCCESS STATUS=${verification.remoteState.status}`);
+
+  await Inventory.findByIdAndUpdate(inventoryItem._id, {
+    $set: {
+      ebaySku: sku,
+      ebayListingId: String(listingId),
+      ebayMarketplaceId: "EBAY_MOTORS_US",
+      ebayCategoryId: mapped.ebayCategoryId,
+      ebaySyncStatus: isNewListing ? "PUBLISHED" : "UPDATED",
+      ebaySyncHash: mapped.syncHash,
+      ebayLastSyncedAt: new Date(),
+      ebaySyncError: null,
+    },
+  });
+
+  if (isNewListing) {
+    summary.totalCreated++;
+    summary.totalPublished++;
+  } else {
+    summary.totalUpdated++;
+  }
+
+  return { listingId: String(listingId) };
 }
 
 async function syncProduct(inventoryItem, mapped, accessToken, summary) {
@@ -544,23 +933,27 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
   const inventoryItemPayload = mapped.inventoryItemPayload;
   const offerPayload = mapped.offerPayload;
 
-  // eBay Motors Parts & Accessories use the Trading API.
-  // if (String(mapped.ebayCategoryId) === "33543") {
-  //   return syncMotorsProduct(
-  //     inventoryItem,
-  //     mapped,
-  //     accessToken,
-  //     summary
-  //   );
-  // }
-
   console.log(`[EBAY_SYNC] Processing SKU=${sku} title="${inventoryItemPayload?.product?.title || "N/A"}"`);
 
   // ── Determine whether this product already exists on eBay ──────────
-
-  const existingOfferId = inventoryItem.ebayOfferId;
-  const existingListingId = inventoryItem.ebayListingId;
-  const existingSyncHash = inventoryItem.ebaySyncHash;
+  //
+  // Re-read the CURRENT eBay-state fields fresh from Mongo here, INSIDE
+  // the per-SKU lock's critical section (syncProduct only starts once
+  // withSkuLock grants it this SKU's turn) — the `inventoryItem` argument
+  // may be a stale snapshot from syncCatalog()'s one-time batch query at
+  // the top of the run, taken BEFORE a concurrent sync for this same SKU
+  // (e.g. two overlapping single-product retries) already completed and
+  // persisted new state. Without this re-read, two callers serialized by
+  // the SAME lock would each still compute isNewListing from their own
+  // stale copy and both report "created" in their own run summary, even
+  // though the lock already correctly ensures only one of them actually
+  // calls createOffer (proven via the reconciliation path below) — a
+  // count-only inaccuracy, not a duplicate-listing bug, but worth closing
+  // now that the lock makes it possible to get a genuinely fresh read.
+  const freshState = await Inventory.findById(inventoryItem._id).select("ebayOfferId ebayListingId ebaySyncHash").lean();
+  const existingOfferId = freshState ? freshState.ebayOfferId : inventoryItem.ebayOfferId;
+  const existingListingId = freshState ? freshState.ebayListingId : inventoryItem.ebayListingId;
+  const existingSyncHash = freshState ? freshState.ebaySyncHash : inventoryItem.ebaySyncHash;
   // Captured once, up front, and NOT counted into summary.totalCreated/
   // totalUpdated/totalPublished until verification actually succeeds below
   // — otherwise a product whose Inventory Item PUT succeeds but whose
@@ -619,6 +1012,12 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
   // ── Phase B: Create or update Offer ──────────────────────────────
 
   let offerId = existingOfferId;
+  // True whenever offerId comes from a reconciliation/recovery lookup
+  // rather than (a) Mongo's own existingOfferId (already updateOffer'd
+  // above) or (b) a fresh createOffer (whose data already IS offerPayload)
+  // — a reconciled offer may hold stale data from whenever it was
+  // originally created, so it needs the same updateOffer refresh.
+  let offerNeedsDataRefresh = false;
 
   if (offerId) {
     // Update existing offer
@@ -633,6 +1032,33 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
         summary.totalApiErrors++;
         throw wrapStageError("updateOffer failed", err);
       }
+    }
+  }
+
+  if (!offerId) {
+    // Gap #5 (SKU reconciliation): proactively check whether eBay already
+    // has an offer for this SKU BEFORE attempting to create one — e.g. a
+    // previous run's createOffer succeeded but the process crashed/
+    // restarted before persisting ebayOfferId to Mongo, so this run sees
+    // existingOfferId as null even though eBay already has one. This uses
+    // the same getOffers() call already trusted below for reactive
+    // duplicate recovery, just moved earlier so reconciliation is
+    // deterministic rather than depending on eBay returning a "duplicate"
+    // error whose exact wording isDuplicateOfferError() has to string-match.
+    try {
+      const existingOnEbay = await client.getOffers(accessToken, sku);
+      const foundOffer = existingOnEbay?.offers?.[0];
+      if (foundOffer?.offerId) {
+        offerId = foundOffer.offerId;
+        offerNeedsDataRefresh = true;
+        console.log(`[EBAY_SYNC] SKU=${sku} reconciled existing offer ${offerId} found on eBay before create (Mongo had none)`);
+      }
+    } catch (err) {
+      // Non-fatal: if this lookup itself fails (e.g. transient network
+      // error), fall through to the normal create attempt below, which
+      // still has its own reactive isDuplicateOfferError recovery as a
+      // second safety net.
+      console.warn(`[EBAY_SYNC] SKU=${sku} pre-create reconciliation lookup failed (continuing to create attempt): ${err.message}`);
     }
   }
 
@@ -657,6 +1083,7 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
           throw wrapStageError(`createOffer failed and no existing offer could be recovered for SKU ${sku}`, err);
         }
         offerId = recovered.offerId;
+        offerNeedsDataRefresh = true;
         console.log(`[EBAY_SYNC] SKU=${sku} recovered existing offerId=${offerId}`);
       } else {
         summary.totalApiErrors++;
@@ -673,6 +1100,16 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
       await Inventory.findByIdAndUpdate(inventoryItem._id, { $set: { ebaySku: sku, ebayOfferId: offerId } });
     } catch (persistErr) {
       console.error(`[EBAY_SYNC] CRITICAL: SKU=${sku} offer ${offerId} created but interim persist failed: ${persistErr.message}`);
+    }
+  }
+
+  if (offerNeedsDataRefresh) {
+    try {
+      await client.updateOffer(accessToken, offerId, offerPayload);
+      console.log(`[EBAY_SYNC] SKU=${sku} reconciled offer ${offerId} refreshed with current data`);
+    } catch (err) {
+      summary.totalApiErrors++;
+      throw wrapStageError("updateOffer (post-reconciliation refresh) failed", err);
     }
   }
 
@@ -815,4 +1252,16 @@ async function syncSingleProduct(inventoryId, dryRun = false) {
 module.exports = {
   syncCatalog,
   syncSingleProduct,
+  // Exported for direct unit testing of XML generation without needing a
+  // live eBay call or a database — pure string builders, no side effects.
+  _internal: {
+    buildMotorsAddFixedPriceItemXml,
+    buildMotorsReviseFixedPriceItemXml,
+    buildMotorsGetItemXml,
+    buildGetSellerListBySkuXml,
+    xmlTextValue,
+    verifyMotorsListing,
+    reconcileMotorsListingBySku,
+    withSkuLock,
+  },
 };

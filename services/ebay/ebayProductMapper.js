@@ -16,6 +16,40 @@ const VALID_CONDITIONS = new Set([
   "USED_VERY_GOOD", "USED_GOOD", "USED_ACCEPTABLE",
   "FOR_PARTS_OR_NOT_WORKING",
 ]);
+
+// "Placement on Vehicle" — explicit whitelist, not a name-pattern heuristic.
+// Each value string uses the exact wording observed as a real "Placement on
+// Vehicle" filter facet on eBay's own category-browse pages during this
+// audit (e.g. ebay.com/b/Car-Truck-Doors-Door-Skins/179850 exposes
+// Front/Rear/Left/Right/Front Left/Front Right/Rear Left/Rear Right facets;
+// ebay.com/b/Car-Truck-Fenders/33644 exposes Front/Left/Rear/Right). Only
+// keys with directly-observed facet evidence for their mapped category are
+// listed — everything else (chassis, heatedSideMirrors, seats, etc.) is
+// deliberately absent rather than guessed. See ebayProductMapper.js Phase
+// 8a-pre for how this is used (additive/recommended, never a hard
+// requirement).
+const PLACEMENT_ON_VEHICLE_BY_PART = {
+  // Doors — category 179850, facet evidence includes compound Front/Rear + Left/Right values
+  frontLeftDoor: "Front Left",
+  frontRightDoor: "Front Right",
+  rearLeftDoor: "Rear Left",
+  rearRightDoor: "Rear Right",
+  // Headlights — category 33710, facet evidence: Front/Left/Right (no compound observed)
+  leftHeadlights: "Left",
+  rightHeadlights: "Right",
+  // Fenders — category 33644, facet evidence: Front/Left/Rear/Right
+  leftFender: "Left",
+  rightFender: "Right",
+  // Bumpers — category 33640, facet evidence includes a distinct "Rear ...
+  // Bumpers" sub-listing (front is the unqualified default sub-listing)
+  frontBumper: "Front",
+  rearBumper: "Rear",
+  // Mirror assemblies — category 262161, facet evidence: distinct Left/
+  // Right sub-listings confirmed, though less exhaustively than the above
+  rightSideMirror: "Right",
+  leftSideMirror: "Left",
+};
+
 function mapProduct(item, options) {
   options = options || {};
   var r = {
@@ -114,6 +148,49 @@ function mapProduct(item, options) {
   if (year) invPayload.product.aspects["Year"] = [String(year)];
   if (modelName) invPayload.product.aspects["Model"] = [modelName];
 
+  // Phase 8a-pre: "Placement on Vehicle" — a RECOMMENDED, non-blocking
+  // aspect, added opportunistically where the CRM part name genuinely
+  // encodes a real position AND eBay's own category-browse pages were
+  // directly observed to expose "Placement on Vehicle" as a real facet for
+  // that category (doors/179850, headlights/33710, fenders/33644,
+  // bumpers/33640, mirror assemblies/262161 — evidenced against live
+  // eBay.com category pages during this audit, not invented).
+  //
+  // Deliberately NOT added to CATEGORY_SPECIFICS_REQUIREMENTS: a filter
+  // facet existing on eBay's own browse UI proves sellers commonly USE this
+  // aspect for these categories, but does NOT prove eBay's publish-time
+  // validation actually REQUIRES it (that needs the Taxonomy API's
+  // GetItemAspectsForCategory aspectUsage=REQUIRED flag, not available in
+  // this environment). Making it a hard requirement without that evidence
+  // would itself be inventing a requirement — exactly what this audit must
+  // not do. So: populate it when we genuinely know it (pure enrichment,
+  // never blocks a sync), and never invent a value for a key not in this
+  // explicit whitelist (e.g. "chassis", "heatedSideMirrors" — ambiguous —
+  // are deliberately absent below, not guessed).
+  var placement = PLACEMENT_ON_VEHICLE_BY_PART[partName];
+  if (placement) invPayload.product.aspects["Placement on Vehicle"] = [placement];
+
+  // Phase 8a: Category-specific required Item Specifics. The generic
+  // aspect set above (Part Name/Brand/Year/Model) is not guaranteed
+  // sufficient for every eBay category — see
+  // config/ebayCatalogConfig.js#CATEGORY_SPECIFICS_REQUIREMENTS. That map
+  // starts empty (no category requirement is fabricated), so this is a
+  // complete no-op today for every category; it only ever fails a product
+  // once a real, verified per-category requirement is added and this
+  // product's CRM-derived aspects don't satisfy it — failing here, before
+  // any API call, rather than sending an incomplete listing to eBay.
+  var requiredAspects = ebayConfig.getRequiredAspectsForCategory(ebayCategoryId);
+  var missingAspects = requiredAspects.filter(function (name) {
+    var value = invPayload.product.aspects[name];
+    return !value || (Array.isArray(value) && value.length === 0) || !String(value[0] || "").trim();
+  });
+  if (missingAspects.length > 0) {
+    r.status = "FAILED";
+    r.reason = "ITEM_SPECIFICS_ERROR";
+    r.errors.push("Missing required item specifics for category " + ebayCategoryId + ": " + missingAspects.join(", "));
+    return r;
+  }
+
   // Phase 8b: Vehicle fitment (Year/Make/Model/Trim compatibility).
   // Built independently of the title/description — those are NOT proof of
   // fitment; eBay's actual compatibility data comes only from the separate
@@ -176,7 +253,17 @@ function mapProduct(item, options) {
   // reach an actual eBay API call by silently assuming production.
   if (!ebayConfig.EBAY_ENVIRONMENT) missing.push("EBAY_ENVIRONMENT (must be exactly \"production\" or \"sandbox\")");
   if (!offerPayload.listingPolicies.paymentPolicyId) missing.push("EBAY_PAYMENT_POLICY_ID");
-  if (!offerPayload.listingPolicies.returnPolicyId) missing.push("EBAY_RETURN_POLICY_ID");
+  // EBAY_RETURN_POLICY_ID is a REST/Inventory-API-only concept —
+  // offerPayload.listingPolicies.returnPolicyId is never read by the Motors
+  // Trading API path (see syncMotorsProduct() in ebayCatalogSync.service.js,
+  // which uses the separate, independently-optional
+  // EBAY_MOTORS_RETURN_PROFILE_ID instead, already handled in that file's
+  // buildMotorsItemFieldsXml). Requiring the REST policy for a Motors
+  // product here was an architectural inconsistency — Motors could be
+  // blocked by a policy it never actually consumes. Only enforced for
+  // non-Motors (REST) products; REST behavior is completely unchanged.
+  var isMotorsProduct = ebayConfig.isMotorsCategory(ebayCategoryId);
+  if (!isMotorsProduct && !offerPayload.listingPolicies.returnPolicyId) missing.push("EBAY_RETURN_POLICY_ID");
   if (!offerPayload.listingPolicies.fulfillmentPolicyId) missing.push("EBAY_FULFILLMENT_POLICY_ID");
   if (!offerPayload.merchantLocationKey) missing.push("EBAY_MERCHANT_LOCATION_KEY");
   if (missing.length > 0) { r.status = "FAILED"; r.reason = "POLICY_CONFIGURATION_ERROR"; r.errors.push("Missing: " + missing.join(", ")); return r; }
