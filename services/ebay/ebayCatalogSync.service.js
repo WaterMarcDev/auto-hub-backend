@@ -1064,6 +1064,15 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
 
   if (!offerId) {
     // Create new offer
+    // DIAGNOSTIC: log the exact outgoing Offer payload before the API call
+    // (not the request itself — this is a read-only console.log of the
+    // already-built offerPayload object). Contains only listing data (sku,
+    // marketplaceId, format, listingDuration, availableQuantity, categoryId,
+    // listingDescription, merchantLocationKey, listingPolicies IDs,
+    // pricingSummary) — never an OAuth token or credential — so it is safe
+    // to log unredacted and lets a createOffer failure be diffed field-by-
+    // field against a known-successful SKU's payload from the logs alone.
+    console.log(`[EBAY_SYNC] SKU=${sku} createOffer request payload: ${JSON.stringify(offerPayload)}`);
     try {
       const offerResult = await client.createOffer(accessToken, offerPayload);
       offerId = offerResult.offerId;

@@ -196,9 +196,65 @@ class EbayApiClient {
 
     // eBay error structure can vary; try common patterns
     const errors = body.errors || body.error || [];
-    const firstError = Array.isArray(errors) ? errors[0] : errors;
+    const errorList = Array.isArray(errors) ? errors : (errors ? [errors] : []);
+    const firstError = errorList[0];
     const errorMessage = firstError?.message || firstError?.longMessage || err.message || "eBay API request failed";
     const errorId = firstError?.errorId || firstError?.id || null;
+
+    // ─── DIAGNOSTIC: full eBay error detail, safely redacted ────────────────
+    // Previously, the complete raw eBay response was only logged for 401/403
+    // (see the removed inline block that used to live in the 401/403 branch
+    // below). A 400 "Invalid request" — exactly what createOffer returns for
+    // a rejected Offer payload — fell through to the generic path above,
+    // which keeps only errors[0].message/longMessage and discards
+    // errors[].parameters, domain, category, subdomain, and any additional
+    // errors beyond the first. That made category/field-specific eBay
+    // validation failures indistinguishable from a generic "Invalid
+    // request" in the logs. This block now runs for every non-2xx eBay
+    // response, not just auth errors, and captures the full error list.
+    //
+    // SAFETY: only the HTTP status, request method/URL, eBay's own error
+    // body, and RESPONSE headers (with any authorization-looking header
+    // stripped) are logged. The request body/headers (which carry the
+    // Bearer access token) are never logged here. eBay error responses from
+    // these endpoints never carry OAuth tokens — those only ever appear in
+    // the separate token-exchange/refresh response bodies, which are
+    // handled by different functions in this file that already avoid
+    // logging them. A defensive key-name filter is applied regardless, in
+    // case eBay's error payload shape ever changes.
+    const SENSITIVE_KEY_PATTERN = /token|secret|password|authorization/i;
+    function redactSensitive(value) {
+      if (Array.isArray(value)) return value.map(redactSensitive);
+      if (value && typeof value === "object") {
+        const out = {};
+        for (const [k, v] of Object.entries(value)) {
+          out[k] = SENSITIVE_KEY_PATTERN.test(k) ? "[REDACTED]" : redactSensitive(v);
+        }
+        return out;
+      }
+      return value;
+    }
+    const safeHeaders = redactSensitive({ ...(err.response?.headers || {}) });
+
+    console.error(JSON.stringify({
+      tag: "[EBAY][RAW_ERROR]",
+      timestamp: new Date().toISOString(),
+      httpStatus: statusCode,
+      requestMethod: err.config?.method || null,
+      requestUrl: err.config?.url || null,
+      ebayErrors: errorList.map((e) => ({
+        errorId: e?.errorId ?? e?.id ?? null,
+        domain: e?.domain ?? null,
+        category: e?.category ?? null,
+        subdomain: e?.subdomain ?? null,
+        message: e?.message ?? null,
+        longMessage: e?.longMessage ?? null,
+        parameters: e?.parameters ?? null,
+        inputRefIds: e?.inputRefIds ?? null,
+      })),
+      rawBody: redactSensitive(body),
+      responseHeaders: safeHeaders,
+    }));
 
     // Rate limit detection
     if (statusCode === 429) {
@@ -208,13 +264,6 @@ class EbayApiClient {
 
     // Auth error detection
     if (statusCode === 401 || statusCode === 403) {
-
-      console.log("===== EBAY RAW ERROR =====");
-      console.log("Status:", statusCode);
-      console.log("Headers:", err.response?.headers);
-      console.log("Body:", JSON.stringify(body, null, 2));
-      console.log("==================");
-
       return new EbayAuthError(errorMessage, errorId);
     }
 
