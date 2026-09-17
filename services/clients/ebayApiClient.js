@@ -148,6 +148,7 @@ class EbayApiClient {
   _createClient(accessToken) {
     const headers = {
       "Content-Type": "application/json",
+      "Content-Language": "en-US",
       // REST-only surface (used by post()/get() -> createOffer/publishOffer/
       // getOffers/getOffer/etc.) — must never pick up the Trading-oriented
       // EBAY_MARKETPLACE_ID (EBAY_MOTORS_US in production, invalid for the
@@ -345,7 +346,7 @@ class EbayApiClient {
         ? client.defaults.headers.toJSON()
         : client.defaults?.headers,
     });
-    
+
     return this._executeWithRetry(() => client.post(endpoint, data, { params }));
   }
 
