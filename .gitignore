@@ -10,3 +10,4 @@ yarn-error.log*
 .env
 .env.example
 uploads/
+*.code-workspace
