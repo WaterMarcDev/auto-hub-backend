@@ -13,6 +13,7 @@
  */
 const MarketplaceListing = require("../models/MarketplaceListing.model");
 const IntegrationAccount = require("../models/IntegrationAccount.model");
+const EbaySyncRun = require("../models/EbaySyncRun.model");
 const platformManager = require("../services/platformManager.service");
 const ebayListingReconcile = require("../services/ebay/ebayListingReconcile.service");
 const { logAction } = require("../services/auditLog.service");
@@ -449,10 +450,63 @@ exports.syncListings = async (req, res) => {
       await platformManager.refreshToken(platform, account);
     }
 
-    const listings = await adapter.fetchListings(account, {
-      dryRun: req.query.dryRun === "true" || req.body?.dryRun === true,
-      pageSize: req.query.pageSize || req.body?.pageSize,
-    });
+    // eBay only: reuse the SAME Mongo-backed EbaySyncRun lock the scheduled
+    // jobs use — never a second locking mechanism. This guarantees a manual
+    // click can never overlap the 30-minute reconcile, nor the CRM → eBay
+    // catalog push, so the two directions never interleave their writes. If a
+    // run already holds the lock, tell the caller rather than running two
+    // reconciliations against the same collection.
+    const isEbay = platform === "ebay";
+    let run = null;
+    if (isEbay) {
+      run = await EbaySyncRun.acquireLock("manual");
+      if (!run) {
+        return res.status(409).json({
+          success: false,
+          code: "EBAY_SYNC_IN_PROGRESS",
+          message:
+            "An eBay sync is already running. Please wait for it to finish and try again.",
+        });
+      }
+    }
+
+    let listings;
+    try {
+      listings = await adapter.fetchListings(account, {
+        dryRun: req.query.dryRun === "true" || req.body?.dryRun === true,
+        pageSize: req.query.pageSize || req.body?.pageSize,
+      });
+
+      if (run) {
+        await EbaySyncRun.releaseLock(run, "completed", {
+          totalDiscovered: listings.summary?.activeOnEbay ?? 0,
+          totalCreated: listings.summary?.created ?? 0,
+          totalUpdated: listings.summary?.updated ?? 0,
+          totalUnchanged: listings.summary?.unchanged ?? 0,
+          totalFailed: listings.summary?.fetchComplete === false ? 1 : 0,
+          error: listings.summary?.fetchError || null,
+        });
+        run = null;
+      }
+    } catch (innerErr) {
+      // Always release the lock on failure so a single error can never wedge
+      // every future scheduled/manual eBay sync behind a stale lock.
+      if (run) {
+        try {
+          await EbaySyncRun.releaseLock(run, "failed", {
+            totalFailed: 1,
+            error: innerErr.message || String(innerErr),
+          });
+        } catch (releaseErr) {
+          console.error(
+            "[MARKETPLACE LISTING] Failed to release eBay sync lock:",
+            releaseErr.message
+          );
+        }
+        run = null;
+      }
+      throw innerErr;
+    }
 
     const summary = listings.summary || null;
 
