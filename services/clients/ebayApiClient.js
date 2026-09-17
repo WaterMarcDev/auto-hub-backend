@@ -340,12 +340,12 @@ class EbayApiClient {
   async post(accessToken, endpoint, data = {}, params = {}) {
     const client = this._createClient(accessToken);
 
-    console.log("[EBAY_HTTP_DEBUG] POST", {
-      endpoint,
-      headers: client.defaults?.headers?.toJSON
-        ? client.defaults.headers.toJSON()
-        : client.defaults?.headers,
-    });
+    // console.log("[EBAY_HTTP_DEBUG] POST", {
+    //   endpoint,
+    //   headers: client.defaults?.headers?.toJSON
+    //     ? client.defaults.headers.toJSON()
+    //     : client.defaults?.headers,
+    // });
 
     return this._executeWithRetry(() => client.post(endpoint, data, { params }));
   }
