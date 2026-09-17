@@ -615,90 +615,90 @@ class EbayAdapter extends BaseAdapter {
   }
 
   /**
-   * Fetch active listings from eBay Inventory API.
+   * Fetch the seller's CURRENTLY ACTIVE eBay listings and reconcile them into
+   * the CRM Marketplace Listing collection.
+   *
+   * Delegates to the single authoritative engine in
+   * services/ebay/ebayListingReconcile.service.js, which:
+   *   - reads eBay's own active-listing container (Trading API
+   *     GetMyeBaySelling -> ActiveList) instead of the Inventory API's
+   *     inventory_item collection. That collection returns everything the
+   *     seller has ever stored - published or not - so it can never prove a
+   *     listing is currently active, which is exactly how inactive records got
+   *     imported and then never removed;
+   *   - pages through ALL of eBay's reported pages (never a fixed page 1);
+   *   - keys every record on the real eBay ItemID, keeping the SKU separately
+   *     as productSku;
+   *   - scopes every record to the connected eBay account; and
+   *   - removes CRM records that are no longer active ONLY after a provably
+   *     complete fetch (see the engine's safety model).
    *
    * @param {Object} account - IntegrationAccount document
    * @param {Object} [options]
-   * @param {number} [options.limit] - Results per page
-   * @returns {Promise<Array<Object>>} Array of created/updated MarketplaceListing documents
+   * @param {boolean} [options.dryRun] - compute the plan, write nothing
+   * @param {number} [options.pageSize] - GetMyeBaySelling entries per page
+   * @returns {Promise<Array<Object>>} the reconciled active listing records.
+   *   The returned array also carries non-enumerable `summary`/`count`
+   *   properties so callers can read the reconciliation stats; being
+   *   non-enumerable they are never serialized into the JSON response.
    */
   async fetchListings(account, options = {}) {
-    const limit = options.limit || 50;
+    // Required lazily on purpose: the reconciliation engine resolves the eBay
+    // adapter back through platformManager to refresh tokens, so a top-level
+    // require here would create a load-order cycle.
+    const reconcileService = require("../ebay/ebayListingReconcile.service");
 
-    const leads = [];
-    let offset = 0;
-    let hasMore = true;
+    const dryRun = options.dryRun === true || options.dryRun === "true";
+    const pageSize = options.pageSize ? Number(options.pageSize) : undefined;
 
-    while (hasMore) {
-      const result = await this.client.get(account.accessToken, "/sell/inventory/v1/inventory_item", {
-        limit,
-        offset,
-      });
+    const summary = await reconcileService.reconcileEbayListings({
+      account,
+      dryRun,
+      pageSize,
+    });
 
-      const inventoryItems = result.inventoryItems || [];
-      
-      // Trading API fetch
-      let tradingItems = [];
-      
-      try {
-        const tradingResult =
-          await this.tradingClient.getManualListings(account.accessToken);
-
-        const activeList = 
-          tradingResult?.GetMyeBaySellingResponse?.ActiveList;
-
-        const items = activeList?.ItemArray?.Item || [];
-
-        tradingItems = Array.isArray(items)
-          ? items
-          : items
-              ? [items]
-              : [];
-      } catch (error) {
-        console.warn(
-          "[EBAY] Trading API listings unavailable:",
-          error.message
-        );
-      }
-
-      const normalizedTradingItems = tradingItems.map(item =>
-        this._normalizeTradingListing(item)
-      );
-
-      const allItems = [
-        ...inventoryItems,
-        ...normalizedTradingItems,
-      ];
-
-      const seen = new Set();
-
-      for (const item of allItems) {
-        if (seen.has(item.sku)) continue;
-
-        seen.add(item.sku);
-
-        const lead = await this._upsertListing(item, account);
-        leads.push(lead);
-      }
-
-      // for (const item of inventoryItems) {
-      //   const lead = await this._upsertListing(item);
-      //   leads.push(lead);
-      // }
-
-      offset += limit;
-      hasMore = result.total && offset < result.total;
-    }
+    const listings = await MarketplaceListing.find({
+      marketplace: "ebay",
+      marketplaceListingId: { $ne: null },
+      $or: [
+        { marketplaceAccountId: summary.accountKey },
+        { marketplaceAccountId: { $exists: false } },
+        { marketplaceAccountId: null },
+      ],
+    })
+      .sort({ updatedAt: -1 })
+      .lean();
 
     await logAction({
       action: "listings_synced",
       status: "success",
       platform: "ebay",
-      message: `Synced ${leads.length} eBay listings`,
-      metadata: { count: leads.length },
+      message: `Reconciled ${summary.activeOnEbay} active eBay listing(s) (+${summary.created} ~${summary.updated} -${summary.removed})`,
+      metadata: {
+        activeOnEbay: summary.activeOnEbay,
+        created: summary.created,
+        updated: summary.updated,
+        unchanged: summary.unchanged,
+        removed: summary.removed,
+        duplicatesCollapsed: summary.duplicatesCollapsed,
+        fetchComplete: summary.fetchComplete,
+      },
     });
 
-    return leads;
+    Object.defineProperty(listings, "summary", {
+      value: summary,
+      enumerable: false,
+      configurable: true,
+      writable: false,
+    });
+    Object.defineProperty(listings, "count", {
+      value: listings.length,
+      enumerable: false,
+      configurable: true,
+      writable: false,
+    });
+
+    return listings;
   }
 
   /**

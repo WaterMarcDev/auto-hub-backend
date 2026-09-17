@@ -216,7 +216,15 @@ function mapProduct(item, options) {
   // Phase 9: Offer payload
   const offerPayload = {
     sku: r.sku,
-    marketplaceId: ebayConfig.EBAY_MARKETPLACE_ID,
+    // REST Inventory API marketplace — deliberately EBAY_REST_MARKETPLACE_ID,
+    // NOT the shared EBAY_MARKETPLACE_ID (which is EBAY_MOTORS_US in
+    // production, a value the REST API rejects: HTTP 400 errorId 2004
+    // "Could not serialize field [marketplaceId]", confirmed via production
+    // evidence for SKU 6a671fa7a90038bf08da0649 / category 36474). This
+    // offerPayload is only ever read by the REST path (syncProduct) — the
+    // Motors Trading API path (syncMotorsProduct) builds its own XML from
+    // separate fields and never reads offerPayload.marketplaceId.
+    marketplaceId: ebayConfig.EBAY_REST_MARKETPLACE_ID,
     format: ebayConfig.EBAY_LISTING_FORMAT,
     listingDuration: ebayConfig.EBAY_LISTING_DURATION,
 

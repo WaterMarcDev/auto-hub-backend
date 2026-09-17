@@ -13,6 +13,26 @@ const path = require("path");
 
 const EBAY_MARKETPLACE_ID = process.env.EBAY_MARKETPLACE_ID || "EBAY_US";
 
+// ─── REST Inventory API Marketplace (deliberately separate from above) ─────
+// EBAY_MARKETPLACE_ID above is also used by the Trading API side of this
+// integration, where production sets it to "EBAY_MOTORS_US". That value is
+// NOT a valid marketplaceId for the REST Sell Inventory API — sending it as
+// the Offer's marketplaceId fails createOffer with a real, confirmed
+// production error: HTTP 400, eBay errorId 2004, domain ACCESS, category
+// REQUEST, message "Invalid request", parameter reason "Could not
+// serialize field [marketplaceId]" (SKU 6a671fa7a90038bf08da0649, category
+// 36474). EBAY_US is the correct, documented REST marketplaceId for this
+// US-based seller account, and is also what services/clients/
+// ebayApiClient.js's _createClient() already hardcodes for the REST
+// POST/GET surface today — so it is used here as the explicit, safe
+// default, never silently inherited from the Trading-oriented
+// EBAY_MARKETPLACE_ID. EBAY_MARKETPLACE_ID itself is left completely
+// unchanged; every existing reader of it (Trading API config, the
+// X-EBAY-C-MARKETPLACE-ID default in ebayApiClient.js's _createClient())
+// keeps behaving exactly as before.
+const RAW_EBAY_REST_MARKETPLACE_ID = (process.env.EBAY_REST_MARKETPLACE_ID || "").trim();
+const EBAY_REST_MARKETPLACE_ID = RAW_EBAY_REST_MARKETPLACE_ID || "EBAY_US";
+
 // FAIL CLOSED: EBAY_ENVIRONMENT must be explicitly "production" or
 // "sandbox" (case/whitespace-insensitive). A missing or unrecognized value
 // resolves to null — it must NEVER silently default to "production". null
@@ -371,6 +391,7 @@ function getCategoryMappingStatus(partName) {
 
 module.exports = {
   EBAY_MARKETPLACE_ID,
+  EBAY_REST_MARKETPLACE_ID,
   EBAY_ENVIRONMENT,
   EBAY_MERCHANT_LOCATION_KEY,
   EBAY_PAYMENT_POLICY_ID,

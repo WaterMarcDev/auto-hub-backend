@@ -1185,7 +1185,10 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
           ebaySku: sku,
           ebayOfferId: offerId,
           ebayListingId: listingId,
-          ebayMarketplaceId: ebayConfig.EBAY_MARKETPLACE_ID,
+          // REST path (syncProduct) persists the REST marketplace, not the
+          // shared/Trading-oriented EBAY_MARKETPLACE_ID — see
+          // EBAY_REST_MARKETPLACE_ID in ebayCatalogConfig.js.
+          ebayMarketplaceId: ebayConfig.EBAY_REST_MARKETPLACE_ID,
           ebayCategoryId: mapped.ebayCategoryId,
           ebaySyncStatus: "FAILED",
           ebaySyncError: `VERIFICATION_ERROR: ${verificationError}`,
@@ -1222,7 +1225,10 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
         ebaySku: sku,
         ebayOfferId: offerId,
         ebayListingId: listingId,
-        ebayMarketplaceId: ebayConfig.EBAY_MARKETPLACE_ID,
+        // See the matching comment in the verification-failure persist
+        // block above — REST persists EBAY_REST_MARKETPLACE_ID, not the
+        // Trading-oriented EBAY_MARKETPLACE_ID.
+        ebayMarketplaceId: ebayConfig.EBAY_REST_MARKETPLACE_ID,
         ebayCategoryId: mapped.ebayCategoryId,
         ebaySyncStatus: listingId ? "PUBLISHED" : "UPDATED",
         ebaySyncHash: mapped.syncHash,

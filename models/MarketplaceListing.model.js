@@ -38,6 +38,20 @@ const MarketplaceListingSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Stable identity of the connected marketplace seller account that owns
+    // this listing. For eBay this is the IntegrationAccount's platformUserId
+    // (falling back to its _id), so two connected eBay seller accounts can
+    // never collide on the same item number.
+    //
+    // Deliberately has NO `default` — Mongoose only persists a path that was
+    // explicitly set, so records that don't populate this (order-shaped rows
+    // and marketplaces such as Amazon that don't set it yet) simply OMIT the
+    // field. That is what lets the sparse index in the Indexes section below
+    // skip them entirely instead of treating them as a `null` value.
+    marketplaceAccountId: {
+      type: String,
+    },
+
     // Populated only for listing-sourced records (marketplaceListingId set) —
     // reflects the semantics of the "active listings"/"inventory items"
     // endpoints used to sync them, not a fabricated value. See
@@ -234,6 +248,27 @@ const MarketplaceListingSchema = new mongoose.Schema(
 
 MarketplaceListingSchema.index({ marketplace: 1, orderStatus: 1 });
 MarketplaceListingSchema.index({ marketplaceOrderId: 1, marketplace: 1 }, { unique: true, sparse: true });
+
+// Listing-sourced identity lookup: (marketplace, owning seller account,
+// marketplace listing id). This replaces the previous situation where
+// listing rows had NO index at all covering their identity — the only
+// uniqueness index in this schema is on { marketplaceOrderId, marketplace },
+// which listing rows leave unset, so nothing constrained them.
+//
+// DELIBERATELY NON-UNIQUE. A unique index here would be applied by Mongoose
+// at startup and would hard-fail server boot if the collection still holds
+// pre-existing duplicate eBay rows (index build error → model init throws →
+// the whole server fails to start). Startup safety takes priority, so this
+// schema index only makes the reconciliation lookups fast.
+//
+// Uniqueness IS enforced and added separately, AFTER the existing duplicates
+// have been reconciled, by:
+//   scripts/reconcileEbayMarketplaceListings.js --add-unique-index
+// which builds the exact same key as a unique+sparse index only once it has
+// verified (via an aggregation check) that zero duplicates remain. Sparse +
+// no default on marketplaceAccountId means order-shaped and other
+// marketplace rows, which never set this field, are excluded from it.
+MarketplaceListingSchema.index({ marketplace: 1, marketplaceAccountId: 1, marketplaceListingId: 1 }, { sparse: true });
 MarketplaceListingSchema.index({ customerId: 1 });
 MarketplaceListingSchema.index({ assignedUser: 1 });
 MarketplaceListingSchema.index({ createdAt: -1 });

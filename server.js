@@ -425,5 +425,22 @@ server.listen(PORT, () => {
   } catch (err) {
     console.error("Failed to start eBay catalog sync cron job:", err.message || err);
   }
+
+  // Start the eBay ACTIVE LISTING reconciliation (30-minute) cron job.
+  // This is the opposite direction to the catalog sync above: it PULLS the
+  // seller's currently active eBay listings into the CRM Marketplace Listing
+  // dataset so the CRM never shows listings that are not live on eBay.
+  // Shares the existing EbaySyncRun lock, so it can never run concurrently
+  // with itself. Failure-tolerant: one failed run never prevents later runs.
+  try {
+    const startEbayListingReconcile = require("./jobs/ebayListingReconcileJob");
+    startEbayListingReconcile();
+    console.log("eBay active listing reconciliation cron job started");
+  } catch (err) {
+    console.error(
+      "Failed to start eBay active listing reconciliation cron job:",
+      err.message || err
+    );
+  }
 });
 

@@ -14,6 +14,7 @@
 const MarketplaceListing = require("../models/MarketplaceListing.model");
 const IntegrationAccount = require("../models/IntegrationAccount.model");
 const platformManager = require("../services/platformManager.service");
+const ebayListingReconcile = require("../services/ebay/ebayListingReconcile.service");
 const { logAction } = require("../services/auditLog.service");
 
 /**
@@ -323,20 +324,46 @@ exports.updateOrderStatus = async (req, res) => {
 
 /**
  * DELETE /api/marketplace-leads/:id
+ *
+ * CRM-ONLY removal. This deletes the CRM's own MarketplaceListing record and
+ * nothing else: it never calls eBay (no EndItem/WithdrawOffer/revise), never
+ * touches the linked inventory item, and never affects Amazon or any other
+ * marketplace. The corresponding eBay listing keeps running on eBay exactly as
+ * before — a future eBay→CRM sync simply re-imports it if it is still active.
+ *
+ * NOTE: this is deliberately a hard delete rather than an archive. The
+ * Marketplace Listings page must actually stop showing the row, and
+ * getAll() has no archived filter, so an archived record would remain visible
+ * and look like the delete silently failed.
  */
 exports.remove = async (req, res) => {
   try {
-    const lead = await MarketplaceListing.findByIdAndUpdate(
-      req.params.id,
-      { conversationStatus: "archived" },
-      { new: true }
-    );
+    const lead = await MarketplaceListing.findByIdAndDelete(req.params.id);
 
     if (!lead) {
       return res.status(404).json({ success: false, message: "Listing not found" });
     }
 
-    res.json({ success: true, message: "Listing archived" });
+    console.log(
+      "[EBAY SYNC] Removed CRM marketplace listing record (CRM-only; eBay listing untouched):",
+      {
+        id: String(lead._id),
+        marketplace: lead.marketplace,
+        marketplaceListingId: lead.marketplaceListingId || null,
+      }
+    );
+
+    await logAction({
+      action: "listing_deleted",
+      status: "success",
+      platform: lead.marketplace,
+      entityType: "marketplace_listing",
+      entityId: lead._id,
+      message: `Removed CRM listing record ${lead.marketplaceListingId || lead._id} (CRM-only; no marketplace side effects)`,
+      userId: req.user?._id,
+    });
+
+    res.json({ success: true, message: "Listing removed from CRM" });
   } catch (err) {
     console.error("[MARKETPLACE LISTING] Delete error:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -387,12 +414,17 @@ exports.syncOrders = async (req, res) => {
 };
 
 /**
- * GET /api/marketplace-leads/listings
- * Sync listings from a connected marketplace.
+ * GET|POST /api/marketplace-leads/listings
+ *
+ * MANUAL "Sync eBay Listings" endpoint. Runs the full authoritative eBay →
+ * CRM reconciliation (see services/ebay/ebayListingReconcile.service.js) and
+ * returns the reconciliation stats the Marketplace Listings page displays.
+ *
+ * Pass ?dryRun=true to compute the plan without writing anything.
  */
 exports.syncListings = async (req, res) => {
   try {
-    const platform = req.query.platform || "ebay";
+    const platform = req.query.platform || req.body?.platform || "ebay";
     const adapter = platformManager.getAdapter(platform);
 
     if (!adapter.fetchListings) {
@@ -410,15 +442,61 @@ exports.syncListings = async (req, res) => {
       });
     }
 
-    // Auto-refresh token if expired
-    if (account.isTokenExpired && account.refreshToken) {
+    // eBay's reconciliation engine refreshes the token itself (through the
+    // existing adapter refreshToken), so only non-eBay platforms are refreshed
+    // here — avoids refreshing the same token twice in one request.
+    if (platform !== "ebay" && account.isTokenExpired && account.refreshToken) {
       await platformManager.refreshToken(platform, account);
     }
 
-    const listings = await adapter.fetchListings(account, req.query);
-    res.json({ success: true, data: listings, count: listings.length });
+    const listings = await adapter.fetchListings(account, {
+      dryRun: req.query.dryRun === "true" || req.body?.dryRun === true,
+      pageSize: req.query.pageSize || req.body?.pageSize,
+    });
+
+    const summary = listings.summary || null;
+
+    res.json({
+      success: true,
+      data: listings,
+      count: listings.length,
+      summary: summary
+        ? {
+            activeOnEbay: summary.activeOnEbay,
+            created: summary.created,
+            updated: summary.updated,
+            unchanged: summary.unchanged,
+            removed: summary.removed,
+            duplicatesCollapsed: summary.duplicatesCollapsed,
+            fetchComplete: summary.fetchComplete,
+            fetchError: summary.fetchError,
+            staleRemovalSkipped: summary.staleRemovalSkipped,
+            durationMs: summary.durationMs,
+          }
+        : null,
+    });
   } catch (err) {
     console.error("[MARKETPLACE LISTING] Sync listings error:", err);
+    res
+      .status(err.statusCode || 500)
+      .json({ success: false, code: err.code || null, message: err.message });
+  }
+};
+
+/**
+ * GET /api/marketplace-leads/ebay/integrity
+ *
+ * Read-only integrity report for the eBay Marketplace Listing dataset (counts
+ * only, no side effects): totals, duplicate listing ids, missing/invalid ids,
+ * and records still carrying an unresolved "Unknown" status. Used by the
+ * Marketplace Listings page and by the reconciliation verification script.
+ */
+exports.getEbayListingsIntegrity = async (req, res) => {
+  try {
+    const integrity = await ebayListingReconcile.summarizeEbayMarketplaceListings();
+    res.json({ success: true, data: integrity });
+  } catch (err) {
+    console.error("[MARKETPLACE LISTING] eBay integrity report error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
