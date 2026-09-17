@@ -16,8 +16,8 @@
  */
 const MetaAdapter = require("./metaAdapter");
 const { logAction } = require("../auditLog.service");
-const Conversation = require("../../models/Conversation.model");
-const Customer = require("../../models/customer");
+const Conversation = require("../../models/conversation.model");
+const Customer = require("../../models/customer.model");
 const smartMatch = require("../smartMatch.service");
 
 class WhatsAppAdapter extends MetaAdapter {
@@ -95,7 +95,7 @@ class WhatsAppAdapter extends MetaAdapter {
    */
   async sendMessage(conversation, text, attachments = [], options = {}) {
     // Find the integration account for WhatsApp
-    const IntegrationAccount = require("../../models/IntegrationAccount.model");
+    const IntegrationAccount = require("../../models/integrationAccount.model");
     const account = await IntegrationAccount.findOne({
       platform: "whatsapp",
       isActive: true,
@@ -201,7 +201,7 @@ class WhatsAppAdapter extends MetaAdapter {
    * @returns {Promise<boolean>}
    */
   async markAsRead(messageId, options = {}) {
-    const IntegrationAccount = require("../../models/IntegrationAccount.model");
+    const IntegrationAccount = require("../../models/integrationAccount.model");
     const account = await IntegrationAccount.findOne({
       platform: "whatsapp",
       isActive: true,
@@ -326,7 +326,7 @@ class WhatsAppAdapter extends MetaAdapter {
 
         // Update lead if exists
         if (conversation.socialLeadId) {
-          const SocialLead = require("../../models/SocialLead.model");
+          const SocialLead = require("../../models/socialLead.model");
           await SocialLead.findByIdAndUpdate(conversation.socialLeadId, {
             conversationStatus: "open",
             unreadCount: conversation.unreadCount,
@@ -662,7 +662,7 @@ class WhatsAppAdapter extends MetaAdapter {
 
       // Create a SocialLead for tracking
       try {
-        const SocialLead = require("../../models/SocialLead.model");
+        const SocialLead = require("../../models/socialLead.model");
         const socialLead = await SocialLead.create({
           platform: "whatsapp",
           customerName: conversation.customerName,

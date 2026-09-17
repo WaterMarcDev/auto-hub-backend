@@ -1,62 +1,8 @@
-const JunkCar = require("../models/junkCar.model");
-const CarIntake = require("../models/carInTake.model");  // by shiva
-// const { normalizeRequestSource } = require("../utils/requestSources");
+const junkCarService = require("../services/junkCar.service");
 
 exports.createJunkCarRequest = async (req, res) => {
     try {
-        const {
-            name,
-            email,
-            phone,
-            year,
-            make,
-            model,
-            engineOrVin,
-            condition,
-            message,
-        } = req.body;
-
-        // added by shiva
-        let parsedYear = null;
-
-        if (year) {
-            const yearStr = year.toString().trim();
-
-            if (!/^\d{4}$/.test(yearStr)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Year must be exactly 4 digits"
-                });
-            }
-
-            parsedYear = parseInt(yearStr, 10);
-        }
-        //end here
-
-        // const rawSource = req.body.source?.toString().trim().toLowerCase();
-
-        const normalizedSource = "website";
-
-        // if (rawSource === "instagram") {
-        //     normalizedSource = "instagram";
-        // } else if (rawSource === "facebook") {
-        //     normalizedSource = "facebook";
-        // } else if (rawSource === "website" || rawSource === "online") {
-        //     normalizedSource = "website";
-        // }
-
-        const newRequest = await JunkCar.create({
-            name: name || "none",
-            email: email || "none",
-            phone: phone || "none",
-            year: parsedYear,
-            make: make || "none",
-            model: model || "none",
-            engineOrVin: engineOrVin || "none",
-            condition: condition || "none",
-            message: message || "",
-            source: normalizedSource,  // was previously dropped — see PartRequestController.createRequest for the equivalent pattern (kept byte-for-byte symmetric with it: raw passthrough, no normalization, so Junk Car can never diverge from Part Request's own casing/behavior)
-        });
+        const newRequest = await junkCarService.createJunkCarRequest(req.body);
 
         res.status(201).json({
             success: true,
@@ -65,6 +11,9 @@ exports.createJunkCarRequest = async (req, res) => {
         });
     } catch (error) {
         console.error(error);
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({ success: false, message: error.message });
+        }
         res.status(500).json({
             success: false,
             message: error.message,
@@ -75,86 +24,17 @@ exports.createJunkCarRequest = async (req, res) => {
 exports.createAutomationBotJunkCarRequest = async (req, res) => {
     try {
         console.log("JUNK CAR AUTOMATION BODY:", JSON.stringify(req.body, null, 2));
-        const {
-            name,
-            email,
-            phone,
-            year,
-            make,
-            model,
-            engineOrVin,
-            condition,
-            source,
-            message,
-        } = req.body;
-
-        let parsedYear = null;
-
-        if (year) {
-            const yearStr = year.toString().trim();
-
-            if (!/^\d{4}$/.test(yearStr)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Year must be exactly 4 digits",
-                });
-            }
-
-            parsedYear = parseInt(yearStr, 10);
-        }
-
-        const rawSource = source?.toString().trim().toLowerCase();
-
-        const sourceMap = {
-            // manual: "manual",
-            website: "website",
-            online: "website",
-            instagram: "instagram",
-            facebook: "facebook",
-            tiktok: "tiktok",
-            ebay: "ebay",
-            "google business": "google business",
-            whatsapp: "whatsApp",
-            // "whatsapp": "whatsApp",
-            sms: "sms",
-            other: "other",
-        };
-
-        const resolvedSource = sourceMap[rawSource] || "other";
-
-        // if (rawSource === "instagram") {
-        //     resolvedSource = "instagram";
-        // } else if (rawSource === "facebook") {
-        //     resolvedSource = "facebook";
-        // } else if (rawSource === "website" || rawSource === "online") {
-        //     resolvedSource = "website";
-        // }
-
-        const newRequest = await JunkCar.create({
-            name: name || "none",
-            email: email || "none",
-            phone: phone || "none",
-            year: parsedYear,
-            make: make || "none",
-            model: model || "none",
-            engineOrVin: engineOrVin || "none",
-            condition: condition || "none",
-            message: message || "",
-
-            //  Added for Automation Bot
-            source: resolvedSource,
-            createdBy: req.user._id,
-            // assignedTo: req.user._id,
-        });
+        const newRequest = await junkCarService.createAutomationBotJunkCarRequest(req.body, req.user._id);
 
         res.status(201).json({
             success: true,
             data: newRequest,
         });
     } catch (error) {
-
         console.error(error);
-
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({ success: false, message: error.message });
+        }
         res.status(500).json({
             success: false,
             message: error.message,
@@ -165,43 +45,7 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
 // Integrate Junk Car into your existing Requests page
 exports.getAllJunkCars = async (req, res) => {
     try {
-        let filter = {};
-
-        if (req.user?.role === "staff") {
-
-            filter.movedToIntake = { $ne: true };
-        }
-
-        const data = await JunkCar.find(filter)
-            .populate("assignedTo","first_name last_name email role")  // get data first
-            .populate("createdBy", "first_name last_name email role");
-
-        console.log(JSON.stringify(data, null, 2));   // added by shiva  The temp debug
-
-        // added by shiva for status order
-        const statusOrder = {
-            pending: 1,
-            "in progress": 2,
-            completed: 3,
-        };
-        // end here
-
-        // Safe sort
-        data.sort((a, b) => {
-            
-            // added by shiva
-            const statusDiff =
-                (statusOrder[a.status?.toLowerCase()] || 99) -
-                (statusOrder[b.status?.toLowerCase()] || 99);
-
-            // First sort by status order
-            if (statusDiff !== 0) {
-                return statusDiff;
-            }
-
-            // Then newest first inside same status
-            return  new Date(b.createdAt) - new Date(a.createdAt)
-        });
+        const data = await junkCarService.getAllJunkCars(req.user?.role);
 
         res.json({
             success: true,
@@ -218,97 +62,29 @@ exports.getAllJunkCars = async (req, res) => {
 
 // Update Remark by shiva
 exports.updateJunkCarRemark = async (req, res) => {
-
     try {
-
         const { remark } = req.body;
-
-        const junkCar =
-            await JunkCar.findByIdAndUpdate(
-                req.params.id,
-                { remark },
-                { new: true }
-            );
+        const junkCar = await junkCarService.updateJunkCarRemark(req.params.id, remark);
 
         res.status(200).json({
             success: true,
             data: junkCar,
         });
-
     } catch (error) {
-
         res.status(500).json({
             success: false,
             message: error.message,
         });
     }
 };
-// end here
 
 exports.updateJunkCarStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
 
-        const updated = await JunkCar.findByIdAndUpdate(
-            { _id: id },
-            { 
-                $set: {
-                    status,
-                    assignedTo: req.user._id,
-                },
-            },
-            { new: true }
-        );
+        const updated = await junkCarService.updateJunkCarStatus(id, status, req.user._id);
 
-        // added by shiva payment function
-        if (
-            updated && 
-            updated.status &&
-            updated.status.toLowerCase() === "completed" &&
-            updated.paymentStatus !== "Not Paid"
-        ) {
-
-            const vinValue =
-                updated.engineOrVin &&
-                    updated.engineOrVin !== "none" &&
-                    updated.engineOrVin.trim().length > 5
-                    ? updated.engineOrVin.toUpperCase()
-                    : `JUNK${updated._id}`;
-
-            const existing = await CarIntake.findOne({ vin: vinValue });
-
-            if (!existing) {
-
-                await CarIntake.create({
-                    vin: vinValue,
-
-                    carDetails: {
-                        year: updated.year || null,
-                        make: updated.make || "",
-                        model: updated.model || "",
-                        trim: "Junk Car",
-                        description: "Auto added from Junk Car Request",
-                    },
-
-                    status: "intake",
-                });
-
-                // added by shiva
-                await JunkCar.findByIdAndUpdate(
-                    updated._id,
-                    { movedToIntake: true }
-                );
-                // end here
-
-                console.log("Car Intake Created Successfully ✅");
-
-            } else {
-
-                console.log("Duplicate VIN - Skipped");
-            }
-        }
-        // end here
         res.json({
             success: true,
             data: updated,
@@ -318,135 +94,39 @@ exports.updateJunkCarStatus = async (req, res) => {
     }
 };
 
-
 // Source added by shiva
 exports.updateJunkCarSource = async (req, res) => {
     try {
-
         const { id } = req.params;
         const { source } = req.body;
 
-        const rawSource = source?.toString().trim().toLowerCase();
-
-        const sourceMap = {
-            // manual: "manual",
-            website: "website",
-            online: "website",
-            instagram: "instagram",
-            facebook: "facebook",
-            tiktok: "tiktok",
-            ebay: "ebay",
-            "google business": "google business",
-            whatsapp: "whatsApp",
-            // "whatsapp": "whatsApp",
-            sms: "sms",
-            other: "other",
-        };
-
-        const normalizedSource = sourceMap[rawSource] || "other";
-
-        // if (rawSource === "instagram") {
-        //     normalizedSource = "instagram";
-        // } else if (rawSource === "facebook") {
-        //     normalizedSource = "facebook";
-        // } else if (rawSource === "website" || rawSource === "online") {
-        //     normalizedSource = "website";
-        // }
-
-        const updated = await JunkCar.findByIdAndUpdate(
-            { _id: id },
-            { $set: { source: normalizedSource } },
-            { new: true }
-        );
+        const updated = await junkCarService.updateJunkCarSource(id, source);
 
         res.json({
             success: true,
             data: updated,
         });
-
     } catch (err) {
-
         res.status(500).json({
             success: false,
             message: err.message,
         });
     }
 };
-// end here
 
 // added by shiva
 exports.updateJunkCarPaymentStatus = async (req, res) => {
     try {
-
         const { id } = req.params;
         const { paymentStatus } = req.body;
 
-        const updated = await JunkCar.findByIdAndUpdate(
-            { _id: id },
-            { 
-                $set: { 
-                    paymentStatus,
-                assignedTo: req.user._id,
-                },
-            },
-            { new: true }
-        );
-
-        // Create Car Intake only if:
-        // status = completed
-        // paymentStatus = Paid
-
-        if (
-            updated &&
-            updated.status &&
-            updated.status.toLowerCase() === "completed" &&
-            updated.paymentStatus !== "Not Paid"
-        ) {
-
-            const vinValue =
-                updated.engineOrVin &&
-                updated.engineOrVin !== "none" &&
-                updated.engineOrVin.trim().length > 5
-                    ? updated.engineOrVin.toUpperCase()
-                    : `JUNK${Date.now()}`;
-
-            const existing = await CarIntake.findOne({ vin: vinValue });
-
-            if (!existing) {
-
-                await CarIntake.create({
-                    vin: vinValue,
-
-                    carDetails: {
-                        year: updated.year || null,
-                        make: updated.make || "",
-                        model: updated.model || "",
-                        trim: "Junk Car",
-                        description: "Auto added from Junk Car Request",
-                    },
-
-                    status: "intake",
-                });
-                await JunkCar.findByIdAndUpdate(
-                    updated._id,
-                    { movedToIntake: true }
-                );
-
-                console.log("Car Intake Created Successfully ✅");
-
-            } else {
-
-                console.log("Duplicate VIN - Skipped");
-            }
-        }
+        const updated = await junkCarService.updateJunkCarPaymentStatus(id, paymentStatus, req.user._id);
 
         res.json({
             success: true,
             data: updated,
         });
-
     } catch (err) {
-
         res.status(500).json({
             success: false,
             message: err.message,
@@ -457,27 +137,19 @@ exports.updateJunkCarPaymentStatus = async (req, res) => {
 //  AssignJunkCarStaff by shiva
 exports.assignJunkCarStaff = async (req, res) => {
     try {
-
         const { id } = req.params;
         const { assignedTo } = req.body;
 
-        const updated = await JunkCar.findByIdAndUpdate(
-            id,
-            { assignedTo },
-            { new: true }
-        ).populate("assignedTo", "first_name last_name email role");
+        const updated = await junkCarService.assignJunkCarStaff(id, assignedTo);
 
         res.json({
             success: true,
             data: updated,
         });
-
     } catch (error) {
-
         res.status(500).json({
             success: false,
             message: error.message,
         });
     }
 };
-// end here

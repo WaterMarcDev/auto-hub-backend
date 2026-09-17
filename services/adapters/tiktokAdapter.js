@@ -25,7 +25,7 @@ const crypto = require("crypto");
 const BaseAdapter = require("./baseAdapter");
 const { TikTokApiClient, TikTokAuthError } = require("../clients/tiktokApiClient");
 const platformManager = require("../platformManager.service");
-const IntegrationAccount = require("../../models/IntegrationAccount.model");
+const IntegrationAccount = require("../../models/integrationAccount.model");
 const { logAction } = require("../auditLog.service");
 
 // Only request the scope actually enabled in the TikTok Developer Portal.

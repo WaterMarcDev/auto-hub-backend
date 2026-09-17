@@ -11,10 +11,7 @@
  * server.js) — the URL path is unchanged for backward compatibility; only
  * this file/module's name changed for clarity.
  */
-const MarketplaceListing = require("../models/MarketplaceListing.model");
-const IntegrationAccount = require("../models/IntegrationAccount.model");
-const platformManager = require("../services/platformManager.service");
-const { logAction } = require("../services/auditLog.service");
+const marketplaceListingService = require("../services/marketplaceListing.service");
 
 /**
  * Emit a real-time `new_message` Socket.io event per synced conversation, so
@@ -57,105 +54,23 @@ function emitNewMessageEvents(req, conversations) {
   }
 }
 
+function handleError(res, err, label) {
+  console.error(`[MARKETPLACE LISTING] ${label}:`, err);
+  if (err.statusCode) {
+    return res.status(err.statusCode).json({ success: false, message: err.message });
+  }
+  return res.status(500).json({ success: false, message: err.message });
+}
+
 /**
  * GET /api/marketplace-leads
  */
 exports.getAll = async (req, res) => {
   try {
-    const {
-      marketplace,
-      status,
-      orderStatus,
-      priority,
-      search,
-      hasListingId,
-      page = 1,
-      limit = 50,
-    } = req.query;
-
-    const query = {};
-
-    if (marketplace) query.marketplace = marketplace;
-    if (status) query.conversationStatus = status;
-    if (orderStatus) query.orderStatus = orderStatus;
-    if (priority) query.priority = priority;
-    // Additive, opt-in filter for the Marketplace Listings page — restricts
-    // results to listing-sourced records only. Omitted (default) preserves
-    // today's exact behavior for every other caller.
-    if (hasListingId === "true") query.marketplaceListingId = { $ne: null };
-
-    if (search) {
-      // Base fields (unchanged — kept for backward compatibility with any
-      // order/lead-shaped MarketplaceListing documents/callers).
-      const orConditions = [
-        { customerName: { $regex: search, $options: "i" } },
-        { customerEmail: { $regex: search, $options: "i" } },
-        { marketplaceOrderId: { $regex: search, $options: "i" } },
-        { productName: { $regex: search, $options: "i" } },
-        { trackingNumber: { $regex: search, $options: "i" } },
-        // Listing fields — additive, so the Marketplace Listings page's
-        // search actually covers what it displays (Listing ID, Marketplace,
-        // SKU, Listing Status).
-        { marketplaceListingId: { $regex: search, $options: "i" } },
-        { productSku: { $regex: search, $options: "i" } },
-        { marketplace: { $regex: search, $options: "i" } },
-        { listingStatus: { $regex: search, $options: "i" } },
-      ];
-
-      // Numeric fields (Price, Quantity): $regex only matches string BSON
-      // values, so an exact-value match is added when the search text
-      // itself parses as a number. Strips a leading currency symbol and
-      // thousands separators first (e.g. "$99.99" or "1,000") since the
-      // Price column displays values with a "$" prefix — without this, a
-      // search copied straight from that column would never parse as a
-      // number and silently match nothing.
-      const cleanedNumericInput = search.trim().replace(/^[$€£]\s*/, "").replace(/,/g, "");
-      const numericValue = Number(cleanedNumericInput);
-      if (cleanedNumericInput !== "" && !Number.isNaN(numericValue)) {
-        orConditions.push({ price: numericValue });
-        orConditions.push({ quantity: numericValue });
-      }
-
-      // Date fields (Created Date, Updated Date): matched against the whole
-      // calendar day when the search text parses as a valid date, mirroring
-      // how the UI displays these fields (date-only, via toLocaleDateString()).
-      const parsedDate = new Date(search);
-      if (!Number.isNaN(parsedDate.getTime())) {
-        const startOfDay = new Date(parsedDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(parsedDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        orConditions.push({ createdAt: { $gte: startOfDay, $lte: endOfDay } });
-        orConditions.push({ updatedAt: { $gte: startOfDay, $lte: endOfDay } });
-      }
-
-      query.$or = orConditions;
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const total = await MarketplaceListing.countDocuments(query);
-
-    const leads = await MarketplaceListing.find(query)
-      .populate("assignedUser", "firstName lastName email")
-      .populate("customerId", "firstName lastName email mobileNo")
-      .sort({ lastMessageAt: -1, createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
-
-    res.json({
-      success: true,
-      data: leads,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit)),
-      },
-    });
+    const result = await marketplaceListingService.getAll(req.query);
+    res.json({ success: true, ...result });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Get all error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Get all error");
   }
 };
 
@@ -164,19 +79,10 @@ exports.getAll = async (req, res) => {
  */
 exports.getById = async (req, res) => {
   try {
-    const lead = await MarketplaceListing.findById(req.params.id)
-      .populate("assignedUser", "firstName lastName email")
-      .populate("customerId", "firstName lastName email mobileNo")
-      .lean();
-
-    if (!lead) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
-    }
-
+    const lead = await marketplaceListingService.getById(req.params.id);
     res.json({ success: true, data: lead });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Get by ID error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Get by ID error");
   }
 };
 
@@ -186,45 +92,10 @@ exports.getById = async (req, res) => {
 exports.updateStatus = async (req, res) => {
   try {
     const { status, marketplace } = req.body;
-    const validStatuses = ["new", "open", "in_progress", "waiting_customer", "waiting_internal", "resolved", "closed", "archived"];
-
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, message: "Invalid status" });
-    }
-
-    // Defense-in-depth: when the caller supplies the record's own
-    // `marketplace` value, scope the update to it so a status change can
-    // never affect a record belonging to a different marketplace. Omitting
-    // it keeps today's exact behavior (id-only lookup) for backward
-    // compatibility with any existing caller.
-    const filter = marketplace
-      ? { _id: req.params.id, marketplace }
-      : { _id: req.params.id };
-
-    const lead = await MarketplaceListing.findOneAndUpdate(
-      filter,
-      { conversationStatus: status },
-      { new: true }
-    );
-
-    if (!lead) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
-    }
-
-    await logAction({
-      action: "lead_updated",
-      status: "success",
-      platform: lead.marketplace,
-      entityType: "marketplace_lead",
-      entityId: lead._id,
-      message: `Marketplace listing status updated to ${status}`,
-      userId: req.user?._id,
-    });
-
+    const lead = await marketplaceListingService.updateStatus(req.params.id, status, marketplace, req.user?._id);
     res.json({ success: true, data: lead });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Update status error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Update status error");
   }
 };
 
@@ -234,21 +105,10 @@ exports.updateStatus = async (req, res) => {
 exports.assignUser = async (req, res) => {
   try {
     const { userId } = req.body;
-
-    const lead = await MarketplaceListing.findByIdAndUpdate(
-      req.params.id,
-      { assignedUser: userId || null },
-      { new: true }
-    ).populate("assignedUser", "firstName lastName email");
-
-    if (!lead) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
-    }
-
+    const lead = await marketplaceListingService.assignUser(req.params.id, userId);
     res.json({ success: true, data: lead });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Assign error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Assign error");
   }
 };
 
@@ -258,21 +118,10 @@ exports.assignUser = async (req, res) => {
 exports.updateNotes = async (req, res) => {
   try {
     const { notes } = req.body;
-
-    const lead = await MarketplaceListing.findByIdAndUpdate(
-      req.params.id,
-      { notes },
-      { new: true }
-    );
-
-    if (!lead) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
-    }
-
+    const lead = await marketplaceListingService.updateNotes(req.params.id, notes);
     res.json({ success: true, data: lead });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Update notes error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Update notes error");
   }
 };
 
@@ -281,43 +130,10 @@ exports.updateNotes = async (req, res) => {
  */
 exports.updateOrderStatus = async (req, res) => {
   try {
-    const { orderStatus, shippingStatus, trackingNumber, marketplace } = req.body;
-
-    const updates = {};
-    if (orderStatus) updates.orderStatus = orderStatus;
-    if (shippingStatus) updates.shippingStatus = shippingStatus;
-    if (trackingNumber) updates.trackingNumber = trackingNumber;
-
-    // Same opt-in marketplace-scoping as updateStatus above — additive and
-    // backward compatible when `marketplace` isn't supplied.
-    const filter = marketplace
-      ? { _id: req.params.id, marketplace }
-      : { _id: req.params.id };
-
-    const lead = await MarketplaceListing.findOneAndUpdate(
-      filter,
-      updates,
-      { new: true }
-    );
-
-    if (!lead) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
-    }
-
-    await logAction({
-      action: "order_updated",
-      status: "success",
-      platform: lead.marketplace,
-      entityType: "marketplace_lead",
-      entityId: lead._id,
-      message: `Order ${lead.marketplaceOrderId} status updated`,
-      userId: req.user?._id,
-    });
-
+    const lead = await marketplaceListingService.updateOrderStatus(req.params.id, req.body, req.user?._id);
     res.json({ success: true, data: lead });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Update order error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Update order error");
   }
 };
 
@@ -326,20 +142,10 @@ exports.updateOrderStatus = async (req, res) => {
  */
 exports.remove = async (req, res) => {
   try {
-    const lead = await MarketplaceListing.findByIdAndUpdate(
-      req.params.id,
-      { conversationStatus: "archived" },
-      { new: true }
-    );
-
-    if (!lead) {
-      return res.status(404).json({ success: false, message: "Listing not found" });
-    }
-
+    await marketplaceListingService.remove(req.params.id);
     res.json({ success: true, message: "Listing archived" });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Delete error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Delete error");
   }
 };
 
@@ -355,34 +161,10 @@ exports.remove = async (req, res) => {
  */
 exports.syncOrders = async (req, res) => {
   try {
-    const platform = req.query.platform || "ebay";
-    const adapter = platformManager.getAdapter(platform);
-
-    if (!adapter.fetchOrders) {
-      return res.status(400).json({
-        success: false,
-        message: `fetchOrders() not implemented for ${platform}`,
-      });
-    }
-
-    const account = await IntegrationAccount.findOne({ platform, isActive: true }).sort({ createdAt: -1 });
-    if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: `No active ${platform} integration found. Connect ${platform} first.`,
-      });
-    }
-
-    // Auto-refresh token if expired
-    if (account.isTokenExpired && account.refreshToken) {
-      await platformManager.refreshToken(platform, account);
-    }
-
-    const orders = await adapter.fetchOrders(account, req.query);
-    res.json({ success: true, data: orders, count: orders.length });
+    const result = await marketplaceListingService.syncOrders(req.query);
+    res.json({ success: true, ...result });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Sync orders error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Sync orders error");
   }
 };
 
@@ -392,34 +174,10 @@ exports.syncOrders = async (req, res) => {
  */
 exports.syncListings = async (req, res) => {
   try {
-    const platform = req.query.platform || "ebay";
-    const adapter = platformManager.getAdapter(platform);
-
-    if (!adapter.fetchListings) {
-      return res.status(400).json({
-        success: false,
-        message: `fetchListings() not implemented for ${platform}`,
-      });
-    }
-
-    const account = await IntegrationAccount.findOne({ platform, isActive: true }).sort({ createdAt: -1 });
-    if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: `No active ${platform} integration found. Connect ${platform} first.`,
-      });
-    }
-
-    // Auto-refresh token if expired
-    if (account.isTokenExpired && account.refreshToken) {
-      await platformManager.refreshToken(platform, account);
-    }
-
-    const listings = await adapter.fetchListings(account, req.query);
-    res.json({ success: true, data: listings, count: listings.length });
+    const result = await marketplaceListingService.syncListings(req.query);
+    res.json({ success: true, ...result });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Sync listings error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Sync listings error");
   }
 };
 
@@ -429,35 +187,11 @@ exports.syncListings = async (req, res) => {
  */
 exports.syncMessages = async (req, res) => {
   try {
-    const platform = req.query.platform || "ebay";
-    const adapter = platformManager.getAdapter(platform);
-
-    if (!adapter.fetchMessages) {
-      return res.status(400).json({
-        success: false,
-        message: `fetchMessages() not implemented for ${platform}`,
-      });
-    }
-
-    const account = await IntegrationAccount.findOne({ platform, isActive: true }).sort({ createdAt: -1 });
-    if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: `No active ${platform} integration found. Connect ${platform} first.`,
-      });
-    }
-
-    // Auto-refresh token if expired
-    if (account.isTokenExpired && account.refreshToken) {
-      await platformManager.refreshToken(platform, account);
-    }
-
-    const conversations = await adapter.fetchMessages(account, req.query);
-    emitNewMessageEvents(req, conversations);
-    res.json({ success: true, data: conversations, count: conversations.length });
+    const result = await marketplaceListingService.syncMessages(req.query);
+    emitNewMessageEvents(req, result.data);
+    res.json({ success: true, ...result });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Sync messages error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Sync messages error");
   }
 };
 
@@ -467,82 +201,20 @@ exports.syncMessages = async (req, res) => {
  */
 exports.syncAll = async (req, res) => {
   try {
-    const platform = req.body.platform || req.query.platform || "ebay";
-    const adapter = platformManager.getAdapter(platform);
-
-    if (!adapter.sync) {
-      return res.status(400).json({
-        success: false,
-        message: `sync() not implemented for ${platform}`,
-      });
-    }
-
-    const account = await IntegrationAccount.findOne({ platform, isActive: true }).sort({ createdAt: -1 });
-    if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: `No active ${platform} integration found. Connect ${platform} first.`,
-      });
-    }
-
-    // Auto-refresh token if expired
-    if (account.isTokenExpired && account.refreshToken) {
-      await platformManager.refreshToken(platform, account);
-    }
-
-    const result = await adapter.sync(account, req.body);
+    const { result, summary } = await marketplaceListingService.syncAll(req.body, req.query);
     emitNewMessageEvents(req, result.messages);
-    res.json({
-      success: true,
-      data: result,
-      summary: {
-        orders: result.orders.length,
-        listings: result.listings.length,
-        messages: result.messages.length,
-      },
-    });
+    res.json({ success: true, data: result, summary });
   } catch (err) {
-    console.error("[MARKETPLACE LISTING] Full sync error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Full sync error");
   }
 };
 
 //Ebay conversations function
 exports.testEbayConversations = async (req, res) => {
   try {
-    console.log("==== 1 ====");
-
-    const IntegrationAccount = require("../models/IntegrationAccount.model");
-    const ebayAdapter = require("../services/adapters/ebayAdapter");
-
-    console.log("==== 2 ====");
-
-    const account = await IntegrationAccount.findOne({
-      platform: "ebay",
-      isConnected: true,
-    });
-
-    console.log("==== 3 ====")
-
-    if (!account) {
-      return res.status(404).json({
-        success: false,
-        message: "No connected eBay account found.",
-      });
-    }
-
-    console.log("==== 4 ====");
-
-    const result = await ebayAdapter.testConversations(account);
-
-    console.log("==== 5 ====");
-
-    return res.status(200).json({
-      success: true,
-      data: result,
-    });
+    const result = await marketplaceListingService.testEbayConversations();
+    return res.status(200).json({ success: true, data: result });
   } catch (err) {
-    // console.error(err);
     console.error("====== EBAY ERROR =====");
     console.error("Message:", err.message);
     console.error("Stack:", err.stack);
@@ -553,7 +225,7 @@ exports.testEbayConversations = async (req, res) => {
       console.error("Body:", err.response.data);
     }
 
-    return res.status(500).json({
+    return res.status(err.statusCode || 500).json({
       success: false,
       message: err.message,
       status: err.response?.status || null,
@@ -562,11 +234,3 @@ exports.testEbayConversations = async (req, res) => {
     });
   }
 };
-// exports.testEbayConversations = async (req, res) => {
-//     console.log("===== TEST CONTROLLER HIT =====");
-
-//     return res.json({
-//         success: true,
-//         message: "Controller reached"
-//     });
-// };

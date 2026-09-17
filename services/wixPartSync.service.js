@@ -122,8 +122,8 @@ async function postToWixVelo(url, payload) {
 }
 
 
-const Inventory = require("../models/Inventory.model");
-const carInTake = require("../models/carInTake.model");
+const Inventory = require("../models/inventory.model");
+const carInTake = require("../models/carIntake.model");
 
 const { resolvePartPrice } = require("../utils/partPricing");
 const { isGermanVehicle } = require("../utils/vehicleClassification");

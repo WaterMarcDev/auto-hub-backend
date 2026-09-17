@@ -1,32 +1,27 @@
-const Buyer = require("../models/Buyer.model");
+const buyerService = require("../services/buyer.service");
+
+function handleError(res, error, logLabel, fallbackStatus = 500) {
+  if (error && error.statusCode) {
+    return res.status(error.statusCode).json({ message: error.message });
+  }
+  if (logLabel) console.log(logLabel, error);
+  const body = { message: "Server error" };
+  if (logLabel) body.details = error.message;
+  return res.status(fallbackStatus).json(body);
+}
 
 // @desc    Create new buyer
 // @route   POST /api/buyers
 // @access  Private
 const createBuyer = async (req, res) => {
   try {
-    const { firstName, lastName, mobileNo, email, description } = req.body;
-
-    // Basic validation
-    if (!firstName || !lastName) {
-      return res
-        .status(400)
-        .json({ message: "First and last name are required" });
-    }
-
-    const buyer = new Buyer({
-      firstName,
-      lastName,
-      mobileNo,
-      email,
-      description,
+    const buyer = await buyerService.createBuyer({
+      ...req.body,
       createdBy: req.user._id,
     });
-
-    await buyer.save();
-
     res.status(201).json(buyer);
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -35,33 +30,8 @@ const getBuyers = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    // Build filter object
-    const filter = { isActive: true };
-
-    // Exclude soft-deleted buyers explicitly
-    filter.isDeleted = { $ne: true };
-    if (req.query.search) {
-      const searchRegex = new RegExp(req.query.search, "i");
-      filter.$or = [
-        { firstName: searchRegex },
-        { lastName: searchRegex },
-        { email: searchRegex },
-        { mobileNo: searchRegex },
-      ];
-    }
-
-    const buyers = await Buyer.find(filter)
-      .populate("createdBy", "first_name last_name email")
-      .populate("updatedBy", "first_name last_name email")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const total = await Buyer.countDocuments(filter);
-
-    res.status(200).json({ buyers, pagination: { page, limit, total } });
+    const result = await buyerService.getBuyers({ page, limit, search: req.query.search });
+    res.status(200).json(result);
   } catch (error) {
     console.error("Get buyers error:", error);
     res.status(500).json({ message: "Server error" });
@@ -70,19 +40,10 @@ const getBuyers = async (req, res) => {
 
 const getBuyerById = async (req, res) => {
   try {
-    const buyer = await Buyer.findOne({
-      _id: req.params.id,
-      isDeleted: { $ne: true },
-    })
-      .populate("createdBy", "first_name last_name email")
-      .populate("updatedBy", "first_name last_name email");
-
-    if (!buyer) {
-      return res.status(404).json({ message: "Buyer not found" });
-    }
-
+    const buyer = await buyerService.getBuyerById(req.params.id);
     res.status(200).json(buyer);
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     console.error("Get buyer by ID error:", error);
     res.status(500).json({ message: "Server error" });
   }
@@ -90,25 +51,10 @@ const getBuyerById = async (req, res) => {
 
 const updateBuyer = async (req, res) => {
   try {
-    const buyer = await Buyer.findById(req.params.id);
-
-    if (!buyer || !buyer.isActive || buyer.isDeleted) {
-      return res.status(404).json({ message: "Buyer not found" });
-    }
-
-    const { firstName, lastName, mobileNo, email, description } = req.body;
-
-    if (firstName !== undefined) buyer.firstName = firstName;
-    if (lastName !== undefined) buyer.lastName = lastName;
-    if (mobileNo !== undefined) buyer.mobileNo = mobileNo;
-    if (email !== undefined) buyer.email = email;
-    if (description !== undefined) buyer.description = description;
-    buyer.updatedBy = req.user._id;
-
-    await buyer.save();
-
+    const buyer = await buyerService.updateBuyer(req.params.id, req.body, req.user._id);
     res.status(200).json(buyer);
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     console.log("Update buyer error", error);
     res.status(500).json({ message: "Server error", details: error.message });
   }
@@ -116,21 +62,10 @@ const updateBuyer = async (req, res) => {
 
 const deleteBuyer = async (req, res) => {
   try {
-    const buyer = await Buyer.findById(req.params.id);
-
-    if (!buyer || !buyer.isActive || buyer.isDeleted) {
-      return res.status(404).json({ message: "Buyer not found" });
-    }
-
-    buyer.isActive = false;
-    buyer.isDeleted = true;
-    buyer.deletedAt = new Date();
-    buyer.updatedBy = req.user._id;
-
-    await buyer.save();
-
+    await buyerService.deleteBuyer(req.params.id, req.user._id);
     res.status(200).json({ message: "Buyer deleted successfully" });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     console.log("Delete buyer error", error);
     res.status(500).json({ message: "Server error", details: error.message });
   }

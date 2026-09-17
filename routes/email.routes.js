@@ -41,7 +41,7 @@ const upload = multer({
 // end here
 
 const { testCreateEmail, getEmails, handleInboundEmail } = require("../controllers/email.controller");
-const CRMEmail = require("../models/CRMEmail.model");  //added by shiva
+const CRMEmail = require("../models/crmEmail.model");  //added by shiva
 const { sendReply, forwardEmail } = require("../controllers/sendEmail.controller");    // add forwardEmail
 // const emailController = require("../controllers/email.controller")
 

@@ -74,10 +74,10 @@ async function main() {
 
   // Register every referenced schema (Inventory.populate("make"/"model"/"trim")
   // needs these registered — mirrors what server.js does at boot).
-  const Inventory = require("../models/Inventory.model");
-  const Make = require("../models/Make");
-  require("../models/Model.model");
-  require("../models/Trim.model");
+  const Inventory = require("../models/inventory.model");
+  const Make = require("../models/make.model");
+  require("../models/model.model");
+  require("../models/trim.model");
 
   // Wrap Mongoose write methods on these two models only, as an explicit
   // in-process tripwire — this script never calls them, but if it ever did,
@@ -93,7 +93,7 @@ async function main() {
 
   const { isGermanVehicle } = require("../utils/vehicleClassification");
   const { resolvePartPrice } = require("../utils/partPricing");
-  const wixController = require("../controllers/wix"); // safe: axios already guarded above
+  const wixController = require("../controllers/wix.controller"); // safe: axios already guarded above
 
   const results = {
     standard: null,

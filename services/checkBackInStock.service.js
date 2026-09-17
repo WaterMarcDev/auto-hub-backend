@@ -1,6 +1,6 @@
 const cron = require("node-cron");
 
-const BackInStockRequest = require("../models/BackInStockRequest.model");
+const BackInStockRequest = require("../models/backInStockRequest.model");
 const sendBackInStockEmail = require("./sendBackInStockEmail.service");     // by shiva
 
 // START AUTOMATION

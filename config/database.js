@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const Tag = require("../models/Tag.model");
+const Tag = require("../models/tag.model");
 
 
 

@@ -1,8 +1,8 @@
 const express = require("express");
 const router = express.Router();
-const { syncWithWix, markInventorySynced, listWixCollections } = require("../controllers/wix");   // added markInventorySynced by shiva
-const { syncInventoriesV3 } = require("../controllers/Inventory.controller");    //added by shiva
-// const { exportInventories, syncInventoriesV3 } = require("../controllers/Inventory.controller");
+const { syncWithWix, markInventorySynced, listWixCollections } = require("../controllers/wix.controller");   // added markInventorySynced by shiva
+const { syncInventoriesV3 } = require("../controllers/inventory.controller");    //added by shiva
+// const { exportInventories, syncInventoriesV3 } = require("../controllers/inventory.controller");
 const { wixAuth } = require("../middleware/wixAuth");
 
 // NEW export controllers (appended – do not modify above)
@@ -12,7 +12,7 @@ const {
   exportAndSyncByYear,
   exportAndSyncByModel,
   exportAndSyncDeduplicated,
-} = require("../controllers/wix");
+} = require("../controllers/wix.controller");
 
 // @route   GET /api/wix/sync
 // @desc    Sync inventory with Wix (using export format)

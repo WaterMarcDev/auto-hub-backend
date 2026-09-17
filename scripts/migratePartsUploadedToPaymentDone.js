@@ -19,7 +19,7 @@
 
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
-const CarIntake = require("../models/carInTake.model");
+const CarIntake = require("../models/carIntake.model");
 
 const APPLY = process.argv.includes("--apply");
 const MATCH_FILTER = { status: "parts-uploaded" };

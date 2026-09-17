@@ -1,40 +1,21 @@
-const Part = require("../models/Part.model");
+const partService = require("../services/part.service");
+
+function handleError(res, error, logLabel, fallbackMessage) {
+  if (error && error.statusCode) {
+    return res.status(error.statusCode).json({ message: error.message });
+  }
+  console.error(logLabel, error);
+  return res.status(500).json({ message: fallbackMessage });
+}
 
 // @desc    Create a new part
 // @route   POST /api/parts
 const createPart = async (req, res) => {
   try {
-    const { name, shortName, category, unit, weight, dimensions, image, description } =
-      req.body;
-
-    // Check if part with the same name already exists (and not deleted)
-    const existingPart = await Part.findOne({ name, deleted: { $ne: true } });
-    if (existingPart) {
-      return res.status(400).json({
-        message: "Part with this name already exists",
-      });
-    }
-
-    const part = await Part.create({
-      name,
-      shortName,
-      category,
-      unit,
-      weight,
-      dimensions,
-      image,
-      description,
-    });
-
-    res.status(201).json({
-      message: "Part created successfully",
-      data: part,
-    });
+    const part = await partService.createPart(req.body);
+    res.status(201).json({ message: "Part created successfully", data: part });
   } catch (error) {
-    console.error("Error creating part:", error);
-    res.status(500).json({
-      message: "Server error while creating part",
-    });
+    handleError(res, error, "Error creating part:", "Server error while creating part");
   }
 };
 
@@ -44,32 +25,10 @@ const getAllParts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    // Build filter object (exclude soft-deleted)
-    const filter = { deleted: { $ne: true } };
-    if (req.query.search) {
-      filter.name = { $regex: req.query.search, $options: "i" };
-    }
-    const parts = await Part.find(filter)
-      .skip(skip)
-      .limit(limit)
-      .sort({ name: 1 });
-    const total = await Part.countDocuments(filter);
-
-    res.status(200).json({
-      parts,
-      pagination: {
-        page,
-        limit,
-        total,
-      },
-    });
+    const result = await partService.getAllParts({ page, limit, search: req.query.search });
+    res.status(200).json(result);
   } catch (error) {
-    console.error("Error retrieving parts:", error);
-    res.status(500).json({
-      message: "Server error while retrieving parts",
-    });
+    handleError(res, error, "Error retrieving parts:", "Server error while retrieving parts");
   }
 };
 
@@ -77,19 +36,10 @@ const getAllParts = async (req, res) => {
 // @route   GET /api/parts/:id
 const getPartById = async (req, res) => {
   try {
-    const part = await Part.findOne({
-      _id: req.params.id,
-      $or: [{ deleted: { $ne: true } }, { isDeleted: { $ne: true } }],
-    });
-    if (!part || part.deleted || part.isDeleted) {
-      return res.status(404).json({ message: "Part not found" });
-    }
+    const part = await partService.getPartById(req.params.id);
     res.status(200).json(part);
   } catch (error) {
-    console.error("Error retrieving part:", error);
-    res.status(500).json({
-      message: "Server error while retrieving part",
-    });
+    handleError(res, error, "Error retrieving part:", "Server error while retrieving part");
   }
 };
 
@@ -97,39 +47,10 @@ const getPartById = async (req, res) => {
 // @route   PUT /api/parts/:id
 const updatePart = async (req, res) => {
   try {
-    const { name, shortName, category, unit, weight, dimensions, image, description } =
-      req.body;
-
-    // Only update if not deleted
-    const existing = await Part.findById(req.params.id);
-    if (!existing || existing.deleted) {
-      return res.status(404).json({ message: "Part not found" });
-    }
-
-    const part = await Part.findByIdAndUpdate(
-      req.params.id,
-      {
-        name,
-        shortName,
-        category,
-        unit,
-        weight,
-        dimensions,
-        image,
-        description,
-      },
-      { new: true }
-    );
-
-    res.status(200).json({
-      message: "Part updated successfully",
-      data: part,
-    });
+    const part = await partService.updatePart(req.params.id, req.body);
+    res.status(200).json({ message: "Part updated successfully", data: part });
   } catch (error) {
-    console.error("Error updating part:", error);
-    res.status(500).json({
-      message: "Server error while updating part",
-    });
+    handleError(res, error, "Error updating part:", "Server error while updating part");
   }
 };
 
@@ -137,21 +58,10 @@ const updatePart = async (req, res) => {
 // @route   DELETE /api/parts/:id
 const deletePart = async (req, res) => {
   try {
-    // Soft delete: set deleted flag and timestamp
-    const part = await Part.findById(req.params.id);
-    if (!part || part.deleted) {
-      return res.status(404).json({ message: "Part not found" });
-    }
-
-    part.deleted = true;
-    part.isDeleted = true;
-    part.deletedAt = new Date();
-    await part.save();
-
+    await partService.deletePart(req.params.id);
     res.status(200).json({ message: "Part deleted successfully" });
   } catch (error) {
-    console.error("Error deleting part:", error);
-    res.status(500).json({ message: "Server error while deleting part" });
+    handleError(res, error, "Error deleting part:", "Server error while deleting part");
   }
 };
 

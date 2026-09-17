@@ -5,4 +5,4 @@
  * keeps working — new code should require "./MarketplaceListing.model"
  * directly.
  */
-module.exports = require("./MarketplaceListing.model");
+module.exports = require("./marketplaceListing.model");

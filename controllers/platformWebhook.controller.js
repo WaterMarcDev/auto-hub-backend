@@ -11,9 +11,7 @@
  *   GET  /api/integrations/:platform/webhook  - Webhook verification (no auth — platform calls this)
  *   POST /api/integrations/:platform/webhook  - Receive webhook events (no auth — platform sends this)
  */
-const IntegrationAccount = require("../models/IntegrationAccount.model");
-const platformManager = require("../services/platformManager.service");
-const { logAction } = require("../services/auditLog.service");
+const platformWebhookService = require("../services/platformWebhook.service");
 const { unsupportedPlatformResponse } = require("./integrationShared.util");
 
 /**
@@ -25,38 +23,18 @@ exports.verifyWebhookEndpoint = async (req, res) => {
   try {
     const { platform } = req.params;
 
-    if (!platformManager.hasAdapter(platform)) {
+    const result = await platformWebhookService.verifyWebhook(platform, req.query);
+
+    if (!result.supported) {
       return res.json(unsupportedPlatformResponse(platform));
     }
 
-    const adapter = platformManager.getAdapter(platform);
-
-    // The adapter's verifyWebhook method handles the platform-specific verification
-    const result = adapter.verifyWebhook(req.query);
-
     if (result.verified) {
-      // Update the integration's webhook verification status
-      await IntegrationAccount.findOneAndUpdate(
-        { platform, isActive: true },
-        {
-          webhookVerified: true,
-          webhookLastPing: new Date(),
-        }
-      );
-
       // Return the challenge as plain text (Meta requires this)
       return res.status(200).type("text/plain").send(String(result.challenge));
     }
 
     // Verification failed
-    await logAction({
-      action: "webhook_verification_failed",
-      status: "failure",
-      platform,
-      message: `Webhook verification failed for ${platform}`,
-      metadata: { query: req.query },
-    });
-
     res.status(403).json({ success: false, message: "Webhook verification failed" });
   } catch (err) {
     console.error(`[INTEGRATION] ${req.params.platform} webhook verify error:`, err);
@@ -73,21 +51,17 @@ exports.receiveWebhookEndpoint = async (req, res) => {
   try {
     const { platform } = req.params;
 
-    if (!platformManager.hasAdapter(platform)) {
-      return res.json(unsupportedPlatformResponse(platform));
-    }
-
-    // Process the webhook payload through the platform manager. headers/
-    // rawBody are only consumed by adapters that verify a signature (e.g.
-    // TikTok) — passed through generically so adding another
-    // signature-verifying platform later needs no controller change.
-    const result = await platformManager.receiveWebhook(platform, req.body, {
+    const result = await platformWebhookService.receiveWebhook(platform, req.body, {
       headers: req.headers,
       rawBody: req.rawBody,
     });
 
+    if (!result.supported) {
+      return res.json(unsupportedPlatformResponse(platform));
+    }
+
     // Acknowledge the webhook (platforms expect a 200 OK quickly)
-    res.json({ success: true, data: result });
+    res.json({ success: true, data: result.data });
   } catch (err) {
     console.error(`[INTEGRATION] ${req.params.platform} webhook receive error:`, err);
 

@@ -20,9 +20,7 @@
  *   PATCH  /api/integrations/:id/webhook-config
  *   DELETE /api/integrations/:id
  */
-const IntegrationAccount = require("../models/IntegrationAccount.model");
-const platformManager = require("../services/platformManager.service");
-const { logAction } = require("../services/auditLog.service");
+const integrationService = require("../services/integration.service");
 
 /**
  * GET /api/integrations
@@ -31,16 +29,7 @@ const { logAction } = require("../services/auditLog.service");
 exports.getAll = async (req, res) => {
   try {
     const { platform, isActive } = req.query;
-    const query = {};
-
-    if (platform) query.platform = platform;
-    if (isActive !== undefined) query.isActive = isActive === "true";
-
-    const integrations = await IntegrationAccount.find(query)
-      .select("-accessToken -refreshToken -webhookSecret")
-      .sort({ platform: 1, createdAt: -1 })
-      .lean();
-
+    const integrations = await integrationService.getAll({ platform, isActive });
     res.json({ success: true, data: integrations });
   } catch (err) {
     console.error("[INTEGRATION] Get all error:", err);
@@ -54,16 +43,12 @@ exports.getAll = async (req, res) => {
  */
 exports.getById = async (req, res) => {
   try {
-    const integration = await IntegrationAccount.findById(req.params.id)
-      .select("-accessToken -refreshToken -webhookSecret")
-      .lean();
-
-    if (!integration) {
-      return res.status(404).json({ success: false, message: "Integration not found" });
-    }
-
+    const integration = await integrationService.getById(req.params.id);
     res.json({ success: true, data: integration });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, message: err.message });
+    }
     console.error("[INTEGRATION] Get by ID error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -79,78 +64,16 @@ exports.getById = async (req, res) => {
  */
 exports.connect = async (req, res) => {
   try {
-    const {
-      platform,
-      accessToken,
-      refreshToken,
-      tokenExpiresAt,
-      platformUserId,
-      platformPageId,
-      platformEmail,
-      platformName,
-      metadata,
-    } = req.body;
-
-    if (!platform || !accessToken) {
-      return res.status(400).json({ success: false, message: "Platform and access token are required" });
-    }
-
-    // Check if integration already exists for this platform + user
-    let integration = await IntegrationAccount.findOne({
-      platform,
-      platformUserId: platformUserId || null,
-    });
-
-    if (integration) {
-      // Update existing
-      integration.accessToken = accessToken;
-      if (refreshToken) integration.refreshToken = refreshToken;
-      if (tokenExpiresAt) integration.tokenExpiresAt = new Date(tokenExpiresAt);
-      if (platformPageId) integration.platformPageId = platformPageId;
-      if (platformEmail) integration.platformEmail = platformEmail;
-      if (platformName) integration.platformName = platformName;
-      if (metadata) integration.metadata = { ...integration.metadata, ...metadata };
-      integration.isConnected = true;
-      integration.isActive = true;
-      integration.lastSyncAt = new Date();
-      integration.errorCount = 0;
-      integration.lastErrorMessage = null;
-    } else {
-      // Create new
-      integration = await IntegrationAccount.create({
-        platform,
-        accessToken,
-        refreshToken,
-        tokenExpiresAt: tokenExpiresAt ? new Date(tokenExpiresAt) : null,
-        platformUserId,
-        platformPageId,
-        platformEmail,
-        platformName,
-        metadata: metadata || {},
-        isActive: true,
-        isConnected: true,
-        lastSyncAt: new Date(),
-      });
-    }
-
-    await integration.save();
-
-    await logAction({
-      action: "platform_connected",
-      status: "success",
-      platform,
-      entityType: "integration_account",
-      entityId: integration._id,
-      message: `Platform connected: ${platform}${platformEmail ? ` (${platformEmail})` : ""}`,
-      userId: req.user?._id,
-    });
-
+    const integration = await integrationService.connect(req.body, req.user?._id);
     res.json({
       success: true,
-      message: `${platform} connected successfully`,
+      message: `${req.body.platform} connected successfully`,
       data: integration.toJSON(),
     });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, message: err.message });
+    }
     console.error("[INTEGRATION] Connect error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -162,28 +85,12 @@ exports.connect = async (req, res) => {
  */
 exports.disconnect = async (req, res) => {
   try {
-    const integration = await IntegrationAccount.findById(req.params.id);
-
-    if (!integration) {
-      return res.status(404).json({ success: false, message: "Integration not found" });
-    }
-
-    integration.isActive = false;
-    integration.isConnected = false;
-    await integration.save();
-
-    await logAction({
-      action: "platform_disconnected",
-      status: "success",
-      platform: integration.platform,
-      entityType: "integration_account",
-      entityId: integration._id,
-      message: `Platform disconnected: ${integration.platform}`,
-      userId: req.user?._id,
-    });
-
+    await integrationService.disconnect(req.params.id, req.user?._id);
     res.json({ success: true, message: "Integration disconnected" });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, message: err.message });
+    }
     console.error("[INTEGRATION] Disconnect error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -195,24 +102,16 @@ exports.disconnect = async (req, res) => {
  */
 exports.refreshToken = async (req, res) => {
   try {
-    const integration = await IntegrationAccount.findById(req.params.id);
-
-    if (!integration) {
-      return res.status(404).json({ success: false, message: "Integration not found" });
-    }
-
-    if (!integration.refreshToken) {
-      return res.status(400).json({ success: false, message: "No refresh token available" });
-    }
-
-    const updated = await platformManager.refreshToken(integration.platform, integration);
-
+    const updated = await integrationService.refreshToken(req.params.id);
     res.json({
       success: true,
       message: "Token refreshed successfully",
       data: updated.toJSON(),
     });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, message: err.message });
+    }
     console.error("[INTEGRATION] Refresh error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -224,28 +123,12 @@ exports.refreshToken = async (req, res) => {
  */
 exports.verifyWebhook = async (req, res) => {
   try {
-    const integration = await IntegrationAccount.findById(req.params.id);
-
-    if (!integration) {
-      return res.status(404).json({ success: false, message: "Integration not found" });
-    }
-
-    integration.webhookVerified = true;
-    integration.webhookLastPing = new Date();
-    await integration.save();
-
-    await logAction({
-      action: "webhook_verified",
-      status: "success",
-      platform: integration.platform,
-      entityType: "integration_account",
-      entityId: integration._id,
-      message: `Webhook verified for ${integration.platform}`,
-      userId: req.user?._id,
-    });
-
+    await integrationService.verifyWebhook(req.params.id, req.user?._id);
     res.json({ success: true, message: "Webhook verified" });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, message: err.message });
+    }
     console.error("[INTEGRATION] Webhook verify error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -257,20 +140,15 @@ exports.verifyWebhook = async (req, res) => {
  */
 exports.updateWebhookConfig = async (req, res) => {
   try {
-    const { webhookConfig } = req.body;
-
-    const integration = await IntegrationAccount.findByIdAndUpdate(
+    const integration = await integrationService.updateWebhookConfig(
       req.params.id,
-      { webhookConfig: webhookConfig || {} },
-      { new: true }
-    ).select("-accessToken -refreshToken -webhookSecret");
-
-    if (!integration) {
-      return res.status(404).json({ success: false, message: "Integration not found" });
-    }
-
+      req.body.webhookConfig
+    );
     res.json({ success: true, data: integration });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, message: err.message });
+    }
     console.error("[INTEGRATION] Webhook config error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
@@ -282,24 +160,12 @@ exports.updateWebhookConfig = async (req, res) => {
  */
 exports.remove = async (req, res) => {
   try {
-    const integration = await IntegrationAccount.findByIdAndDelete(req.params.id);
-
-    if (!integration) {
-      return res.status(404).json({ success: false, message: "Integration not found" });
-    }
-
-    await logAction({
-      action: "platform_disconnected",
-      status: "success",
-      platform: integration.platform,
-      entityType: "integration_account",
-      entityId: integration._id,
-      message: `Integration removed: ${integration.platform}`,
-      userId: req.user?._id,
-    });
-
+    await integrationService.remove(req.params.id, req.user?._id);
     res.json({ success: true, message: "Integration removed" });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, message: err.message });
+    }
     console.error("[INTEGRATION] Delete error:", err);
     res.status(500).json({ success: false, message: err.message });
   }

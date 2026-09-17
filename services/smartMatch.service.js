@@ -16,8 +16,8 @@
  * Compatible with the existing Customer model (firstName + lastName),
  * while adding new fields for platform-specific IDs.
  */
-const Customer = require("../models/customer");
-const User = require("../models/User");
+const Customer = require("../models/customer.model");
+const User = require("../models/user.model");
 const { logAction } = require("./auditLog.service");
 
 // Cached after first successful lookup so background sync jobs (which have no

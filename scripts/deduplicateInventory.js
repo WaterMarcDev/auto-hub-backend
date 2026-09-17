@@ -10,7 +10,7 @@
 
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
-const Inventory = require("../models/Inventory.model");
+const Inventory = require("../models/inventory.model");
 
 async function deduplicate() {
   try {

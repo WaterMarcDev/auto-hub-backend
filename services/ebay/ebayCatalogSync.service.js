@@ -28,9 +28,9 @@
  * declarations; no business logic from the original implementation was
  * removed.
  */
-const EbaySyncRun = require("../../models/EbaySyncRun.model");
-const Inventory = require("../../models/Inventory.model");
-const IntegrationAccount = require("../../models/IntegrationAccount.model");
+const EbaySyncRun = require("../../models/ebaySyncRun.model");
+const Inventory = require("../../models/inventory.model");
+const IntegrationAccount = require("../../models/integrationAccount.model");
 const platformManager = require("../platformManager.service");
 const { EbayApiClient, EbayAuthError, EbayRateLimitError } = require("../clients/ebayApiClient");
 const EbayTradingClient = require("../clients/ebayTradingClient");

@@ -16,7 +16,7 @@
  * Scoped strictly to platform "ebay" — no other adapters are touched.
  */
 const cron = require("node-cron");
-const IntegrationAccount = require("../models/IntegrationAccount.model");
+const IntegrationAccount = require("../models/integrationAccount.model");
 const platformManager = require("./platformManager.service");
 
 const startEbayTokenRefresh = () => {

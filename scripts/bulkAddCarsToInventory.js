@@ -39,10 +39,10 @@
 
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
-const CarIntake = require("../models/carInTake.model");
-const Inventory = require("../models/Inventory.model");
-const { createInventory } = require("../controllers/Inventory.controller");
-const { updateCarIntakeStatus } = require("../controllers/carIntakeController");
+const CarIntake = require("../models/carIntake.model");
+const Inventory = require("../models/inventory.model");
+const { createInventory } = require("../controllers/inventory.controller");
+const { updateCarIntakeStatus } = require("../controllers/carIntake.controller");
 
 const APPLY = process.argv.includes("--apply");
 const ELIGIBILITY_FILTER = { status: "payment-done" };

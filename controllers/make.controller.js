@@ -1,30 +1,22 @@
-const Make = require("../models/Make");
+const makeService = require("../services/make.service");
+
+function handleError(res, error) {
+  if (error && error.statusCode) {
+    return res.status(error.statusCode).json({ message: error.message });
+  }
+  console.error(error);
+  return res.status(500).json({ message: "Server error" });
+}
 
 // @desc    Create a new make
 // @route   POST /api/makes
 // @access  Private/Admin
 const createMake = async (req, res) => {
   try {
-    const { name, shortName, description } = req.body;
-
-    // Check if make with the same name already exists
-    const existingMake = await Make.findOne({ name });
-    if (existingMake) {
-      return res
-        .status(400)
-        .json({ message: "Make with this name already exists" });
-    }
-
-    const make = await Make.create({
-      name,
-      shortName,
-      description,
-    });
-
+    const make = await makeService.createMake(req.body);
     res.status(201).json(make);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    handleError(res, error);
   }
 };
 
@@ -35,34 +27,14 @@ const getAllMakes = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    // Build filter object
-    const filter = {};
-    // check for not deleted true
-    filter.isDeleted = { $ne: true };
-    // search by name
-    if (req.query.search) {
-      filter.name = { $regex: req.query.search, $options: "i" };
-    }
-
-    const total = await Make.countDocuments(filter);
-    const makes = await Make.find(filter)
-      .skip(skip)
-      .limit(limit)
-      .sort({ name: 1 }); // Sort by name ascending
-
-    res.status(200).json({
-      makes,
-      pagination: {
-        page,
-        limit,
-        total,
-      },
+    const result = await makeService.getAllMakes({
+      page,
+      limit,
+      search: req.query.search,
     });
+    res.status(200).json(result);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    handleError(res, error);
   }
 };
 
@@ -71,17 +43,10 @@ const getAllMakes = async (req, res) => {
 // @access Private/Admin
 const getMakeById = async (req, res) => {
   try {
-    const make = await Make.findOne({
-      _id: req.params.id,
-      isDeleted: { $ne: true },
-    });
-    if (!make) {
-      return res.status(404).json({ message: "Make not found" });
-    }
+    const make = await makeService.getMakeById(req.params.id);
     res.status(200).json(make);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    handleError(res, error);
   }
 };
 
@@ -90,39 +55,19 @@ const getMakeById = async (req, res) => {
 // @access  Private/Admin
 const updateMake = async (req, res) => {
   try {
-    const { name, shortName, description } = req.body;
-
-    const make = await Make.findById(req.params.id, { isDeleted: false });
-    if (!make) {
-      return res.status(404).json({ message: "Make not found" });
-    }
-
-    make.name = name || make.name;
-    make.shortName = shortName || make.shortName;
-    make.description = description || make.description;
-
-    await make.save();
+    const make = await makeService.updateMake(req.params.id, req.body);
     res.status(200).json(make);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    handleError(res, error);
   }
 };
 
 const deleteMake = async (req, res) => {
   try {
-    const make = await Make.findById(req.params.id, { isDeleted: false });
-    if (!make) {
-      return res.status(404).json({ message: "Make not found" });
-    }
-
-    make.isDeleted = true;
-    make.deletedAt = new Date();
-    await make.save();
+    await makeService.deleteMake(req.params.id);
     res.status(200).json({ message: "Make deleted successfully" });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    handleError(res, error);
   }
 };
 

@@ -14,7 +14,7 @@
  *
  * TTL index automatically deletes logs older than 90 days.
  */
-const AuditLog = require("../models/AuditLog.model");
+const AuditLog = require("../models/auditLog.model");
 
 /**
  * Log an action to the audit trail.

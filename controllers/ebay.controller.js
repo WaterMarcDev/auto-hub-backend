@@ -1,4 +1,4 @@
-const crypto = require("crypto");
+const ebayWebhookService = require("../services/ebayWebhook.service");
 
 exports.challenge = async (req, res) => {
   try {
@@ -11,25 +11,7 @@ exports.challenge = async (req, res) => {
       });
     }
 
-    // const endpoint = `${req.protocol}://${req.get("host")}${req.baseUrl}${req.path}`;
-
-    const endpoint = process.env.EBAY_ENDPOINT;
-
-    const verificationToken = process.env.EBAY_VERIFICATION_TOKEN;
-
-    // SECURITY: EBAY_VERIFICATION_TOKEN is a secret shared only with eBay
-    // (proves this endpoint's ownership for the Marketplace Account
-    // Deletion webhook) — it and the hash derived from it must never be
-    // logged. This previously logged both in plaintext to console, which
-    // is persisted to logs/access.log & logs/error.log on this server.
-    console.log("[EBAY_CHALLENGE] Received challenge_code, endpoint configured:", Boolean(endpoint), "verification token configured:", Boolean(verificationToken));
-
-    const hash = crypto
-      .createHash("sha256")
-      .update(challengeCode)
-      .update(verificationToken)
-      .update(endpoint)
-      .digest("hex");
+    const hash = ebayWebhookService.computeChallengeResponse(challengeCode);
 
     return res.status(200).json({
       challengeResponse: hash,

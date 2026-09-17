@@ -19,8 +19,8 @@
 
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
-const CarIntake = require("../models/carInTake.model");
-const Inventory = require("../models/Inventory.model");
+const CarIntake = require("../models/carIntake.model");
+const Inventory = require("../models/inventory.model");
 
 async function pickAVin() {
   const candidates = await CarIntake.find({ status: "part-added-to-inventory" })

@@ -16,7 +16,7 @@
  */
 const cron = require("node-cron");
 const { syncCatalog } = require("../services/ebay/ebayCatalogSync.service");
-const EbaySyncRun = require("../models/EbaySyncRun.model");
+const EbaySyncRun = require("../models/ebaySyncRun.model");
 
 /**
  * Start the 6-hour eBay catalog sync cron job.

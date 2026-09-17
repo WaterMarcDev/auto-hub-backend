@@ -10,58 +10,14 @@
  *   - Conversation status management
  *   - Assignment management
  */
-const mongoose = require("mongoose");
-const Conversation = require("../models/Conversation.model");
-const SocialLead = require("../models/SocialLead.model");
-const MarketplaceListing = require("../models/MarketplaceListing.model");
-const platformManager = require("../services/platformManager.service");
-const { logAction } = require("../services/auditLog.service");
+const conversationService = require("../services/conversation.service");
 
-/**
- * Resolve the authoritative time for a message subdocument, for sorting
- * strictly oldest -> newest. `createdAt` already holds the real timestamp
- * for every message (the platform's own timestamp for synced messages —
- * see services/adapters/ebayAdapter.js#_upsertMessage — or the server
- * send-time for CRM replies), so no new field/schema is needed; this only
- * reads what already exists.
- *
- * Never throws: legacy/malformed messages with no usable createdAt fall
- * back to the timestamp embedded in their own Mongo ObjectId (still a real,
- * monotonic creation time), and finally to 0 rather than crashing.
- *
- * @param {Object} message - message subdocument (plain object, from .lean())
- * @returns {number} epoch milliseconds
- */
-function getMessageTime(message) {
-  if (message?.createdAt) {
-    const time = new Date(message.createdAt).getTime();
-    if (!Number.isNaN(time)) return time;
+function handleError(res, err, label) {
+  console.error(`[CONVERSATION] ${label}:`, err);
+  if (err.statusCode) {
+    return res.status(err.statusCode).json({ success: false, message: err.message });
   }
-
-  if (message?._id) {
-    try {
-      return new mongoose.Types.ObjectId(message._id).getTimestamp().getTime();
-    } catch {
-      // fall through to 0 below
-    }
-  }
-
-  return 0;
-}
-
-/**
- * Sort message subdocuments strictly oldest -> newest by their
- * authoritative timestamp, without mutating the input array or touching
- * anything in the database — insertion order (which can diverge from
- * chronological order, e.g. a later historical sync backfilling older
- * messages after a live reply was already appended) is never relied upon.
- *
- * @param {Array<Object>} messages
- * @returns {Array<Object>} new, sorted array
- */
-function sortMessagesChronologically(messages) {
-  if (!Array.isArray(messages)) return messages;
-  return [...messages].sort((a, b) => getMessageTime(a) - getMessageTime(b));
+  return res.status(500).json({ success: false, message: err.message });
 }
 
 /**
@@ -70,55 +26,10 @@ function sortMessagesChronologically(messages) {
  */
 exports.getAll = async (req, res) => {
   try {
-    const {
-      platform,
-      status,
-      assignedUser,
-      customerId,
-      search,
-      page = 1,
-      limit = 50,
-    } = req.query;
-
-    const query = {};
-
-    if (platform) query.platform = platform;
-    if (status) query.status = status;
-    if (assignedUser) query.assignedUser = assignedUser;
-    if (customerId) query.customerId = customerId;
-
-    if (search) {
-      query.$or = [
-        { customerName: { $regex: search, $options: "i" } },
-        { lastMessage: { $regex: search, $options: "i" } },
-        { tags: { $regex: search, $options: "i" } },
-      ];
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const total = await Conversation.countDocuments(query);
-
-    const conversations = await Conversation.find(query)
-      .populate("assignedUser", "firstName lastName email")
-      .populate("customerId", "firstName lastName email mobileNo")
-      .sort({ lastMessageAt: -1, updatedAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit))
-      .lean();
-
-    res.json({
-      success: true,
-      data: conversations,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit)),
-      },
-    });
+    const result = await conversationService.getAll(req.query);
+    res.json({ success: true, ...result });
   } catch (err) {
-    console.error("[CONVERSATION] Get all error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Get all error");
   }
 };
 
@@ -128,19 +39,10 @@ exports.getAll = async (req, res) => {
  */
 exports.getById = async (req, res) => {
   try {
-    const conversation = await Conversation.findById(req.params.id)
-      .populate("assignedUser", "firstName lastName email")
-      .populate("customerId", "firstName lastName email mobileNo")
-      .lean();
-
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-
+    const conversation = await conversationService.getById(req.params.id);
     res.json({ success: true, data: conversation });
   } catch (err) {
-    console.error("[CONVERSATION] Get by ID error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Get by ID error");
   }
 };
 
@@ -150,48 +52,7 @@ exports.getById = async (req, res) => {
  */
 exports.sendReply = async (req, res) => {
   try {
-    const { text, attachments = [] } = req.body;
-    const conversation = await Conversation.findById(req.params.id);
-
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-
-    if (!text && attachments.length === 0) {
-      return res.status(400).json({ success: false, message: "Message text or attachments required" });
-    }
-
-    // Send via Platform Manager
-    const result = await platformManager.sendMessage(
-      conversation.platform,
-      conversation,
-      text,
-      attachments,
-      {}
-    );
-
-    // Add message to conversation
-    conversation.messages.push({
-      platformMessageId: result.platformMessageId,
-      senderType: "agent",
-      senderId: req.user?._id || null,
-      senderName: req.user ? `${req.user.firstName} ${req.user.lastName}`.trim() : "System",
-      text,
-      messageType: attachments.length > 0 ? "document" : "text",
-      attachments: attachments.map((a) => ({
-        url: a.url,
-        filename: a.filename,
-        mimeType: a.mimeType,
-        size: a.size,
-      })),
-      deliveryStatus: result.status || "sent",
-      deliveredAt: new Date(),
-    });
-
-    // Update conversation status
-    conversation.status = "open";
-    conversation.unreadCount = 0;
-    await conversation.save();
+    const { conversation, result } = await conversationService.sendReply(req.params.id, req.body, req.user);
 
     // Real-time push so the Unified Inbox shows the agent's own reply
     // instantly, without waiting on a poll. Mirrors the existing
@@ -215,23 +76,6 @@ exports.sendReply = async (req, res) => {
       });
     }
 
-    // Update lead unread count
-    if (conversation.socialLeadId) {
-      await SocialLead.findByIdAndUpdate(conversation.socialLeadId, {
-        conversationStatus: "open",
-        unreadCount: 0,
-        lastMessage: text,
-        lastMessageAt: new Date(),
-      });
-    } else if (conversation.marketplaceLeadId) {
-      await MarketplaceListing.findByIdAndUpdate(conversation.marketplaceLeadId, {
-        conversationStatus: "open",
-        unreadCount: 0,
-        lastMessage: text,
-        lastMessageAt: new Date(),
-      });
-    }
-
     res.json({
       success: true,
       message: "Reply sent successfully",
@@ -243,8 +87,7 @@ exports.sendReply = async (req, res) => {
   } catch (err) {
     console.error("[CONVERSATION] Reply error:", err);
 
-    // Log the failure
-    await logAction({
+    await conversationService.logReplyFailure({
       action: "message_failed",
       status: "failure",
       platform: req.params.platform,
@@ -255,6 +98,9 @@ exports.sendReply = async (req, res) => {
       userId: req.user?._id,
     });
 
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, message: err.message });
+    }
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -266,33 +112,10 @@ exports.sendReply = async (req, res) => {
 exports.addInternalNote = async (req, res) => {
   try {
     const { text } = req.body;
-
-    if (!text || !text.trim()) {
-      return res.status(400).json({ success: false, message: "Note text is required" });
-    }
-
-    const conversation = await Conversation.findByIdAndUpdate(
-      req.params.id,
-      {
-        $push: {
-          internalNotes: {
-            text: text.trim(),
-            createdBy: req.user?._id || null,
-            createdAt: new Date(),
-          },
-        },
-      },
-      { new: true }
-    ).populate("internalNotes.createdBy", "firstName lastName email");
-
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-
-    res.json({ success: true, data: conversation.internalNotes });
+    const internalNotes = await conversationService.addInternalNote(req.params.id, text, req.user?._id);
+    res.json({ success: true, data: internalNotes });
   } catch (err) {
-    console.error("[CONVERSATION] Add note error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Add note error");
   }
 };
 
@@ -303,26 +126,10 @@ exports.addInternalNote = async (req, res) => {
 exports.updateStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const validStatuses = ["new", "open", "in_progress", "waiting_customer", "waiting_internal", "resolved", "closed", "archived"];
-
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, message: "Invalid status" });
-    }
-
-    const conversation = await Conversation.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-
+    const conversation = await conversationService.updateStatus(req.params.id, status);
     res.json({ success: true, data: conversation });
   } catch (err) {
-    console.error("[CONVERSATION] Update status error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Update status error");
   }
 };
 
@@ -333,21 +140,10 @@ exports.updateStatus = async (req, res) => {
 exports.assignUser = async (req, res) => {
   try {
     const { userId } = req.body;
-
-    const conversation = await Conversation.findByIdAndUpdate(
-      req.params.id,
-      { assignedUser: userId || null },
-      { new: true }
-    ).populate("assignedUser", "firstName lastName email");
-
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-
+    const conversation = await conversationService.assignUser(req.params.id, userId);
     res.json({ success: true, data: conversation });
   } catch (err) {
-    console.error("[CONVERSATION] Assign error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Assign error");
   }
 };
 
@@ -358,21 +154,10 @@ exports.assignUser = async (req, res) => {
 exports.updateTags = async (req, res) => {
   try {
     const { tags } = req.body;
-
-    const conversation = await Conversation.findByIdAndUpdate(
-      req.params.id,
-      { tags: tags || [] },
-      { new: true }
-    );
-
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-
+    const conversation = await conversationService.updateTags(req.params.id, tags);
     res.json({ success: true, data: conversation });
   } catch (err) {
-    console.error("[CONVERSATION] Update tags error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Update tags error");
   }
 };
 
@@ -382,40 +167,9 @@ exports.updateTags = async (req, res) => {
  */
 exports.getMessages = async (req, res) => {
   try {
-    const { page = 1, limit = 50 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    console.log("======== GET MESSAGES =========");
-    console.log("Conversation ID:", req.params.id);
-
-    const conversation = await Conversation.findById(req.params.id)
-      .select("messages")
-      .lean();
-    
-      console.log("Conversation Found:", conversation);
-
-    if (!conversation) {
-      return res.status(404).json({ success: false, message: "Conversation not found" });
-    }
-
-    // Reverse for newest-first pagination
-    const totalMessages = conversation.messages.length;
-    const messages = conversation.messages
-      .slice(-(skip + parseInt(limit)))
-      .slice(0, parseInt(limit));
-
-    res.json({
-      success: true,
-      data: messages,
-      pagination: {
-        total: totalMessages,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(totalMessages / parseInt(limit)),
-      },
-    });
+    const result = await conversationService.getMessages(req.params.id, req.query);
+    res.json({ success: true, ...result });
   } catch (err) {
-    console.error("[CONVERSATION] Get messages error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    handleError(res, err, "Get messages error");
   }
 };

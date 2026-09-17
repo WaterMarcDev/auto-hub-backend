@@ -1,36 +1,21 @@
-const Element = require("../models/elements.model");
+const elementsService = require("../services/elements.service");
+
+function handleError(res, error, logLabel, fallbackMessage) {
+  if (error && error.statusCode) {
+    return res.status(error.statusCode).json({ message: error.message });
+  }
+  console.error(logLabel, error);
+  return res.status(500).json({ message: fallbackMessage });
+}
 
 // @desc    Create a new element
 // @route   POST /api/elements
 const createElement = async (req, res) => {
   try {
-    const { name, shortName, weight, dimensions, description } = req.body;
-
-    // Check if element with the same name already exists
-    const existingElement = await Element.findOne({ name });
-    if (existingElement) {
-      return res.status(400).json({
-        message: "Element with this name already exists",
-      });
-    }
-
-    const element = await Element.create({
-      name,
-      shortName,
-      weight,
-      dimensions,
-      description,
-    });
-
-    res.status(201).json({
-      message: "Element created successfully",
-      data: element,
-    });
+    const element = await elementsService.createElement(req.body);
+    res.status(201).json({ message: "Element created successfully", data: element });
   } catch (error) {
-    console.error("Error creating element:", error);
-    res.status(500).json({
-      message: "Server error while creating element",
-    });
+    handleError(res, error, "Error creating element:", "Server error while creating element");
   }
 };
 
@@ -40,35 +25,10 @@ const getAllElements = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-
-    // Build filter object
-    const filter = {};
-
-    // Exclude soft-deleted elements
-    filter.isDeleted = { $ne: true };
-    if (req.query.search) {
-      filter.name = { $regex: req.query.search, $options: "i" };
-    }
-    const elements = await Element.find(filter)
-      .skip(skip)
-      .limit(limit)
-      .sort({ name: 1 });
-    const total = await Element.countDocuments(filter);
-
-    res.status(200).json({
-      elements,
-      pagination: {
-        page,
-        limit,
-        total,
-      },
-    });
+    const result = await elementsService.getAllElements({ page, limit, search: req.query.search });
+    res.status(200).json(result);
   } catch (error) {
-    console.error("Error fetching elements:", error);
-    res.status(500).json({
-      message: "Server error while fetching elements",
-    });
+    handleError(res, error, "Error fetching elements:", "Server error while fetching elements");
   }
 };
 
@@ -76,19 +36,10 @@ const getAllElements = async (req, res) => {
 // @route   GET /api/elements/:id
 const getElementById = async (req, res) => {
   try {
-    const element = await Element.findOne({
-      _id: req.params.id,
-      isDeleted: { $ne: true },
-    });
-    if (!element) {
-      return res.status(404).json({ message: "Element not found" });
-    }
+    const element = await elementsService.getElementById(req.params.id);
     res.status(200).json(element);
   } catch (error) {
-    console.error("Error fetching element:", error);
-    res.status(500).json({
-      message: "Server error while fetching element",
-    });
+    handleError(res, error, "Error fetching element:", "Server error while fetching element");
   }
 };
 
@@ -96,52 +47,19 @@ const getElementById = async (req, res) => {
 // @route   PUT /api/elements/:id
 const updateElement = async (req, res) => {
   try {
-    const { name, shortName, weight, dimensions, description } = req.body;
-
-    const element = await Element.findByIdAndUpdate(
-      req.params.id,
-      {
-        name,
-        shortName,
-        weight,
-        dimensions,
-        description,
-      },
-      { new: true }
-    );
-
-    if (!element) {
-      return res.status(404).json({ message: "Element not found" });
-    }
-
-    res.status(200).json({
-      message: "Element updated successfully",
-      data: element,
-    });
+    const element = await elementsService.updateElement(req.params.id, req.body);
+    res.status(200).json({ message: "Element updated successfully", data: element });
   } catch (error) {
-    console.error("Error updating element:", error);
-    res.status(500).json({
-      message: "Server error while updating element",
-    });
+    handleError(res, error, "Error updating element:", "Server error while updating element");
   }
 };
 
 const deleteElement = async (req, res) => {
   try {
-    const element = await Element.findById(req.params.id);
-    if (!element || element.isDeleted) {
-      return res.status(404).json({ message: "Element not found" });
-    }
-
-    element.isDeleted = true;
-    element.deletedAt = new Date();
-    await element.save();
+    await elementsService.deleteElement(req.params.id);
     res.status(200).json({ message: "Element deleted successfully" });
   } catch (error) {
-    console.error("Error deleting element:", error);
-    res.status(500).json({
-      message: "Server error while deleting element",
-    });
+    handleError(res, error, "Error deleting element:", "Server error while deleting element");
   }
 };
 
