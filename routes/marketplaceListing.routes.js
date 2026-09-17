@@ -16,6 +16,14 @@ router.get("/orders", auth, controller.syncOrders);
 // GET /api/marketplace-leads/listings  - Sync listings from marketplace
 router.get("/listings", auth, controller.syncListings);
 
+// POST /api/marketplace-leads/listings - Manual "Sync eBay Listings"
+// (same handler as GET above; POST is used by the UI's Sync button so the
+// action is never triggered by a link prefetch/crawl)
+router.post("/listings", auth, controller.syncListings);
+
+// GET /api/marketplace-leads/ebay/integrity - Read-only eBay dataset counts
+router.get("/ebay/integrity", auth, controller.getEbayListingsIntegrity);
+
 // GET /api/marketplace-leads/messages  - Sync messages from marketplace
 router.get("/messages", auth, controller.syncMessages);
 

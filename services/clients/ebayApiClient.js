@@ -148,7 +148,13 @@ class EbayApiClient {
   _createClient(accessToken) {
     const headers = {
       "Content-Type": "application/json",
-      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+      // REST-only surface (used by post()/get() -> createOffer/publishOffer/
+      // getOffers/getOffer/etc.) — must never pick up the Trading-oriented
+      // EBAY_MARKETPLACE_ID (EBAY_MOTORS_US in production, invalid for the
+      // REST API). Now sourced from the same EBAY_REST_MARKETPLACE_ID this
+      // literal already matched by coincidence, so there's a single
+      // configurable source of truth instead of a hardcoded duplicate.
+      "X-EBAY-C-MARKETPLACE-ID": process.env.EBAY_REST_MARKETPLACE_ID || "EBAY_US",
     };
 
     if (accessToken) {
@@ -723,7 +729,12 @@ class EbayApiClient {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
       "Content-Language": "en-US",
-      "X-EBAY-C-MARKETPLACE-ID": process.env.EBAY_MARKETPLACE_ID || "EBAY_US",
+      // REST-only surface (used by put()/delete() -> createOrReplaceInventoryItem/
+      // createOrReplaceProductCompatibility/updateOffer). Previously read the
+      // Trading-oriented EBAY_MARKETPLACE_ID (EBAY_MOTORS_US in production) —
+      // invalid for the REST API, same underlying cause as the createOffer
+      // body-field bug. Now uses the dedicated REST marketplace value.
+      "X-EBAY-C-MARKETPLACE-ID": process.env.EBAY_REST_MARKETPLACE_ID || "EBAY_US",
       ...(options.headers || {}),
     };
 
