@@ -298,6 +298,55 @@ function isMotorsCategory(categoryId) {
   return MOTORS_TRADING_API_CATEGORY_IDS.has(String(categoryId));
 }
 
+// ─── Motors compatibility verification status ──────────────────────────────
+// SEPARATE from MOTORS_TRADING_API_CATEGORY_IDS above: routing (REST vs.
+// Trading) and "do we have eBay-verified compatibility values for this
+// category" are two different questions. This only matters for Motors
+// (Trading API) categories — the REST Product Compatibility API
+// (createOrReplaceProductCompatibility) is a different eBay mechanism with
+// its own, separately proven-working behavior (category 33701, live
+// ItemID 147577327625) and is NOT governed by this map; REST compatibility
+// behavior is completely unchanged.
+//
+// WHY THIS EXISTS: production testing of SKU 6a671fa7a90038bf08da0649
+// (category 36474, "2012 BMW X5 xDrive35i") proved that sending the CRM's
+// raw Year/Make/Model/Trim as a Motors Trading API ItemCompatibilityList
+// is rejected with eBay error 21917122 ("All compatibilities are invalid,
+// Item not listed"). eBay's own Developer KB (article 2033) confirms this
+// is a catalog-match failure: "BySpecification" compatibility requires
+// every value to match an exact entry in eBay's own Master Vehicle List —
+// not arbitrary CRM text. The CRM's `Trim` field (models/Trim.model.js) is
+// free-text and staff-entered; it is never validated against eBay's
+// taxonomy anywhere in this codebase.
+//
+// Every Motors category defaults to UNVERIFIED (not a fabricated "safe"
+// value) until it is explicitly added below with real verification
+// evidence. This is a data-driven, generic decision — it applies to any
+// current or future category added to MOTORS_TRADING_API_CATEGORY_IDS
+// automatically, with zero code change, exactly like that Set itself.
+const MOTORS_CATEGORY_VERIFIED_COMPATIBLE_IDS = new Set([
+  // Intentionally empty: no Motors category has verified-against-eBay
+  // compatibility values yet. Add a category ID here ONLY once its
+  // Year/Make/Model/Trim values have been confirmed against eBay's own
+  // compatibility data (e.g. via the Taxonomy/Trading API's
+  // GetCompatibilityPropertyValues for that category) — never speculatively.
+]);
+
+/**
+ * @param {string|null|undefined} categoryId
+ * @returns {boolean} true only if this Motors category has verified,
+ *   eBay-valid compatibility data available. false (the default for every
+ *   category, including every current Motors category) means: do not send
+ *   ItemCompatibilityList for this category — see
+ *   ebayProductMapper.js's Phase 8b for what that causes (listing proceeds
+ *   without vehicle fitment, which eBay already treats as a fully valid
+ *   state — this is not a new concept, see ebayCatalogSync.service.js's
+ *   verifyMotorsListing() "not_applicable" handling).
+ */
+function isCompatibilityVerifiedForCategory(categoryId) {
+  return MOTORS_CATEGORY_VERIFIED_COMPATIBLE_IDS.has(String(categoryId));
+}
+
 // ─── Business Policies (from eBay Seller Hub) ────────────────────────────────
 
 const EBAY_PAYMENT_POLICY_ID = process.env.EBAY_PAYMENT_POLICY_ID || null;
@@ -437,4 +486,5 @@ module.exports = {
   getCategoryMappingStatus,
   getRequiredAspectsForCategory,
   isMotorsCategory,
+  isCompatibilityVerifiedForCategory,
 };

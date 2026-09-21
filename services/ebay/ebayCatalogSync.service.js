@@ -586,30 +586,43 @@ function buildGetSellerListBySkuXml(sku) {
  * Mirrors the REST path's proven client.getOffers(accessToken, sku)
  * pre-create reconciliation pattern (see syncProduct's Phase B) — same
  * shape, same safety property, just the Trading API's equivalent call.
- * Returns the found ItemID (string) or null if genuinely not found.
- * Non-fatal on error: falls through to the normal create attempt, exactly
- * like the REST path's reconciliation try/catch.
+ *
+ * Returns one of three distinguishable states — a bare nullable return
+ * value previously collapsed "confirmed not found" and "lookup failed/
+ * uncertain" into the same `null`, which let the caller wrongly treat an
+ * UNCERTAIN result as if it were a confirmed NOT_FOUND and proceed to
+ * AddFixedPriceItem — a real duplicate-listing risk whenever the lookup
+ * itself failed or returned a non-authoritative eBay response (transient
+ * network error, unexpected Ack, malformed response). Fixed so the caller
+ * can refuse to create on UNCERTAIN instead of guessing:
+ *   { status: "FOUND", itemId }   - confirmed existing listing found
+ *   { status: "NOT_FOUND" }       - eBay's response was authoritative
+ *                                    (Ack Success/Warning) and this SKU was
+ *                                    genuinely absent from the result
+ *   { status: "UNCERTAIN", reason } - the call failed or the response was
+ *                                    not authoritative; caller MUST NOT
+ *                                    treat this as NOT_FOUND
  */
 async function reconcileMotorsListingBySku(accessToken, sku) {
   let response;
   try {
     response = await tradingClient.getSellerList(accessToken, buildGetSellerListBySkuXml(sku));
   } catch (err) {
-    console.warn(`[EBAY_MOTORS_SYNC] SKU=${sku} GetSellerList reconciliation lookup failed (continuing to create attempt): ${err.message}`);
-    return null;
+    console.warn(`[EBAY_MOTORS_SYNC] SKU=${sku} GetSellerList reconciliation lookup failed: ${err.message}`);
+    return { status: "UNCERTAIN", reason: `GetSellerList call failed: ${err.message}` };
   }
 
   const result = response?.GetSellerListResponse;
   const ack = String(result?.Ack || "").toLowerCase();
   if (!result || (ack !== "success" && ack !== "warning")) {
-    console.warn(`[EBAY_MOTORS_SYNC] SKU=${sku} GetSellerList reconciliation returned Ack=${result?.Ack || "unknown"} (continuing to create attempt)`);
-    return null;
+    console.warn(`[EBAY_MOTORS_SYNC] SKU=${sku} GetSellerList reconciliation returned Ack=${result?.Ack || "unknown"}`);
+    return { status: "UNCERTAIN", reason: `GetSellerList returned Ack=${result?.Ack || "unknown"}` };
   }
 
   const rawItems = result.ItemArray?.Item;
   const items = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
   const match = items.find((it) => String(xmlTextValue(it?.SKU)) === String(sku));
-  return match ? String(xmlTextValue(match.ItemID)) : null;
+  return match ? { status: "FOUND", itemId: String(xmlTextValue(match.ItemID)) } : { status: "NOT_FOUND" };
 }
 
 function buildMotorsGetItemXml(itemId) {
@@ -778,19 +791,33 @@ async function syncMotorsProduct(inventoryItem, mapped, accessToken, summary) {
   // above. If Mongo ever lost ebayListingId while the SKU is still live on
   // eBay, this closes that gap the same way the REST path already does.
   if (isNewListing) {
-    const reconciledItemId = await reconcileMotorsListingBySku(accessToken, sku);
-    if (reconciledItemId) {
-      console.log(`[EBAY_MOTORS_SYNC] SKU=${sku} reconciled existing eBay ItemID=${reconciledItemId} found via GetSellerList before create (Mongo had none)`);
-      existingListingId = reconciledItemId;
+    const reconciliation = await reconcileMotorsListingBySku(accessToken, sku);
+    if (reconciliation.status === "FOUND") {
+      console.log(`[EBAY_MOTORS_SYNC] SKU=${sku} reconciled existing eBay ItemID=${reconciliation.itemId} found via GetSellerList before create (Mongo had none)`);
+      existingListingId = reconciliation.itemId;
       isNewListing = false;
       try {
         await Inventory.findByIdAndUpdate(inventoryItem._id, {
-          $set: { ebaySku: sku, ebayListingId: reconciledItemId, ebayMarketplaceId: "EBAY_MOTORS_US" },
+          $set: { ebaySku: sku, ebayListingId: reconciliation.itemId, ebayMarketplaceId: "EBAY_MOTORS_US" },
         });
       } catch (persistErr) {
-        console.error(`[EBAY_MOTORS_SYNC] CRITICAL: SKU=${sku} reconciled ItemID=${reconciledItemId} but interim persist failed: ${persistErr.message}`);
+        console.error(`[EBAY_MOTORS_SYNC] CRITICAL: SKU=${sku} reconciled ItemID=${reconciliation.itemId} but interim persist failed: ${persistErr.message}`);
       }
+    } else if (reconciliation.status === "UNCERTAIN") {
+      // Do NOT assume "not found". Falling through to AddFixedPriceItem
+      // here on an uncertain remote lookup (transient network error, bad
+      // Ack, malformed response) previously risked creating a duplicate
+      // active listing if eBay actually already had one. Fail this attempt
+      // cleanly instead — the next sync run re-attempts reconciliation
+      // fresh, with no state changed or persisted by this attempt.
+      summary.totalApiErrors++;
+      const uncertainErr = new Error(
+        `Cannot safely determine whether SKU ${sku} already has an active eBay listing (${reconciliation.reason}) — refusing to create to avoid a possible duplicate`
+      );
+      uncertainErr.category = "RECONCILIATION_UNCERTAIN";
+      throw uncertainErr;
     }
+    // status === "NOT_FOUND": proceed to create below, exactly as before.
   }
 
   console.log(
