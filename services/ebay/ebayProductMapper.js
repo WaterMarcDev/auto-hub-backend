@@ -202,13 +202,33 @@ function mapProduct(item, options) {
   // silently omitted.
   var compatibilityPayload = null;
   if (year && makeName && modelName) {
-    var compatibilityProperties = [
-      { name: "Year", value: String(year) },
-      { name: "Make", value: makeName },
-      { name: "Model", value: modelName },
-    ];
-    if (trimName) compatibilityProperties.push({ name: "Trim", value: trimName });
-    compatibilityPayload = { compatibleProducts: [{ compatibilityProperties: compatibilityProperties }] };
+    // Motors (Trading API) categories only: do not send ItemCompatibilityList
+    // built from raw, unverified CRM Year/Make/Model/Trim unless this
+    // specific category has verified eBay-valid compatibility data (see
+    // config/ebayCatalogConfig.js#isCompatibilityVerifiedForCategory and its
+    // module doc for the exact evidence — eBay error 21917122, "All
+    // compatibilities are invalid", confirmed for category 36474 with this
+    // exact kind of data). The REST Product Compatibility API path (any
+    // non-Motors category, e.g. 33701) is NOT affected by this check — it
+    // keeps sending the same data it always has, unchanged, since that path
+    // has proven, live-verified working compatibility today.
+    var isMotorsProductForCompat = ebayConfig.isMotorsCategory(ebayCategoryId);
+    var compatibilityAllowed = !isMotorsProductForCompat || ebayConfig.isCompatibilityVerifiedForCategory(ebayCategoryId);
+
+    if (compatibilityAllowed) {
+      var compatibilityProperties = [
+        { name: "Year", value: String(year) },
+        { name: "Make", value: makeName },
+        { name: "Model", value: modelName },
+      ];
+      if (trimName) compatibilityProperties.push({ name: "Trim", value: trimName });
+      compatibilityPayload = { compatibleProducts: [{ compatibilityProperties: compatibilityProperties }] };
+    } else {
+      r.warnings.push(
+        "Compatibility omitted for category " + ebayCategoryId +
+        ": Motors category has no eBay-verified compatibility values (CRM Year/Make/Model/Trim cannot be assumed valid — see eBay error 21917122). Listing will publish without vehicle fitment."
+      );
+    }
   } else {
     r.warnings.push("Incomplete Year/Make/Model — publishing WITHOUT vehicle fitment/compatibility data");
   }
