@@ -104,7 +104,8 @@ function withSkuLock(sku, task) {
     if (ebaySkuQueues.get(sku) === runAfterPrevious) {
       ebaySkuQueues.delete(sku);
     }
-  });
+  }).catch(() => {});
+  
   return runAfterPrevious;
 }
 
