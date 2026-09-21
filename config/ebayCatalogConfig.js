@@ -256,23 +256,43 @@ function getRequiredAspectsForCategory(categoryId) {
 }
 
 // ─── Motors (Trading API) vs. REST (Inventory API) path detection ─────────
-// Single source of truth for "does this eBay category sync via the Motors
-// Trading API (AddFixedPriceItem/ReviseFixedPriceItem) or the REST
-// Inventory API (createOrReplaceInventoryItem/createOffer)?" — mirrors the
-// existing routing check in ebayCatalogSync.service.js's syncProduct()
-// (`if (String(mapped.ebayCategoryId) === "33543")`). Deliberately NOT
-// unified with that file in this pass — that routing check is inside
-// already-proven CREATE/UPDATE/verification/locking logic this fix must not
-// touch. This export exists so ebayProductMapper.js's preflight validation
-// can apply Motors-appropriate requirements (which differ from REST
-// requirements — Motors never reads offerPayload.listingPolicies at all,
-// using the separate, independently-optional EBAY_MOTORS_RETURN_PROFILE_ID
-// instead) without duplicating category-ID knowledge inline.
-const MOTORS_TRADING_API_CATEGORY_IDS = new Set(["33543"]);
+// THE single source of truth, for the entire catalog, for "does this eBay
+// category sync via the Motors Trading API (AddFixedPriceItem/
+// ReviseFixedPriceItem) or the REST Inventory API
+// (createOrReplaceInventoryItem/createOffer/publishOffer)?"
+//
+// ebayCatalogSync.service.js's syncProduct() calls isMotorsCategory() below
+// to make its ONLY routing decision, and ebayProductMapper.js's preflight
+// validation calls the same function for its own Motors-aware requirements
+// (Motors never reads offerPayload.listingPolicies at all, using the
+// separate, independently-optional EBAY_MOTORS_RETURN_PROFILE_ID instead).
+// Both call sites read this ONE Set — there is no second, independent
+// category check anywhere else in the sync pipeline.
+//
+// HISTORY / WHY THIS MATTERS: syncProduct() previously had its own
+// hardcoded `if (String(mapped.ebayCategoryId) === "33543")` literal that
+// never called isMotorsCategory() or read this Set at all. When category
+// "36474" (airIntakeManifold) was added to this Set to fix a production
+// failure (see below), routing did not change — the hardcoded literal
+// still only matched "33543". That divergence is what let a Motors-only
+// category keep reaching REST publishOffer. syncProduct() now calls
+// isMotorsCategory() directly, so adding or removing a category ID HERE is
+// the only change ever needed to route it — for every current and future
+// product, not per-SKU.
+//
+// To add a category to the Trading API path: add its ID below with a
+// comment documenting the evidence (do not add speculatively — see the
+// "33543" and "36474" entries for the evidence bar to meet).
+const MOTORS_TRADING_API_CATEGORY_IDS = new Set([
+  "33543", // Car & Truck A/C Compressors & Clutches — REST path previously failed for this category; confirmed working via Trading API (live listings referenced elsewhere in this file).
+  "36474", // Car & Truck Intake Manifolds — CONFIRMED via production evidence: REST publishOffer fails with HTTP 400 errorId 25005 "invalid category ID... select another category" (SKU 6a671fa7a90038bf08da0649, offer 268729386011), even though createOffer/updateOffer accept the same categoryId. createOffer/updateOffer only perform shallow schema validation; eBay's publish-time validation appears to reject this category under the REST/EBAY_US path. Routed to the Trading API instead, mirroring the proven 33543 fix.
+]);
 /**
  * @param {string|null|undefined} categoryId
  * @returns {boolean} true if this category routes through the Motors
- *   Trading API path rather than the REST Inventory API path.
+ *   Trading API path rather than the REST Inventory API path. This is the
+ *   ONLY place in the codebase that should ever be consulted to decide
+ *   REST vs. Trading routing for a category — see the module comment above.
  */
 function isMotorsCategory(categoryId) {
   return MOTORS_TRADING_API_CATEGORY_IDS.has(String(categoryId));
