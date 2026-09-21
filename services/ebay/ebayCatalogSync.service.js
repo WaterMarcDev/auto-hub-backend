@@ -969,8 +969,19 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
     return;
   }
 
-  // eBay Motors Parts & Accessories use the Trading API.
-  if (String(mapped.ebayCategoryId) === "33543") {
+  // eBay Motors Parts & Accessories use the Trading API. SINGLE authoritative
+  // routing decision for the entire catalog — consults
+  // config/ebayCatalogConfig.js's MOTORS_TRADING_API_CATEGORY_IDS via
+  // isMotorsCategory(), the same function ebayProductMapper.js already uses
+  // for its own Motors-aware preflight validation. Previously this was an
+  // independent hardcoded `=== "33543"` literal that never read the config
+  // Set at all — adding a category ID (e.g. "36474") to that Set had no
+  // effect on actual routing, which is exactly why SKU
+  // 6a671fa7a90038bf08da0649 (category 36474) kept reaching REST
+  // publishOffer and failing with errorId 25005 even after the Set was
+  // updated. Every category that needs Trading-API routing, now and in the
+  // future, is added ONLY to that Set — never as a new branch here.
+  if (ebayConfig.isMotorsCategory(mapped.ebayCategoryId)) {
     return syncMotorsProduct(
       inventoryItem,
       mapped,
