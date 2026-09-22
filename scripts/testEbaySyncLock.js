@@ -30,6 +30,16 @@ if (/prod/i.test(TEST_URI)) {
   process.exit(1);
 }
 
+// Tests 14-17 (cancellation/shutdown/local-lease-expiry) need to actually
+// observe lease timing, so use short, test-scoped values instead of the
+// production defaults (10 min lease / 2 min heartbeat) — otherwise those
+// tests would need to run for real minutes. Must be set BEFORE requiring
+// the model (config/ebayCatalogConfig.js reads these once, at module load).
+// Tests 1-13 do not depend on the actual configured duration (they force
+// expiry/timing directly), so this is safe for the whole suite.
+process.env.EBAY_SYNC_LEASE_MS = process.env.EBAY_SYNC_LEASE_MS || "1000";
+process.env.EBAY_SYNC_HEARTBEAT_MS = process.env.EBAY_SYNC_HEARTBEAT_MS || "200";
+
 const EbaySyncRun = require("../models/EbaySyncRun.model");
 
 const results = [];
@@ -300,6 +310,114 @@ async function main() {
     await insertLegacyLock(new Date());
     const run = await EbaySyncRun.acquireLock("scheduled");
     assert.strictEqual(run, null, "a recent legacy lock must be respected, not stolen");
+  });
+
+  // ── Gaps 1-3 fix verification: cancellation, shutdown coordination, ────
+  // local lease-expiry during a prolonged DB outage. Uses the short
+  // EBAY_SYNC_LEASE_MS/EBAY_SYNC_HEARTBEAT_MS set at the top of this file.
+
+  await test("14. lease-loss cancellation stops protected work (no unbounded continuation after LOCK_LOST)", async () => {
+    await reset();
+    let unitsStarted = 0;
+    let stoppedEarly = false;
+    const outcome = await EbaySyncRun.withEbaySyncLock("manual", async (run, state) => {
+      for (let i = 0; i < 10; i++) {
+        if (state.signal.aborted) { stoppedEarly = true; break; }
+        unitsStarted++;
+        if (i === 1) {
+          // Simulate a second process legitimately acquiring the lease
+          // (e.g. after this owner's lease expired) — the next heartbeat
+          // tick must detect this and abort.
+          await EbaySyncRun.updateOne({ _id: run._id }, { $set: { ownerToken: "hijacked-" + Math.random().toString(16).slice(2) } });
+        }
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return { summary: {} };
+    });
+    assert.strictEqual(outcome.code, "LOCK_LOST", "outcome must report LOCK_LOST");
+    assert.strictEqual(outcome.released, false, "must NOT report released when the lease was lost");
+    assert(stoppedEarly, "protected work must observe state.signal and stop early");
+    assert(unitsStarted < 10, "must not run every unit after ownership is lost mid-run; got " + unitsStarted);
+  });
+
+  await test("15. shutdown does not release a lock while protected work is still running", async () => {
+    await reset();
+    let releaseGate;
+    const gatePromise = new Promise((resolve) => { releaseGate = resolve; });
+    const runPromise = EbaySyncRun.withEbaySyncLock("manual", async () => {
+      await gatePromise; // simulate work that has not finished yet
+      return { summary: {} };
+    });
+    await new Promise((r) => setTimeout(r, 50)); // let acquireLock/registration land
+    const shutdownResult = await EbaySyncRun.shutdownActiveLocks(300);
+    assert.strictEqual(shutdownResult.released, 0, "must not release while protected work is still running");
+    assert.strictEqual(shutdownResult.stillRunning, 1, "must report the still-running operation");
+    const stillLocked = await EbaySyncRun.countDocuments({ isLocked: true });
+    assert.strictEqual(stillLocked, 1, "the lock document must remain locked in MongoDB");
+    releaseGate();
+    await runPromise.catch(() => {});
+  });
+
+  await test("16. shutdown timeout leaves the lock in place; it becomes recoverable once its lease actually expires", async () => {
+    await reset();
+    let releaseGate;
+    const gatePromise = new Promise((resolve) => { releaseGate = resolve; });
+    const runPromise = EbaySyncRun.withEbaySyncLock("manual", async () => {
+      await gatePromise;
+      return { summary: {} };
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const shutdownResult = await EbaySyncRun.shutdownActiveLocks(200);
+    assert.strictEqual(shutdownResult.timedOut, true, "shutdown must report it hit the timeout");
+    assert.strictEqual(shutdownResult.released, 0, "must not release on timeout");
+    const blockedImmediately = await EbaySyncRun.acquireLock("manual");
+    assert.strictEqual(blockedImmediately, null, "lock must still be refused immediately after a timed-out shutdown");
+
+    // Note: this process is still alive in-test, so the original owner's
+    // heartbeat keeps renewing its lease in the background regardless of
+    // the shutdown timeout above — that is CORRECT (a lease-based lock must
+    // never expire under a still-heartbeating owner). What actually stops
+    // the heartbeat in production is the process itself exiting shortly
+    // after (server.js's own 8s hard-exit guard). Simulate that real-world
+    // "process is now actually gone" condition the same way tests 4/6/8
+    // already do — by force-expiring the lease document directly — rather
+    // than waiting on wall-clock time this in-process heartbeat would keep
+    // defeating.
+    const stillLockedDoc = await EbaySyncRun.findOne({ isLocked: true }).lean();
+    assert(stillLockedDoc, "the lock document must still be the one left in place by the timed-out shutdown");
+    await EbaySyncRun.updateOne({ _id: stillLockedDoc._id }, { $set: { leaseExpiresAt: new Date(Date.now() - 1000) } });
+
+    const next = await EbaySyncRun.acquireLock("manual");
+    assert(next, "a new owner must reclaim the lock once its lease has expired");
+
+    releaseGate();
+    await runPromise.catch(() => {});
+  });
+
+  await test("17. local lease expiry during a prolonged simulated MongoDB outage causes LOCK_LOST", async () => {
+    await reset();
+    const origHeartbeat = EbaySyncRun.heartbeat;
+    let onLeaseLostFired = false;
+    let outcome;
+    try {
+      outcome = await EbaySyncRun.withEbaySyncLock(
+        "manual",
+        async (run, state) => {
+          // Simulate a prolonged MongoDB outage: every heartbeat attempt fails.
+          EbaySyncRun.heartbeat = async () => { throw new Error("simulated prolonged mongo outage"); };
+          const start = Date.now();
+          while (!state.signal.aborted && Date.now() - start < 3000) {
+            await new Promise((r) => setTimeout(r, 100));
+          }
+          return { summary: {} };
+        },
+        { onLeaseLost: () => { onLeaseLostFired = true; } }
+      );
+    } finally {
+      EbaySyncRun.heartbeat = origHeartbeat;
+    }
+    assert.strictEqual(outcome.code, "LOCK_LOST", "prolonged outage past local lease expiry must report LOCK_LOST");
+    assert(onLeaseLostFired, "onLeaseLost hook must fire once local lease expiry is detected");
   });
 
   await reset();
