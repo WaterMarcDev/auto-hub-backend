@@ -468,12 +468,19 @@ async function gracefulShutdown(signal) {
   try { if (ebayCatalogSyncJobRef && ebayCatalogSyncJobRef.stop) ebayCatalogSyncJobRef.stop(); } catch (_) { /* best-effort */ }
   try { if (ebayListingReconcileJobRef && ebayListingReconcileJobRef.stop) ebayListingReconcileJobRef.stop(); } catch (_) { /* best-effort */ }
 
-  // 2) Best-effort ownership-verified release of any lock THIS process holds,
-  //    bounded by a short timeout so Passenger is never blocked indefinitely.
+  // 2) Signal any in-flight protected eBay sync operation to cancel, wait
+  //    (bounded by this same timeout) for it to actually finish, and only
+  //    then release its lock — ownership-verified, as always. If it does
+  //    NOT finish within the timeout, the lock is deliberately left held
+  //    (see EbaySyncRun.shutdownActiveLocks's doc comment): the lease
+  //    expires naturally and the next process reclaims it, which is safer
+  //    than releasing a lock while this process might still be writing to
+  //    eBay. This is a SECONDARY safety layer — if it fails entirely, the
+  //    lease still expires by itself.
   try {
     const EbaySyncRun = require("./models/EbaySyncRun.model");
     const res = await EbaySyncRun.shutdownActiveLocks(3000);
-    console.log(`[SHUTDOWN] eBay sync lock cleanup: total=${res.total} released=${res.released} timedOut=${res.timedOut}`);
+    console.log(`[SHUTDOWN] eBay sync lock cleanup: total=${res.total} released=${res.released} stillRunning=${res.stillRunning} timedOut=${res.timedOut}`);
   } catch (err) {
     console.error("[SHUTDOWN] eBay sync lock cleanup failed (the lease will still expire):", (err && err.message) || err);
   }

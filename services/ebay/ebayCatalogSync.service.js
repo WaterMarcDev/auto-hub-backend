@@ -162,6 +162,25 @@ function classifySyncError(err) {
  * @param {number} [options.concurrency] - Override default concurrency
  * @returns {Promise<Object>} Sync result with counts and summary
  */
+/**
+ * True when `signal` (an AbortSignal, e.g. from EbaySyncRun.withEbaySyncLock's
+ * `state.signal`) has been aborted — used to stop starting NEW work after the
+ * eBay sync lease is lost. `signal` is optional: callers outside the lease
+ * lock (dry runs, single-product sync) simply never pass one.
+ */
+function isAborted(signal) {
+  return Boolean(signal && signal.aborted);
+}
+
+/** Builds the standard "aborted due to lost lease" partial-run result. */
+function abortedResult(summary, failureDetails, startTime, dryRun, reason) {
+  summary.error = summary.error || `eBay sync aborted: ${reason} (LOCK_LOST)`;
+  summary.code = "LOCK_LOST";
+  const durationMs = Date.now() - startTime;
+  console.error(`[EBAY_SYNC] ABORTED (LOCK_LOST) after ${durationMs}ms: ${reason} | discovered=${summary.totalDiscovered} eligible=${summary.totalEligible} created=${summary.totalCreated} updated=${summary.totalUpdated} published=${summary.totalPublished}`);
+  return { summary, failureDetails, durationMs, dryRun };
+}
+
 async function syncCatalog(options = {}) {
   const {
     dryRun = false,
@@ -169,6 +188,12 @@ async function syncCatalog(options = {}) {
     trigger = "manual",
     singleProductId = null,
     concurrency = ebayConfig.EBAY_SYNC_CONCURRENCY,
+    // Optional AbortSignal from EbaySyncRun.withEbaySyncLock's state.signal.
+    // When the eBay sync lease is lost, this fires and syncCatalog() must
+    // stop starting any NEW product work — see isAborted()/abortedResult()
+    // and their call sites below. Never required: callers outside the lease
+    // lock (dry runs, single-product sync) simply omit it.
+    signal = null,
   } = options;
 
   const summary = {
@@ -196,6 +221,11 @@ async function syncCatalog(options = {}) {
   let accessToken = null;
 
   try {
+    // ── Phase 0: Abort check before any work at all ──────────────────
+    if (isAborted(signal)) {
+      return abortedResult(summary, failureDetails, startTime, dryRun, "lease already lost before this run started");
+    }
+
     // ── Phase 1: Token & Pre-checks ──────────────────────────────────
     if (!dryRun) {
       accessToken = await ensureToken();
@@ -314,8 +344,24 @@ async function syncCatalog(options = {}) {
 
     // ── Phase 5: Process eligible products with concurrency ──────────
 
+    // Checked once more here (in addition to Phase 0) — the lease can be
+    // lost during Phases 1-3's discovery/mapping work, before any product
+    // processing has begun.
+    if (isAborted(signal)) {
+      return abortedResult(summary, failureDetails, startTime, dryRun, "lease lost before eligible-product processing began");
+    }
+
     await runWithConcurrency(eligibleProducts, async (product) => {
       const { inventoryItem, mapped } = product;
+
+      // Checked at the top of EVERY worker invocation — since runWithConcurrency
+      // is a bounded pool continuously pulling the next item as a slot frees,
+      // this is also the natural "between batches" boundary. A product
+      // already in flight when the lease is lost is allowed to finish (its
+      // own bounded create/publish/verify sequence) rather than being
+      // interrupted mid-mutation; no NEW product's work starts after this.
+      if (isAborted(signal)) return;
+
       try {
         await withSkuLock(mapped.sku, () => syncProduct(inventoryItem, mapped, accessToken, summary));
       } catch (err) {
@@ -354,6 +400,20 @@ async function syncCatalog(options = {}) {
     // validation must be subtracted here too, otherwise a validation
     // failure was double-counted as both "failed" and "skipped".
     summary.totalSkipped = summary.totalDiscovered - summary.totalEligible - summary.totalExcluded - summary.totalValidationErrors;
+
+    // If the lease was lost partway through Phase 5, some eligible products
+    // were deliberately never attempted (see the isAborted() check inside
+    // the worker above) rather than being started or counted as failed.
+    // Label the run clearly as LOCK_LOST here rather than letting it read as
+    // an ordinary clean completion — EbaySyncRun.withEbaySyncLock() is the
+    // ultimate authority on the outcome code reported to callers (it never
+    // releases the lock when its own state.leaseLost is set, regardless of
+    // what this function returns), but this keeps syncCatalog()'s own
+    // returned summary self-consistent for anything inspecting it directly
+    // (e.g. getSyncStatus's lastRun).
+    if (isAborted(signal)) {
+      return abortedResult(summary, failureDetails, startTime, dryRun, "lease lost during product processing — remaining eligible products were not attempted");
+    }
   } catch (err) {
     summary.error = err.message;
     console.error(`[EBAY_SYNC] Sync failed:`, err.message);
