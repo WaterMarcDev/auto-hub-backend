@@ -54,9 +54,54 @@ const EBAY_SYNC_BATCH_SIZE = parseInt(process.env.EBAY_SYNC_BATCH_SIZE || "25", 
 /** Safety limit: 0 = allow full catalog sync. */
 const EBAY_SYNC_MAX_PRODUCTS = parseInt(process.env.EBAY_SYNC_MAX_PRODUCTS || "0", 10) || 0;
 
-/** Max run duration before lock considered stale (default 4 hours). */
+/**
+ * LEGACY migration fallback only: a lock document that predates the lease
+ * implementation (no leaseExpiresAt) is treated as stale once it is this old.
+ * This is NOT the permanent recovery mechanism — the lease below is. Do not
+ * rely on this value for new locks.
+ * Max run duration before a legacy lock is considered stale (default 4 hours).
+ */
 const EBAY_SYNC_MAX_RUN_DURATION_MS =
-  parseInt(process.env.EBAY_SYNC_MAX_RUN_DURATION_MS || String(4 * 60 * 60 * 1000), 10);
+  parsePositiveInt(process.env.EBAY_SYNC_MAX_RUN_DURATION_MS, 4 * 60 * 60 * 1000);
+
+// ─── Distributed Lease Lock (EbaySyncRun) ───────────────────────────────────
+// Single authoritative source for the eBay sync lock lease. The lock document
+// carries a lease that the owning process renews via heartbeat; if the process
+// dies/restarts/OOM-kills, the lease expires and the next acquirer can reclaim
+// it automatically — no manual MongoDB intervention, no arbitrary long wait.
+
+/** How long a lock lease remains valid between heartbeats (default 10 minutes). */
+const EBAY_SYNC_LEASE_MS = parsePositiveInt(process.env.EBAY_SYNC_LEASE_MS, 10 * 60 * 1000);
+
+/** How often the owner renews the lease (default 2 minutes). */
+const EBAY_SYNC_HEARTBEAT_MS = parsePositiveInt(process.env.EBAY_SYNC_HEARTBEAT_MS, 2 * 60 * 1000);
+
+// Fail fast on an invalid lease configuration rather than silently producing a
+// lock that can never be safely reclaimed (heartbeat must be clearly shorter
+// than the lease so a couple of missed beats never drop a healthy owner).
+if (
+  !(EBAY_SYNC_HEARTBEAT_MS > 0) ||
+  EBAY_SYNC_HEARTBEAT_MS >= EBAY_SYNC_LEASE_MS ||
+  EBAY_SYNC_HEARTBEAT_MS > EBAY_SYNC_LEASE_MS / 2
+) {
+  throw new Error(
+    "[EBAY_SYNC_LOCK] Invalid lease config: EBAY_SYNC_HEARTBEAT_MS (" +
+      EBAY_SYNC_HEARTBEAT_MS +
+      ") must be > 0 and at most half of EBAY_SYNC_LEASE_MS (" +
+      EBAY_SYNC_LEASE_MS +
+      ")."
+  );
+}
+
+/**
+ * Parse a positive integer env value, falling back to a default when the value
+ * is missing, non-numeric, NaN, or not strictly positive.
+ */
+function parsePositiveInt(raw, fallback) {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return n;
+}
 
 // ─── Category Mapping ─────────────────────────────────────────────────────
 
@@ -479,6 +524,8 @@ module.exports = {
   EBAY_SYNC_BATCH_SIZE,
   EBAY_SYNC_MAX_PRODUCTS,
   EBAY_SYNC_MAX_RUN_DURATION_MS,
+  EBAY_SYNC_LEASE_MS,
+  EBAY_SYNC_HEARTBEAT_MS,
   PART_CATEGORY_MAP,
   isCatalogConfigured,
   getMissingConfiguration,
