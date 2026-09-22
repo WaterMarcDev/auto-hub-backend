@@ -381,6 +381,11 @@ app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
+// Module-scope references to the eBay cron starters so graceful shutdown can
+// stop scheduling new eBay work. Assigned inside the listen callback below.
+let ebayCatalogSyncJobRef = null;
+let ebayListingReconcileJobRef = null;
+
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 
@@ -421,6 +426,7 @@ server.listen(PORT, () => {
   try {
     const startEbayCatalogSync = require("./jobs/ebayCatalogSyncJob");
     startEbayCatalogSync();
+    ebayCatalogSyncJobRef = startEbayCatalogSync;
     console.log("eBay catalog 6-hour sync cron job started");
   } catch (err) {
     console.error("Failed to start eBay catalog sync cron job:", err.message || err);
@@ -435,6 +441,7 @@ server.listen(PORT, () => {
   try {
     const startEbayListingReconcile = require("./jobs/ebayListingReconcileJob");
     startEbayListingReconcile();
+    ebayListingReconcileJobRef = startEbayListingReconcile;
     console.log("eBay active listing reconciliation cron job started");
   } catch (err) {
     console.error(
@@ -443,4 +450,47 @@ server.listen(PORT, () => {
     );
   }
 });
+
+// ─── Graceful shutdown (Passenger/Plesk send SIGTERM; Ctrl-C sends SIGINT) ──
+// PURPOSE: on a CLEAN termination, stop scheduling new eBay work and best-effort
+// release an in-flight eBay sync lock so the next process is not left blocked.
+// This is a SECONDARY safety layer ONLY. If it fails, times out, or the process
+// is SIGKILLed/OOM-killed, the MongoDB LEASE (models/EbaySyncRun.model.js)
+// expires by itself and the lock becomes reclaimable automatically. We never
+// block Passenger shutdown indefinitely, and never do async work in exit().
+let shuttingDown = false;
+async function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[SHUTDOWN] Received ${signal} — starting graceful shutdown`);
+
+  // 1) Stop starting new eBay work.
+  try { if (ebayCatalogSyncJobRef && ebayCatalogSyncJobRef.stop) ebayCatalogSyncJobRef.stop(); } catch (_) { /* best-effort */ }
+  try { if (ebayListingReconcileJobRef && ebayListingReconcileJobRef.stop) ebayListingReconcileJobRef.stop(); } catch (_) { /* best-effort */ }
+
+  // 2) Best-effort ownership-verified release of any lock THIS process holds,
+  //    bounded by a short timeout so Passenger is never blocked indefinitely.
+  try {
+    const EbaySyncRun = require("./models/EbaySyncRun.model");
+    const res = await EbaySyncRun.shutdownActiveLocks(3000);
+    console.log(`[SHUTDOWN] eBay sync lock cleanup: total=${res.total} released=${res.released} timedOut=${res.timedOut}`);
+  } catch (err) {
+    console.error("[SHUTDOWN] eBay sync lock cleanup failed (the lease will still expire):", (err && err.message) || err);
+  }
+
+  // 3) Hard-exit guard: never hang Passenger if server.close() stalls.
+  const forceTimer = setTimeout(() => {
+    console.error("[SHUTDOWN] Forcing exit after timeout");
+    process.exit(0);
+  }, 8000);
+  if (forceTimer.unref) forceTimer.unref();
+
+  server.close(() => {
+    console.log("[SHUTDOWN] HTTP server closed");
+    process.exit(0);
+  });
+}
+
+process.on("SIGTERM", () => { gracefulShutdown("SIGTERM"); });
+process.on("SIGINT", () => { gracefulShutdown("SIGINT"); });
 

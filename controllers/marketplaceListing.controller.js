@@ -457,55 +457,52 @@ exports.syncListings = async (req, res) => {
     // run already holds the lock, tell the caller rather than running two
     // reconciliations against the same collection.
     const isEbay = platform === "ebay";
-    let run = null;
-    if (isEbay) {
-      run = await EbaySyncRun.acquireLock("manual");
-      if (!run) {
-        return res.status(409).json({
-          success: false,
-          code: "EBAY_SYNC_IN_PROGRESS",
-          message:
-            "An eBay sync is already running. Please wait for it to finish and try again.",
-        });
-      }
-    }
 
-    let listings;
-    try {
-      listings = await adapter.fetchListings(account, {
+    const fetchListings = () =>
+      adapter.fetchListings(account, {
         dryRun: req.query.dryRun === "true" || req.body?.dryRun === true,
         pageSize: req.query.pageSize || req.body?.pageSize,
       });
 
-      if (run) {
-        await EbaySyncRun.releaseLock(run, "completed", {
-          totalDiscovered: listings.summary?.activeOnEbay ?? 0,
-          totalCreated: listings.summary?.created ?? 0,
-          totalUpdated: listings.summary?.updated ?? 0,
-          totalUnchanged: listings.summary?.unchanged ?? 0,
-          totalFailed: listings.summary?.fetchComplete === false ? 1 : 0,
-          error: listings.summary?.fetchError || null,
-        });
-        run = null;
-      }
-    } catch (innerErr) {
-      // Always release the lock on failure so a single error can never wedge
-      // every future scheduled/manual eBay sync behind a stale lock.
-      if (run) {
-        try {
-          await EbaySyncRun.releaseLock(run, "failed", {
-            totalFailed: 1,
-            error: innerErr.message || String(innerErr),
+    let listings;
+    if (isEbay) {
+      // Centralized acquire → heartbeat → run → ownership-verified release.
+      // The EXTERNAL 409 behaviour (code EBAY_SYNC_IN_PROGRESS + message) is
+      // preserved exactly; only the internal lock lifecycle changed.
+      const outcome = await EbaySyncRun.withEbaySyncLock("manual", fetchListings, {
+        mapOutcome: (result) => ({
+          status: "completed",
+          summary: {
+            totalDiscovered: result.summary?.activeOnEbay ?? 0,
+            totalCreated: result.summary?.created ?? 0,
+            totalUpdated: result.summary?.updated ?? 0,
+            totalUnchanged: result.summary?.unchanged ?? 0,
+            totalFailed: result.summary?.fetchComplete === false ? 1 : 0,
+            error: result.summary?.fetchError || null,
+          },
+        }),
+        mapError: (err) => ({ status: "failed", summary: { totalFailed: 1, error: err.message || String(err) } }),
+      });
+
+      if (!outcome.acquired) {
+        if (outcome.code === "SYNC_ALREADY_RUNNING") {
+          return res.status(409).json({
+            success: false,
+            code: "EBAY_SYNC_IN_PROGRESS",
+            message:
+              "An eBay sync is already running. Please wait for it to finish and try again.",
           });
-        } catch (releaseErr) {
-          console.error(
-            "[MARKETPLACE LISTING] Failed to release eBay sync lock:",
-            releaseErr.message
-          );
         }
-        run = null;
+        // Non-contention lock failure (e.g. MongoDB unavailable) — surface the
+        // real error to the outer handler rather than pretending the sync ran.
+        throw outcome.error || new Error("Unable to acquire the eBay sync lock.");
       }
-      throw innerErr;
+      // A protected-operation error is re-thrown by the wrapper after the lock
+      // is safely released; propagate it to the outer handler (unchanged).
+      if (outcome.error) throw outcome.error;
+      listings = outcome.result;
+    } else {
+      listings = await fetchListings();
     }
 
     const summary = listings.summary || null;
