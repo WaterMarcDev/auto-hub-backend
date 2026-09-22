@@ -21,52 +21,49 @@ exports.runFullSync = async (req, res) => {
     const dryRun = req.query.dryRun === "true";
     const maxProducts = req.query.max ? parseInt(req.query.max, 10) || 0 : ebayConfig.EBAY_SYNC_MAX_PRODUCTS || 0;
 
-    // Acquire lock for non-dry-run operations
-    let run = null;
-    if (!dryRun) {
-      run = await EbaySyncRun.acquireLock("manual");
-      if (!run) {
-        return res.status(409).json({
-          success: false,
-          error: "A synchronization run is already in progress. Wait for it to complete or try again later.",
-        });
-      }
-    }
-
-    try {
-      const result = await syncCatalog({
+    const runSync = () =>
+      syncCatalog({
         dryRun,
         maxProducts,
         trigger: dryRun ? "manual" : "manual",
       });
 
-      if (!dryRun && run) {
-        if (result?.summary?.error) {
-          await EbaySyncRun.releaseLock(run, "failed", {
-            ...result.summary,
-            error: result.summary.error,
-          });
-        } else {
-          await EbaySyncRun.releaseLock(run, "completed", {
-            ...result.summary,
-            error: null,
-          });
-        }
-      }
+    // Dry runs never mutate eBay and never take the global lock (unchanged
+    // behaviour). Non-dry runs take the shared eBay lease lock.
+    if (dryRun) {
+      const result = await runSync();
+      return res.json({ success: true, dryRun, data: result });
+    }
 
-      res.json({
-        success: true,
-        dryRun,
-        data: result,
-      });
-    } catch (err) {
-      if (!dryRun && run) {
-        await EbaySyncRun.releaseLock(run, "failed", {
-          error: err.message,
+    // Centralized acquire → heartbeat → run → ownership-verified release.
+    const outcome = await EbaySyncRun.withEbaySyncLock("manual", runSync);
+
+    if (!outcome.acquired) {
+      if (outcome.code === "SYNC_ALREADY_RUNNING") {
+        return res.status(409).json({
+          success: false,
+          code: "SYNC_ALREADY_RUNNING",
+          error: "A synchronization run is already in progress. Wait for it to complete or try again later.",
         });
       }
-      throw err;
+      // Lock could not be obtained for a non-contention reason (e.g. Mongo down).
+      const message = (outcome.error && outcome.error.message) || "Unable to acquire the eBay sync lock.";
+      return res.status(500).json({ success: false, code: outcome.code || "LOCK_DATABASE_ERROR", error: message });
     }
+
+    if (outcome.code === "LOCK_LOST") {
+      return res.status(409).json({
+        success: false,
+        code: "LOCK_LOST",
+        error: "The eBay sync lease was lost while the run was executing; the run was aborted.",
+      });
+    }
+
+    res.json({
+      success: true,
+      dryRun,
+      data: outcome.result,
+    });
   } catch (err) {
     console.error("[EBAY_CATALOG_SYNC] Error running full sync:", err.message);
     res.status(500).json({ success: false, error: err.message });
