@@ -268,7 +268,10 @@ EbaySyncRunSchema.statics.heartbeat = async function(run) {
     return { ok: false, code: "LOCK_LOST" };
   }
   logLock("HEARTBEAT", run, { leaseExpiresAt });
-  return { ok: true, code: null };
+  // leaseExpiresAt is returned (additive — existing callers checking only
+  // .ok/.code are unaffected) so withEbaySyncLock() can track the renewed
+  // lease locally, independent of Mongo reachability on later ticks.
+  return { ok: true, code: null, leaseExpiresAt };
 };
 
 /**
@@ -360,31 +363,81 @@ EbaySyncRunSchema.statics.withEbaySyncLock = async function(trigger, fn, opts) {
     return { acquired: false, released: false, code: "SYNC_ALREADY_RUNNING", result: null, error: null };
   }
 
-  const state = { leaseLost: false, code: null };
+  // ── Cancellation plumbing ────────────────────────────────────────────────
+  // AbortController lets the protected fn(run, state) observe lease loss via
+  // state.signal (state.leaseLost/state.code remain for callers that prefer
+  // the plain boolean/string form — both are set together, always).
+  const controller = new AbortController();
+  const state = { leaseLost: false, code: null, signal: controller.signal };
+
+  // Local lease-expiry tracking (Gap #3): mirrors the server-side value this
+  // process itself just wrote/renewed. Checked BEFORE every heartbeat
+  // attempt so a prolonged MongoDB outage is caught even though no
+  // heartbeat can succeed to tell us — once our OWN known lease has passed,
+  // we must stop trusting our own ownership regardless of DB reachability.
+  let localLeaseExpiresAt = run.leaseExpiresAt ? new Date(run.leaseExpiresAt).getTime() : (Date.now() + LEASE_MS);
+
   let heartbeatTimer = null;
   const stopHeartbeat = () => {
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
   };
 
+  const declareLeaseLost = (code, reason) => {
+    if (state.leaseLost) return; // idempotent — only the first caller acts
+    state.leaseLost = true;
+    state.code = code;
+    stopHeartbeat();
+    try { controller.abort(); } catch (_) { /* AbortController.abort() never throws in practice, but never let it escape here */ }
+    logLock("LEASE_LOST", run, { code, reason });
+    if (typeof options.onLeaseLost === "function") {
+      try { options.onLeaseLost(run, code); } catch (_) { /* observability only */ }
+    }
+  };
+
   heartbeatTimer = setInterval(async () => {
     if (state.leaseLost) { stopHeartbeat(); return; }
+
+    // Gap #3 fix: local lease-expiry guard runs FIRST, before attempting the
+    // DB call, so it still fires even while MongoDB is completely
+    // unreachable. A transient DB error alone (below) never declares loss —
+    // only actually exceeding the last KNOWN lease does.
+    if (Date.now() > localLeaseExpiresAt) {
+      declareLeaseLost("LOCK_LOST", "local lease expiry exceeded (prolonged database outage or missed heartbeats)");
+      return;
+    }
+
     try {
       const hb = await this.heartbeat(run);
       if (!hb.ok) {
-        state.leaseLost = true;
-        state.code = hb.code;
-        stopHeartbeat();
-        if (typeof options.onLeaseLost === "function") {
-          try { options.onLeaseLost(run, hb.code); } catch (_) { /* observability only */ }
-        }
+        declareLeaseLost(hb.code, "heartbeat reported lost ownership");
+      } else if (hb.leaseExpiresAt) {
+        // Renewed successfully — advance the local tracker from the actual
+        // renewed value (not just an optimistic client-side computation).
+        localLeaseExpiresAt = new Date(hb.leaseExpiresAt).getTime();
       }
     } catch (err) {
-      // Transient DB error: do NOT declare lost — the current lease is still
-      // valid for up to LEASE_MS. A later successful heartbeat covers the blip.
+      // Transient DB error: do NOT declare lost — the lease remains valid
+      // (per our own local tracking) until localLeaseExpiresAt above, which
+      // a later tick will catch if the outage is prolonged.
       console.error("[EBAY_SYNC_LOCK] LOCK_DATABASE_ERROR (heartbeat) runId=" + run.runId + " " + ((err && err.message) || err));
     }
   }, HEARTBEAT_MS);
   if (heartbeatTimer.unref) heartbeatTimer.unref();
+
+  // ── Graceful-shutdown registry entry (Gap #2) ───────────────────────────
+  // `finished` flips true the instant fn() settles (success OR throw), and
+  // `donePromise` resolves at the same moment — together these let
+  // shutdownActiveLocks() distinguish "the protected operation actually
+  // finished" from "our wait timeout elapsed while it was still running"
+  // without ever re-invoking or racing fn() itself.
+  let resolveDone;
+  const donePromise = new Promise((resolve) => { resolveDone = resolve; });
+  const registryEntry = { _id: run._id, ownerToken: run.ownerToken, runId: run.runId, controller, finished: false, donePromise };
+  activeLocks.set(run.ownerToken, registryEntry);
+  const markFinished = () => {
+    registryEntry.finished = true;
+    if (resolveDone) { resolveDone(); resolveDone = null; }
+  };
 
   const defaultMapOutcome = (result) => {
     const s = (result && result.summary) ? result.summary : {};
@@ -395,11 +448,13 @@ EbaySyncRunSchema.statics.withEbaySyncLock = async function(trigger, fn, opts) {
   try {
     const result = await fn(run, state);
     stopHeartbeat();
+    markFinished();
 
     if (state.leaseLost) {
       // Ownership gone: never attempt a release (it would be a mismatch) and
       // never report success for work done under a lease we no longer held.
       logLock("LEASE_LOST", run, { code: "LOCK_LOST", reason: "protected operation finished after lease loss" });
+      activeLocks.delete(run.ownerToken);
       return { acquired: true, released: false, code: "LOCK_LOST", result: result ?? null, error: null };
     }
 
@@ -413,9 +468,11 @@ EbaySyncRunSchema.statics.withEbaySyncLock = async function(trigger, fn, opts) {
     return { acquired: true, released: rel.released, code: rel.code, result: result ?? null, error: null };
   } catch (err) {
     stopHeartbeat();
+    markFinished();
 
     if (state.leaseLost) {
       logLock("LEASE_LOST", run, { code: "LOCK_LOST", reason: "protected operation threw after lease loss" });
+      activeLocks.delete(run.ownerToken);
       return { acquired: true, released: false, code: "LOCK_LOST", result: null, error: err };
     }
 
@@ -436,41 +493,77 @@ EbaySyncRunSchema.statics.withEbaySyncLock = async function(trigger, fn, opts) {
 };
 
 /**
- * Graceful-shutdown helper: attempt ownership-verified release of every lock
- * this process currently holds, bounded by a short timeout so Passenger
- * shutdown is never blocked indefinitely. This is a SECONDARY safety layer —
- * if it fails, the lease still expires and the lock becomes reclaimable.
+ * Graceful-shutdown helper (Gap #2 fix).
+ *
+ * PREVIOUSLY: released every held lock immediately and unconditionally,
+ * regardless of whether the protected sync operation was still in-flight —
+ * a newly-started Passenger process could then acquire the lock and begin
+ * eBay writes WHILE the old process was still mid-sync, letting two
+ * processes operate on eBay concurrently.
+ *
+ * NOW: for each active lock,
+ *   1. abort its AbortController immediately (signals the protected
+ *      operation to stop starting new work — see withEbaySyncLock/state.signal),
+ *   2. wait, bounded by `timeoutMs`, for the operation to actually finish
+ *      (its `donePromise`, resolved the instant fn() settles),
+ *   3. release the lock ONLY if the operation actually finished in time.
+ *      If it did not, the lock is deliberately left held — the lease expires
+ *      naturally and the next process reclaims it. This is the entire point
+ *      of the fix: never release a lock while the old owner might still be
+ *      writing to eBay.
+ *
+ * Locks NOT acquired via withEbaySyncLock() (no tracked protected operation
+ * — e.g. a script calling acquireLock() directly) have no donePromise/
+ * controller and are treated as immediately releasable, exactly like before
+ * this fix — this preserves existing behavior for that case.
+ *
+ * This remains a SECONDARY safety layer: if the process is SIGKILLed/
+ * OOM-killed before this even runs, the lease still expires by itself.
  */
 EbaySyncRunSchema.statics.shutdownActiveLocks = async function(timeoutMs) {
   const timeout = timeoutMs || 3000;
   const entries = Array.from(activeLocks.values());
-  if (entries.length === 0) return { total: 0, released: 0, timedOut: false };
+  if (entries.length === 0) return { total: 0, released: 0, timedOut: false, stillRunning: 0 };
 
-  const work = entries.map((e) =>
-    this.releaseLock({ _id: e._id, ownerToken: e.ownerToken }, "cancelled", { error: "Lock released during graceful shutdown" })
-      .then((r) => r && r.released)
-      .catch((err) => {
-        console.error("[EBAY_SYNC_LOCK] LOCK_DATABASE_ERROR (shutdown release) runId=" + e.runId + " " + ((err && err.message) || err));
-        return false;
-      })
-  );
+  // Step 1: signal cancellation to every tracked protected operation.
+  for (const e of entries) {
+    if (e.controller) {
+      try { e.controller.abort(); } catch (_) { /* best-effort */ }
+    }
+  }
 
-  // Single shared promise so a timeout can return WITHOUT the caller awaiting a
-  // second time (which would block shutdown past the bound we just promised).
-  const allWork = Promise.allSettled(work);
+  // Step 2: wait, bounded, for each tracked operation to actually finish.
+  // Entries with no donePromise (untracked, direct acquireLock() callers)
+  // resolve immediately via Promise.resolve() and are never held up on.
+  const waitAll = Promise.allSettled(entries.map((e) => e.donePromise || Promise.resolve()));
   let timedOut = false;
   await Promise.race([
-    allWork,
+    waitAll,
     new Promise((resolve) => { const t = setTimeout(() => { timedOut = true; resolve(); }, timeout); if (t.unref) t.unref(); }),
   ]);
 
-  activeLocks.clear();
+  // Step 3: release only what is safe to release.
   let released = 0;
-  if (!timedOut) {
-    const results = await allWork;
-    released = results.filter((r) => r.status === "fulfilled" && r.value === true).length;
+  let stillRunning = 0;
+  for (const e of entries) {
+    const hasTrackedOperation = Boolean(e.donePromise);
+    const safeToRelease = !hasTrackedOperation || e.finished;
+    if (safeToRelease) {
+      try {
+        const r = await this.releaseLock({ _id: e._id, ownerToken: e.ownerToken }, "cancelled", { error: "Lock released during graceful shutdown" });
+        if (r && r.released) released++;
+      } catch (err) {
+        console.error("[EBAY_SYNC_LOCK] LOCK_DATABASE_ERROR (shutdown release) runId=" + e.runId + " " + ((err && err.message) || err));
+      }
+    } else {
+      stillRunning++;
+      logLock("SHUTDOWN_LEAVE_LOCK", { runId: e.runId, ownerToken: e.ownerToken }, {
+        reason: "protected operation still running at shutdown timeout — lock left for natural lease expiry, NOT released",
+      });
+    }
   }
-  return { total: entries.length, released, timedOut };
+  activeLocks.clear();
+  return { total: entries.length, released, timedOut, stillRunning };
 };
 
 /** Get the most recent EbaySyncRun document. */
