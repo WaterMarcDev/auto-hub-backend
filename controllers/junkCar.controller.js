@@ -1,5 +1,5 @@
-const JunkCar = require("../models/junkCar.model");
-const CarIntake = require("../models/carInTake.model");  // by shiva
+const JunkCar = require("../models/JunkCar.model");
+const CarIntake = require("../models/CarIntake.model");  // by shiva
 // const { normalizeRequestSource } = require("../utils/requestSources");
 
 exports.createJunkCarRequest = async (req, res) => {

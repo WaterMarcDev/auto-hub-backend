@@ -15,7 +15,7 @@ const loggerConfig = require("./config/logger");
 const addUserContext = require("./middleware/logging");
 const morgan = require("morgan");
 const path = require("path");
-const partRequestRoutes = require("./routes/PartRequestRoutes");
+const partRequestRoutes = require("./routes/partRequest.routes");
 const junkCarRoutes = require("./routes/junkCar.routes");
 const { swaggerUi, specs } = require("./config/swagger");  // by shiva
 const http = require("http");                                // real time update by shiva
@@ -220,7 +220,7 @@ app.get("/api/status", (req, res) => {
 });
 
 // Auth routes
-app.use("/api/auth", require("./routes/auth"));
+app.use("/api/auth", require("./routes/auth.routes"));
 
 // Part Request Routes : added by shiva
 app.use("/api/part-request", partRequestRoutes);
@@ -229,28 +229,28 @@ app.use("/api/part-request", partRequestRoutes);
 app.use("/api/junk-car", junkCarRoutes);
 
 // Auth routes
-// app.use("/api/auth", require("./routes/auth"));   //end
+// app.use("/api/auth", require("./routes/auth.routes"));   //end
 
 // User routes
-app.use("/api/users", require("./routes/users"));
+app.use("/api/users", require("./routes/users.routes"));
 
 // Car Intake routes
-app.use("/api/car-intake", require("./routes/carIntake"));
+app.use("/api/car-intake", require("./routes/carIntake.routes"));
 
 // Seller routes
-app.use("/api/sellers", require("./routes/sellers"));
+app.use("/api/sellers", require("./routes/sellers.routes"));
 
 // Transaction routes
-app.use("/api/transactions", require("./routes/transactions"));
+app.use("/api/transactions", require("./routes/transactions.routes"));
 
 // Tag routes
 app.use("/api/tags", require("./routes/tag.routes"));
 
 // Upload routes
-app.use("/api/upload", require("./routes/upload"));
+app.use("/api/upload", require("./routes/upload.routes"));
 
 // VIN routes
-app.use("/api/vin", require("./routes/vin"));
+app.use("/api/vin", require("./routes/vin.routes"));
 
 // Make routes
 app.use("/api/make", require("./routes/make.routes"));
@@ -294,10 +294,10 @@ app.use("/api/buyers", require("./routes/buyer.routes"));
 app.use("/api/waivers", require("./routes/waiver.routes"));
 
 // Customer routes
-app.use("/api/customers", require("./routes/customer"));
+app.use("/api/customers", require("./routes/customer.routes"));
 
 // CheckIn routes
-app.use("/api/checkins", require("./routes/checkIn"));
+app.use("/api/checkins", require("./routes/checkIn.routes"));
 
 // Dashboard routes (aggregations for frontend charts)
 app.use("/api/dashboard", require("./routes/dashboard.routes"));

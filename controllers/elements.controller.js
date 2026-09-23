@@ -1,4 +1,4 @@
-const Element = require("../models/elements.model");
+const Element = require("../models/Element.model");
 
 // @desc    Create a new element
 // @route   POST /api/elements

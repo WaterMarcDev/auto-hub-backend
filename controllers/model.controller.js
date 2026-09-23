@@ -1,4 +1,4 @@
-const CarModel = require("../models/Model.model");
+const CarModel = require("../models/CarModel.model");
 
 // @desc    Create a new model
 // @route   POST /api/models

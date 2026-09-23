@@ -1,8 +1,8 @@
-const Transaction = require("../models/Transaction");
-const CarIntake = require("../models/carInTake.model");
-const Seller = require("../models/Seller");
+const Transaction = require("../models/Transaction.model");
+const CarIntake = require("../models/CarIntake.model");
+const Seller = require("../models/Seller.model");
 const { validationResult } = require("express-validator");
-const JunkCar = require("../models/junkCar.model");
+const JunkCar = require("../models/JunkCar.model");
 
 // @desc    Create new transaction
 // @route   POST /api/transactions

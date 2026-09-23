@@ -1,4 +1,4 @@
-const Make = require("../models/Make");
+const Make = require("../models/Make.model");
 
 // @desc    Create a new make
 // @route   POST /api/makes

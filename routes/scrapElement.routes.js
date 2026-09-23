@@ -3,7 +3,7 @@ const router = express.Router();
 const {
   createScrapElement,
   getScrapElementsByVIN,
-} = require("../controllers/ScrapElement.controller");
+} = require("../controllers/scrapElement.controller");
 
 // Create a new scrap element
 router.post("/", createScrapElement);

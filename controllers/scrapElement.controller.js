@@ -1,4 +1,4 @@
-const ScrapElement = require("../models/ScrapElements");
+const ScrapElement = require("../models/ScrapElement.model");
 const elementHubController = require("./elementHub.controller");
 
 // Create Scrap Element

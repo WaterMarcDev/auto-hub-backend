@@ -1,10 +1,10 @@
-const CarIntake = require("../models/carInTake.model");
-const Seller = require("../models/Seller");
-const Transaction = require("../models/Transaction");
+const CarIntake = require("../models/CarIntake.model");
+const Seller = require("../models/Seller.model");
+const Transaction = require("../models/Transaction.model");
 const xlsx = require("xlsx");
 const fs = require("fs");
 const path = require("path");
-const EntryFee = require("../models/EntryFee");
+const EntryFee = require("../models/EntryFee.model");
 
 // Helper to normalize image values: accept string or object, return string (prefer url then filename)
 const normalizeImageValue = (val) => {
@@ -1201,7 +1201,7 @@ const printPaymentSlip = async (req, res) => {
     // Try to find an existing PaymentSlip for this car intake (prefer most recent)
     let paymentSlipDoc = null;
     try {
-      const PaymentSlipModel = require("../models/PaymentSlip");
+      const PaymentSlipModel = require("../models/PaymentSlip.model");
       paymentSlipDoc = await PaymentSlipModel.findOne({
         carIntake: carIntake._id,
       })
@@ -1353,7 +1353,7 @@ const printAllDocuments = async (req, res) => {
     // Try to find an existing PaymentSlip for this car intake (prefer most recent)
     let paymentSlipDoc = null;
     try {
-      const PaymentSlipModel = require("../models/PaymentSlip");
+      const PaymentSlipModel = require("../models/PaymentSlip.model");
       paymentSlipDoc = await PaymentSlipModel.findOne({
         carIntake: carIntake._id,
       })

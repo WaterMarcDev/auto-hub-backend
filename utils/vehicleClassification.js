@@ -5,9 +5,9 @@
  * same Make already resolved on every Inventory item. That value is not
  * re-derived here: Inventory.make is a required reference set at inventory
  * creation time, and for VIN-decoded intakes it is originally populated from
- * the NHTSA VIN decoder's own `Make` field (see controllers/vinController.js
+ * the NHTSA VIN decoder's own `Make` field (see controllers/vin.controller.js
  * and jobs/fetchVinDetailsJob.js, which map `vinDetails.Make` into
- * carDetails.make). By the time Part Syncing runs, controllers/wix.js
+ * carDetails.make). By the time Part Syncing runs, controllers/wix.controller.js
  * already reads this as `item.make.name` for brand/slug/description — this
  * module classifies that same value, so no new VIN decoding or external API
  * call is introduced.
@@ -18,7 +18,7 @@
  * brand, not factory location.
  *
  * No existing backend source marks a Make as "German" — verified:
- * models/Make.js has no country/type field, and no configuration or
+ * models/Make.model.js has no country/type field, and no configuration or
  * business rule exists anywhere else in this codebase. This list is the
  * smallest backend-only mapping that makes the classification possible,
  * centralized in one place. It reflects publicly-known German vehicle

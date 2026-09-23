@@ -1,4 +1,4 @@
-const Seller = require("../models/Seller");
+const Seller = require("../models/Seller.model");
 const { validationResult } = require("express-validator");
 
 // @desc    Create new seller

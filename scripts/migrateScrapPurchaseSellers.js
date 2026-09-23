@@ -29,8 +29,8 @@
 
 require("dotenv").config();
 const mongoose = require("mongoose");
-const ScrapPurchase = require("../models/ScrapPurchase");
-const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller");
+const ScrapPurchase = require("../models/ScrapPurchase.model");
+const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller.model");
 
 const APPLY = process.argv.includes("--apply");
 

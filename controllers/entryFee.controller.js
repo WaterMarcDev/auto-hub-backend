@@ -1,4 +1,4 @@
-const EntryFee = require("../models/EntryFee");
+const EntryFee = require("../models/EntryFee.model");
 
 // @desc    Get entry fee setting
 // @route   GET /api/entry-fee

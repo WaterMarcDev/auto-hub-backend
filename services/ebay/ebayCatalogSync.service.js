@@ -34,7 +34,7 @@ const IntegrationAccount = require("../../models/IntegrationAccount.model");
 const platformManager = require("../platformManager.service");
 const { EbayApiClient, EbayAuthError, EbayRateLimitError } = require("../clients/ebayApiClient");
 const EbayTradingClient = require("../clients/ebayTradingClient");
-const { mapProduct } = require("./ebayProductMapper");
+const { mapProduct } = require("./ebayProductMapper.service");
 const ebayConfig = require("../../config/ebayCatalogConfig");
 const { runWithConcurrency } = require("../wixPartSync.service");
 
@@ -479,7 +479,7 @@ function buildMotorsItemFieldsXml(mapped) {
   // Item.ItemCompatibilityList schema: one <Compatibility> block per
   // compatible vehicle, each carrying its Year/Make/Model/Trim as sibling
   // NameValueList entries — the same shape mapProduct() already builds for
-  // the REST Product Compatibility API (see ebayProductMapper.js), just
+  // the REST Product Compatibility API (see ebayProductMapper.service.js), just
   // re-expressed as XML instead of JSON. Previously this block was fully
   // commented out AND the resulting variable was never even referenced in
   // the returned template — a Motors listing could never have carried
@@ -1059,7 +1059,7 @@ async function syncProduct(inventoryItem, mapped, accessToken, summary) {
   // eBay Motors Parts & Accessories use the Trading API. SINGLE authoritative
   // routing decision for the entire catalog — consults
   // config/ebayCatalogConfig.js's MOTORS_TRADING_API_CATEGORY_IDS via
-  // isMotorsCategory(), the same function ebayProductMapper.js already uses
+  // isMotorsCategory(), the same function ebayProductMapper.service.js already uses
   // for its own Motors-aware preflight validation. Previously this was an
   // independent hardcoded `=== "33543"` literal that never read the config
   // Set at all — adding a category ID (e.g. "36474") to that Set had no

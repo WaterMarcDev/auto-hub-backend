@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const checkInController = require("../controllers/checkIn");
+const checkInController = require("../controllers/checkIn.controller");
 const { auth } = require("../middleware/auth");
 
 // Create check-in

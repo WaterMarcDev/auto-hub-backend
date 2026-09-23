@@ -1,6 +1,6 @@
-const CheckIn = require("../models/checkIn");
-const Transaction = require("../models/Transaction");
-const Customer = require("../models/customer");
+const CheckIn = require("../models/CheckIn.model");
+const Transaction = require("../models/Transaction.model");
+const Customer = require("../models/Customer.model");
 const fs = require("fs");
 const path = require("path");
 
@@ -172,7 +172,7 @@ exports.printInvoice = async (req, res) => {
     // Try to find an existing Invoice for this check-in (prefer most recent)
     let invoiceDoc = null;
     try {
-      const InvoiceModel = require("../models/Invoice");
+      const InvoiceModel = require("../models/Invoice.model");
       invoiceDoc = await InvoiceModel.findOne({
         checkIn: checkIn._id,
       })

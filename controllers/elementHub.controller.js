@@ -1,8 +1,8 @@
-const ElementHub = require("../models/elementHub.model");
-const ElementHubHistory = require("../models/elementHubHistory.model");
-const Element = require("../models/elements.model");
-const Transaction = require("../models/Transaction");
-const Invoice = require("../models/Invoice");
+const ElementHub = require("../models/ElementHub.model");
+const ElementHubHistory = require("../models/ElementHubHistory.model");
+const Element = require("../models/Element.model");
+const Transaction = require("../models/Transaction.model");
+const Invoice = require("../models/Invoice.model");
 const fs = require("fs");
 const path = require("path");
 

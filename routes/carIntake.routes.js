@@ -18,7 +18,7 @@ const {
   // print payment slip
   printPaymentSlip,
   printAllDocuments,
-} = require("../controllers/carIntakeController");
+} = require("../controllers/carIntake.controller");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({

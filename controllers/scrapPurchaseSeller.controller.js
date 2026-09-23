@@ -12,7 +12,7 @@
 //                    CarIntake, Invoice, PaymentSlip, Transaction or Inventory.
 
 const mongoose = require("mongoose");
-const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller");
+const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller.model");
 
 // US phone validation (mirrors the frontend helper). Accepts 10 digits, or 11
 // digits with a leading country code 1, allowing spaces, dashes, parentheses

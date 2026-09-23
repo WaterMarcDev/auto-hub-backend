@@ -1,4 +1,4 @@
-const User = require("../models/User");
+const User = require("../models/User.model");
 
 // Cached after first successful lookup so we don't hit the DB on every request.
 let cachedBotUser = null;

@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { auth } = require("../middleware/auth");
-const { getVinDetails } = require("../controllers/vinController");
+const { getVinDetails } = require("../controllers/vin.controller");
 
 // @route   GET /api/vin/:vinNumber
 // @desc    Get VIN details by VIN number (URL parameter)

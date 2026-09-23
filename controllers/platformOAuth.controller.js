@@ -21,7 +21,7 @@ const IntegrationAccount = require("../models/IntegrationAccount.model");
 const platformManager = require("../services/platformManager.service");
 const ebayAdapter = require("../services/adapters/ebayAdapter");
 const { logAction } = require("../services/auditLog.service");
-const { classifyEbayError, invalidCallbackError } = require("../services/integrationErrors");
+const { classifyEbayError, invalidCallbackError } = require("../services/integrationErrors.service");
 const {
   unsupportedPlatformResponse,
   generateEbayTraceId,

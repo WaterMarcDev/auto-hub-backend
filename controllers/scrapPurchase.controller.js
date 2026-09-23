@@ -7,8 +7,8 @@
 const path = require("path");
 const fs = require("fs");
 const mongoose = require("mongoose");
-const ScrapPurchase = require("../models/ScrapPurchase");
-const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller");
+const ScrapPurchase = require("../models/ScrapPurchase.model");
+const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller.model");
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 

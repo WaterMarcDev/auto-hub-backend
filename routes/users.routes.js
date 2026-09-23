@@ -16,7 +16,7 @@ const {
   createUser,
   resetPassword,
   getStaffUsers,   // added by shiva
-} = require("../controllers/userController");
+} = require("../controllers/user.controller");
 const { auth, requireAdmin, permit } = require("../middleware/auth");
 
 const router = express.Router();

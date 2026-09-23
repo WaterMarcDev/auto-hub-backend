@@ -1,4 +1,4 @@
-const Customer = require("../models/customer");
+const Customer = require("../models/Customer.model");
 
 // Validates a US-style phone number. Accepts 10 digits, or 11 digits with a
 // leading country code 1, allowing spaces, dashes, parentheses, dots and a

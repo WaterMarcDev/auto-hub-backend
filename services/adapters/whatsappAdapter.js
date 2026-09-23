@@ -17,7 +17,7 @@
 const MetaAdapter = require("./metaAdapter");
 const { logAction } = require("../auditLog.service");
 const Conversation = require("../../models/Conversation.model");
-const Customer = require("../../models/customer");
+const Customer = require("../../models/Customer.model");
 const smartMatch = require("../smartMatch.service");
 
 class WhatsAppAdapter extends MetaAdapter {

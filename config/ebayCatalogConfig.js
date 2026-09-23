@@ -267,7 +267,7 @@ const PART_CATEGORY_MAP = {
  * eBay leaf category ID → { required: [aspectName, ...] }.
  *
  * The generic aspect set (Part Name/Brand/Year/Model, built in
- * ebayProductMapper.js) is NOT guaranteed sufficient for every eBay
+ * ebayProductMapper.service.js) is NOT guaranteed sufficient for every eBay
  * category — different categories have different required Item Specifics
  * on eBay's side. This map lets a specific category demand additional
  * required aspect NAMES (checked for presence/non-empty value only — this
@@ -307,7 +307,7 @@ function getRequiredAspectsForCategory(categoryId) {
 // (createOrReplaceInventoryItem/createOffer/publishOffer)?"
 //
 // ebayCatalogSync.service.js's syncProduct() calls isMotorsCategory() below
-// to make its ONLY routing decision, and ebayProductMapper.js's preflight
+// to make its ONLY routing decision, and ebayProductMapper.service.js's preflight
 // validation calls the same function for its own Motors-aware requirements
 // (Motors never reads offerPayload.listingPolicies at all, using the
 // separate, independently-optional EBAY_MOTORS_RETURN_PROFILE_ID instead).
@@ -419,7 +419,7 @@ const MOTORS_CATEGORY_VERIFIED_COMPATIBLE_IDS = new Set([
  *   eBay-valid compatibility data available. false (the default for every
  *   category, including every current Motors category) means: do not send
  *   ItemCompatibilityList for this category — see
- *   ebayProductMapper.js's Phase 8b for what that causes (listing proceeds
+ *   ebayProductMapper.service.js's Phase 8b for what that causes (listing proceeds
  *   without vehicle fitment, which eBay already treats as a fully valid
  *   state — this is not a new concept, see ebayCatalogSync.service.js's
  *   verifyMotorsListing() "not_applicable" handling).

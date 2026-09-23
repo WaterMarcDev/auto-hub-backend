@@ -1,5 +1,5 @@
-const Make = require("../models/Make");
-const CarModel = require("../models/Model.model");
+const Make = require("../models/Make.model");
+const CarModel = require("../models/CarModel.model");
 const Trim = require("../models/Trim.model");
 const Inventory = require("../models/Inventory.model");
 const Part = require("../models/Part.model");

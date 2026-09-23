@@ -19,7 +19,7 @@
 
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
-const CarIntake = require("../models/carInTake.model");
+const CarIntake = require("../models/CarIntake.model");
 const Inventory = require("../models/Inventory.model");
 
 async function pickAVin() {

@@ -13,7 +13,7 @@ const express = require("express");
 const router = express.Router();
 const { automationBotAuth } = require("../middleware/automationBotAuth");
 
-const { deleteRequest } = require("../controllers/PartRequestController");
+const { deleteRequest } = require("../controllers/partRequest.controller");
 
 const {
     createRequest,
@@ -22,7 +22,7 @@ const {
     updatePartRequestSource,
     updatePartRequestRemark,
     createAutomationBotRequest,
-} = require("../controllers/PartRequestController");
+} = require("../controllers/partRequest.controller");
 
 // const PartRequest = require("../models/PartRequest");
 

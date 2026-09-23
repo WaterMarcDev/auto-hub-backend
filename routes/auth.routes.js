@@ -13,7 +13,7 @@ const {
   login,
   getProfile,
   logout,
-} = require("../controllers/authController");
+} = require("../controllers/auth.controller");
 const {
   registerValidation,
   loginValidation,
