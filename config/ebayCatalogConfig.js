@@ -329,8 +329,44 @@ function getRequiredAspectsForCategory(categoryId) {
 // comment documenting the evidence (do not add speculatively — see the
 // "33543" and "36474" entries for the evidence bar to meet).
 const MOTORS_TRADING_API_CATEGORY_IDS = new Set([
-  "33543", // Car & Truck A/C Compressors & Clutches — REST path previously failed for this category; confirmed working via Trading API (live listings referenced elsewhere in this file).
-  "36474", // Car & Truck Intake Manifolds — CONFIRMED via production evidence: REST publishOffer fails with HTTP 400 errorId 25005 "invalid category ID... select another category" (SKU 6a671fa7a90038bf08da0649, offer 268729386011), even though createOffer/updateOffer accept the same categoryId. createOffer/updateOffer only perform shallow schema validation; eBay's publish-time validation appears to reject this category under the REST/EBAY_US path. Routed to the Trading API instead, mirroring the proven 33543 fix.
+  // 48 CRM part types / their mapped eBay categories.
+  // Multiple CRM part types intentionally share the same eBay category.
+
+  "33701",  // Car & Truck Seats
+  "179847", // Wiring Harnesses
+  "33556",  // Fuel Tanks & Filler Necks
+  "33589",  // Steering Racks & Gear Boxes
+  "262191", // Dash Panels
+  "174030", // Expansion & Overflow Tanks
+  "33602",  // Engine Radiators
+  "33555",  // Fuel Pumps & Sending Units
+  "33648",  // Locks & Hardware
+  "33656",  // Hatches & Trunk Lids
+  "33726",  // Transmission & Drivetrain Parts
+  "50459",  // Switches & Controls
+  "262221", // Fuses & Fuse Boxes
+  "179846", // Batteries
+  "36474",  // Intake Manifolds
+  "177697", // Alternators & Generators
+  "33543",  // A/C Compressors & Clutches
+  "179680", // Tires
+  "179679", // Wheels
+  "33675",  // Instrument Clusters
+  "179850", // Doors & Door Skins
+  "33646",  // Hoods
+  "33710",  // Headlight Assemblies
+  "33644",  // Fenders
+  "33640",  // Bumpers & Reinforcements
+  "33615",  // Complete Engines
+  "33564",  // Brake Disc Rotors
+  "33565",  // Brake Drums
+  "33596",  // ECUs & Computer Modules
+  "33697",  // Floor Mats, Carpets & Cargo Liners
+  "33704",  // Steering Wheels
+  "33684",  // Windshields Auto Glass
+  "262161", // Mirror Assemblies
+  "262152", // Frame Rails & Subframes
+  "33700"   // Pedal Foot Rests
 ]);
 /**
  * @param {string|null|undefined} categoryId
