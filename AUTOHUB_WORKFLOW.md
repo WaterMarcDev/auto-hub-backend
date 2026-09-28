@@ -129,7 +129,7 @@ router.post("/export/parts/deduplicated", wixAuth, exportAndSyncDeduplicated);
 router.get("/collections/list", listWixCollections);
 ```
 
-`controllers/wix.js` also contains an older, direct call to the real Wix
+`controllers/wix.controller.js` also contains an older, direct call to the real Wix
 REST API (`https://www.wixapis.com`, using `WIX_API_KEY` as a bearer token
 and `WIX_SITE_ID` as the site header) for reading the Stores "Products"
 collection. This coexists with the Velo-based push mechanism described
@@ -149,7 +149,7 @@ actually used by the current deduplicated sync flow.
 
 The canonical, current implementation lives in
 `services/wixPartSync.service.js` (a refactor/extraction of what used to be
-inline in `controllers/wix.js`'s `exportAndSyncDeduplicated`). It is
+inline in `controllers/wix.controller.js`'s `exportAndSyncDeduplicated`). It is
 triggered on demand via the API routes in section 2.4 (there is **no
 scheduled cron job for Wix** — unlike eBay, which does run on a 6-hour
 cron; see `jobs/`).
@@ -244,7 +244,7 @@ API key.
 
 ### 4.1 Part Requests
 
-- **Endpoint:** `POST /api/part-request` → `controllers/PartRequestController.js#createRequest`
+- **Endpoint:** `POST /api/part-request` → `controllers/partRequest.controller.js#createRequest`
 - **Model:** `models/PartRequest.model.js`
 - Validates that at least one of phone/email is present (phone must be 10
   digits if given; email must look like an email if given), and that a
@@ -266,7 +266,7 @@ API key.
 ### 4.2 Junk Car Requests
 
 - **Endpoint:** `POST /api/junk-car` → `controllers/junkCar.controller.js#createJunkCarRequest`
-- **Model:** `models/junkCar.model.js`
+- **Model:** `models/JunkCar.model.js`
 - Accepts name, email, phone, year (validated as 4 digits if given), make,
   model, engine/VIN, condition, and a free-text message.
 - `source` is currently always normalized to `"website"` for this public
@@ -281,8 +281,8 @@ API key.
   `/:id/payment-status`.
 - **Closing the loop into Inventory:** a `JunkCar` document has a
   `movedToIntake` flag. Once staff accept and schedule a junk car, it is
-  converted into a **Car Intake** record (`controllers/carIntakeController.js`,
-  `models/carInTake.model.js`) — this is the step where the vehicle is
+  converted into a **Car Intake** record (`controllers/carIntake.controller.js`,
+  `models/CarIntake.model.js`) — this is the step where the vehicle is
   actually processed and its individual parts are catalogued as new
   `Inventory` records, which then become eligible for the Wix and eBay
   sync pipelines described in section 3.
@@ -304,11 +304,11 @@ Instagram, Facebook, TikTok, eBay, WhatsApp, SMS, other).
 | App entry / route mounting | `server.js` |
 | Wix incoming-auth check | `middleware/wixAuth.js` |
 | Automation bot auth | `middleware/automationBotAuth.js` |
-| Wix legacy controller (direct Wix REST API + Velo push) | `controllers/wix.js` |
+| Wix legacy controller (direct Wix REST API + Velo push) | `controllers/wix.controller.js` |
 | Canonical Wix part sync engine | `services/wixPartSync.service.js` |
 | Wix exclusion rule (a1/a2/windShield) | `utils/wixExportExclusions.js` |
-| Part Request routes/controller/model | `routes/PartRequestRoutes.js`, `controllers/PartRequestController.js`, `models/PartRequest.model.js` |
-| Junk Car routes/controller/model | `routes/junkCar.routes.js`, `controllers/junkCar.controller.js`, `models/junkCar.model.js` |
-| Car Intake (vehicle → parts) | `controllers/carIntakeController.js`, `models/carInTake.model.js` |
-| Inventory (parts catalog) | `models/Inventory.model.js`, `controllers/Inventory.controller.js` |
-| eBay sync engine (comparison/context) | `services/ebay/ebayCatalogSync.service.js`, `services/ebay/ebayProductMapper.js`, `config/ebayCatalogConfig.js` |
+| Part Request routes/controller/model | `routes/partRequest.routes.js`, `controllers/partRequest.controller.js`, `models/PartRequest.model.js` |
+| Junk Car routes/controller/model | `routes/junkCar.routes.js`, `controllers/junkCar.controller.js`, `models/JunkCar.model.js` |
+| Car Intake (vehicle → parts) | `controllers/carIntake.controller.js`, `models/CarIntake.model.js` |
+| Inventory (parts catalog) | `models/Inventory.model.js`, `controllers/inventory.controller.js` |
+| eBay sync engine (comparison/context) | `services/ebay/ebayCatalogSync.service.js`, `services/ebay/ebayProductMapper.service.js`, `config/ebayCatalogConfig.js` |

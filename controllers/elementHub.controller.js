@@ -1,10 +1,11 @@
-const ElementHub = require("../models/elementHub.model");
-const ElementHubHistory = require("../models/elementHubHistory.model");
-const Element = require("../models/elements.model");
-const Transaction = require("../models/Transaction");
-const Invoice = require("../models/Invoice");
+const ElementHub = require("../models/ElementHub.model");
+const ElementHubHistory = require("../models/ElementHubHistory.model");
+const Element = require("../models/Element.model");
+const Transaction = require("../models/Transaction.model");
+const Invoice = require("../models/Invoice.model");
 const fs = require("fs");
 const path = require("path");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 // Get all hub items (simple list)
 const getAllHubItems = async (req, res) => {
@@ -253,7 +254,7 @@ const printInvoice = async (req, res) => {
       // If no transaction in history, try to find one
       if (!transactionDoc) {
         const existingTransaction = await Transaction.findOne({
-          description: { $regex: history.elementName, $options: "i" },
+          description: { $regex: escapeRegExp(history.elementName), $options: "i" },
           createdAt: {
             $gte: new Date(history.createdAt.getTime() - 1000), // within 1 second
             $lte: new Date(history.createdAt.getTime() + 1000),

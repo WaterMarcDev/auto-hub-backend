@@ -9,7 +9,7 @@
  *
  * Comparison is case-insensitive: Inventory.partName is free-text set by
  * whatever casing the Add-to-Inventory workflow submitted (see
- * controllers/Inventory.controller.js createInventory), so it is not
+ * controllers/inventory.controller.js createInventory), so it is not
  * guaranteed to always be exactly "windShield"/"a1"/"a2".
  */
 const WIX_EXCLUDED_PART_NAMES = new Set(["windshield", "a1", "a2"]);

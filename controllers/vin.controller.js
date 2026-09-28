@@ -1,5 +1,5 @@
 const axios = require("axios");
-const CarIntake = require("../models/carInTake.model");
+const CarIntake = require("../models/CarIntake.model");
 // Normalize DriveType strings to allowed enum values: ["2WD","4WD","AWD","FWD"]
 const normalizeDriveType = (input) => {
   if (input === undefined || input === null) return undefined;

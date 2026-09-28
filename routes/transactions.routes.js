@@ -12,7 +12,7 @@ const {
   getTransactionsByCarIntake,
   getTransactionsBySeller,
   getTransactionStats,
-} = require("../controllers/transactionController");
+} = require("../controllers/transaction.controller");
 
 // Validation middleware
 const validateTransaction = [

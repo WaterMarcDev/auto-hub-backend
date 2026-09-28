@@ -1,9 +1,9 @@
-const Transaction = require("../models/Transaction");
-const CarIntake = require("../models/carInTake.model");
+const Transaction = require("../models/Transaction.model");
+const CarIntake = require("../models/CarIntake.model");
 const Inventory = require("../models/Inventory.model");
 const Waiver = require("../models/Waiver.model");
-const Customer = require("../models/customer");
-const CheckIn = require("../models/checkIn");
+const Customer = require("../models/Customer.model");
+const CheckIn = require("../models/CheckIn.model");
 
 // Helper to build date format and unit for groupBy
 const buildDateBucket = (groupBy) => {
@@ -302,7 +302,7 @@ const getEarningGoal = async (req, res) => {
     const scrapAgg = await CarIntake.aggregate([
       { $match: scrapMatch },
       {
-        $group: { _id: null, total: { $sum: { $ifNull: ["$finalPrice", 0] } } },
+        $group: { _id: null, total: { $sum: { $ifNull: ["$price.finalPrice", 0] } } },
       },
     ]);
 

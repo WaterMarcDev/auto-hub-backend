@@ -1,6 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const controller = require("../controllers/tag.controller");
+const { auth } = require("../middleware/auth");
+
+router.use(auth);
 
 router.post("/generate", controller.generateTags);
 router.get("/", controller.getAllTags);

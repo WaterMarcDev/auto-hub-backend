@@ -1,4 +1,5 @@
-const Make = require("../models/Make");
+const Make = require("../models/Make.model");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 // @desc    Create a new make
 // @route   POST /api/makes
@@ -43,7 +44,7 @@ const getAllMakes = async (req, res) => {
     filter.isDeleted = { $ne: true };
     // search by name
     if (req.query.search) {
-      filter.name = { $regex: req.query.search, $options: "i" };
+      filter.name = { $regex: escapeRegExp(req.query.search), $options: "i" };
     }
 
     const total = await Make.countDocuments(filter);

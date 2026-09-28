@@ -3,7 +3,7 @@
  *
  * Single source of truth for turning eligible Inventory records into Wix
  * products (create/update) and marking them synced. Extracted from
- * controllers/wix.js's exportAndSyncDeduplicated (the current production
+ * controllers/wix.controller.js's exportAndSyncDeduplicated (the current production
  * deduplicated sync flow — verified against CLOVER_PART_SYNC_DOC..md and
  * the CSV-driven pricing/metadata additions as the only endpoint that both
  * pushes to Wix's Velo `_functions/partSync` AND marks wixSynced/
@@ -17,7 +17,7 @@
  * or the external HTTP contract):
  *
  *   1. Product identity now includes Trim (see utils/productIdentity.js).
- *      Previously (controllers/wix.js's removed getGroupKey()) two
+ *      Previously (controllers/wix.controller.js's removed getGroupKey()) two
  *      different trims of the same Year+Make+Model+Part collapsed into ONE
  *      Wix product group, silently merging/losing one trim's identity.
  *
@@ -123,7 +123,7 @@ async function postToWixVelo(url, payload) {
 
 
 const Inventory = require("../models/Inventory.model");
-const carInTake = require("../models/carInTake.model");
+const carInTake = require("../models/CarIntake.model");
 
 const { resolvePartPrice } = require("../utils/partPricing");
 const { isGermanVehicle } = require("../utils/vehicleClassification");
@@ -158,11 +158,11 @@ function withIdentityLock(identityKey, task) {
   return runAfterPrevious;
 }
 
-// ── Small pure helpers (carried over from controllers/wix.js as-is) ────
+// ── Small pure helpers (carried over from controllers/wix.controller.js as-is) ────
 
 /**
- * Mirrors controllers/wix.js's own extractBrandName() exactly. Duplicated
- * (not imported) deliberately: controllers/wix.js's copy is still used by
+ * Mirrors controllers/wix.controller.js's own extractBrandName() exactly. Duplicated
+ * (not imported) deliberately: controllers/wix.controller.js's copy is still used by
  * its own untouched, currently-unused buildWixProductPayload() helper, and
  * a service should not depend on a controller module.
  */
@@ -210,7 +210,7 @@ const generateSku = (identityKey) => {
   return `${prefix}-${hashSuffix}`;
 };
 
-/** Carried over verbatim from controllers/wix.js's syncProductFieldsThroughVelo(). */
+/** Carried over verbatim from controllers/wix.controller.js's syncProductFieldsThroughVelo(). */
 const syncProductFieldsThroughVelo = async ({
   productId,
   productName,
@@ -317,7 +317,7 @@ async function fetchEligibleInventory(filters = {}, limit = 0) {
     // Projection: the canonical sync pipeline (this file) only ever reads
     // _id/partName/make/model/trim/year/vin/category off an Inventory doc —
     // verified against every `item.<field>`/`p.item.<field>` reference in
-    // this file and in controllers/wix.js's exportAndSyncDeduplicated
+    // this file and in controllers/wix.controller.js's exportAndSyncDeduplicated
     // response mapping. sku/weight/image/price/etc. are NOT read here (sku
     // is regenerated from the product name via generateSku(), shippingWeight
     // comes from the CSV via partSyncMetadata, not Inventory.weight).
@@ -374,7 +374,7 @@ function filterSyncableItems(items) {
 /**
  * Groups syncable Inventory items by their canonical product identity
  * (Year+Make+Model+Trim+Part — see utils/productIdentity.js). This is the
- * corrected replacement for controllers/wix.js's removed getGroupKey(),
+ * corrected replacement for controllers/wix.controller.js's removed getGroupKey(),
  * which omitted Trim and could merge two different trims' inventory into
  * one Wix product.
  */

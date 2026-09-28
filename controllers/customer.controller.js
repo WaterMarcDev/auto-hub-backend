@@ -1,4 +1,5 @@
-const Customer = require("../models/customer");
+const Customer = require("../models/Customer.model");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 // Validates a US-style phone number. Accepts 10 digits, or 11 digits with a
 // leading country code 1, allowing spaces, dashes, parentheses, dots and a
@@ -91,7 +92,7 @@ const getAllCustomers = async (req, res) => {
     }
 
     if (req.query.search) {
-      const searchRegex = new RegExp(req.query.search, "i");
+      const searchRegex = new RegExp(escapeRegExp(req.query.search), "i");
       filter.$or = [
         { firstName: searchRegex },
         { lastName: searchRegex },

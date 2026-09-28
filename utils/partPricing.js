@@ -7,7 +7,7 @@
  * load, index, and look them up lives in this file.
  *
  * Loaded and indexed exactly once at module require() time (mirrors the
- * existing assets/part_prices.json pattern already used in controllers/wix.js)
+ * existing assets/part_prices.json pattern already used in controllers/wix.controller.js)
  * so Part Syncing never re-reads/re-parses the CSV per item.
  */
 const fs = require("fs");
@@ -16,7 +16,7 @@ const path = require("path");
 const CSV_PATH = path.join(__dirname, "..", "assets", "German_Cars_Price_List_20pct.csv");
 
 // Legacy flat price list (pre-existing, still required elsewhere via
-// controllers/wix.js). Used here only as a fallback for a part that isn't
+// controllers/wix.controller.js). Used here only as a fallback for a part that isn't
 // one of the 49 rows in the new CSV, so no part regresses to "no price"
 // just because the new list doesn't happen to cover it yet.
 const LEGACY_PART_PRICES = require("../assets/part_prices.json");
@@ -197,7 +197,7 @@ const { rows: PRICE_LIST_ROWS, index: PRICE_INDEX } = buildPriceIndex();
  *   camelCase key Inventory stores, e.g. "frontBumper")
  * @param {boolean} params.isGerman - Vehicle classification. Callers are
  *   responsible for determining this — see the classification gap noted in
- *   controllers/wix.js (isGermanVehicle()).
+ *   controllers/wix.controller.js (isGermanVehicle()).
  * @returns {{ price: number, source: "csv"|"legacy-json"|"missing", matchedPartName?: string }}
  */
 function resolvePartPrice({ partName, isGerman }) {

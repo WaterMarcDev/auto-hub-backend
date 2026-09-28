@@ -1,5 +1,5 @@
-const JunkCar = require("../models/junkCar.model");
-const CarIntake = require("../models/carInTake.model");  // by shiva
+const JunkCar = require("../models/JunkCar.model");
+const CarIntake = require("../models/CarIntake.model");  // by shiva
 // const { normalizeRequestSource } = require("../utils/requestSources");
 
 exports.createJunkCarRequest = async (req, res) => {
@@ -175,8 +175,6 @@ exports.getAllJunkCars = async (req, res) => {
         const data = await JunkCar.find(filter)
             .populate("assignedTo","first_name last_name email role")  // get data first
             .populate("createdBy", "first_name last_name email role");
-
-        console.log(JSON.stringify(data, null, 2));   // added by shiva  The temp debug
 
         // added by shiva for status order
         const statusOrder = {

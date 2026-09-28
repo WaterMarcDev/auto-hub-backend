@@ -1,7 +1,7 @@
 const Waiver = require("../models/Waiver.model");
-const Seller = require("../models/Seller");
+const Seller = require("../models/Seller.model");
 const Buyer = require("../models/Buyer.model");
-const Transaction = require("../models/Transaction");
+const Transaction = require("../models/Transaction.model");
 const { validationResult } = require("express-validator");
 
 // @desc    Create new waiver

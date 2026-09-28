@@ -1,5 +1,6 @@
-const Seller = require("../models/Seller");
+const Seller = require("../models/Seller.model");
 const { validationResult } = require("express-validator");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 // @desc    Create new seller
 // @route   POST /api/sellers
@@ -59,7 +60,7 @@ const getSellers = async (req, res) => {
     // Build filter object
     const filter = { isActive: true };
     if (req.query.search) {
-      const searchRegex = new RegExp(req.query.search, "i");
+      const searchRegex = new RegExp(escapeRegExp(req.query.search), "i");
       filter.$or = [
         { firstName: searchRegex },
         { lastName: searchRegex },
@@ -195,7 +196,7 @@ const deleteSeller = async (req, res) => {
     }
 
     // Check if seller has any car intakes
-    const CarIntake = require("../models/CarIntake");
+    const CarIntake = require("../models/CarIntake.model");
     const hasCarIntakes = await CarIntake.findOne({
       seller: seller._id,
       isActive: true,
@@ -226,7 +227,7 @@ const deleteSeller = async (req, res) => {
 // @access  Private
 const getSellerCarIntakes = async (req, res) => {
   try {
-    const CarIntake = require("../models/CarIntake");
+    const CarIntake = require("../models/CarIntake.model");
 
     const seller = await Seller.findById(req.params.id);
     if (!seller || !seller.isActive) {
@@ -268,7 +269,7 @@ const searchSellers = async (req, res) => {
         .json({ error: "Search query must be at least 2 characters" });
     }
 
-    const searchRegex = new RegExp(q, "i");
+    const searchRegex = new RegExp(escapeRegExp(q), "i");
     const sellers = await Seller.find({
       isActive: true,
       $or: [

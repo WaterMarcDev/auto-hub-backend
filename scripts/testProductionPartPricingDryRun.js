@@ -11,7 +11,7 @@
  *     in this file.
  *   - axios's get/post/patch/put/delete methods are monkey-patched (in this
  *     script's own process only) to THROW if the target URL is a Wix API
- *     host, before controllers/wix.js is ever required. This is a defense
+ *     host, before controllers/wix.controller.js is ever required. This is a defense
  *     -in-depth guard on top of only calling endpoints already verified
  *     (by direct source inspection) to never make a Wix API call:
  *     exportAndSyncAllParts / exportAndSyncByMake / exportAndSyncByYear /
@@ -21,7 +21,7 @@
  *   - This script is standalone: it is not imported by server.js or any
  *     route, and it does not modify any production file.
  *
- * Manual use only:  node scripts/test-production-part-pricing-dry-run.js
+ * Manual use only:  node scripts/testProductionPartPricingDryRun.js
  */
 
 require("dotenv").config();
@@ -75,8 +75,8 @@ async function main() {
   // Register every referenced schema (Inventory.populate("make"/"model"/"trim")
   // needs these registered — mirrors what server.js does at boot).
   const Inventory = require("../models/Inventory.model");
-  const Make = require("../models/Make");
-  require("../models/Model.model");
+  const Make = require("../models/Make.model");
+  require("../models/CarModel.model");
   require("../models/Trim.model");
 
   // Wrap Mongoose write methods on these two models only, as an explicit
@@ -93,7 +93,7 @@ async function main() {
 
   const { isGermanVehicle } = require("../utils/vehicleClassification");
   const { resolvePartPrice } = require("../utils/partPricing");
-  const wixController = require("../controllers/wix"); // safe: axios already guarded above
+  const wixController = require("../controllers/wix.controller"); // safe: axios already guarded above
 
   const results = {
     standard: null,

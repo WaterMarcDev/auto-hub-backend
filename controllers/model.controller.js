@@ -1,4 +1,5 @@
-const CarModel = require("../models/Model.model");
+const CarModel = require("../models/CarModel.model");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 // @desc    Create a new model
 // @route   POST /api/models
@@ -45,7 +46,7 @@ const getAllModels = async (req, res) => {
     filter.isDeleted = { $ne: true };
 
     if (req.query.search) {
-      filter.name = { $regex: req.query.search, $options: "i" };
+      filter.name = { $regex: escapeRegExp(req.query.search), $options: "i" };
     }
 
     if (req.query.make) {

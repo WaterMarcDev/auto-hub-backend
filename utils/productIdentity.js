@@ -5,7 +5,7 @@
  * stable, deterministic identity key used to decide whether two Inventory
  * records represent the SAME logical Wix product or two DIFFERENT ones.
  *
- * Historically (see controllers/wix.js's now-removed getGroupKey()), the
+ * Historically (see controllers/wix.controller.js's now-removed getGroupKey()), the
  * sync grouping key was YEAR+MAKE+MODEL+PART only — Trim was left out of
  * the identity even though Inventory.trim is a required field and the
  * product name/description already display it. That let two different
@@ -15,7 +15,7 @@
  * that by making Trim a first-class part of the identity, without
  * changing anything else about how identity segments are derived.
  *
- * Extracted from controllers/Inventory.controller.js's pre-existing
+ * Extracted from controllers/inventory.controller.js's pre-existing
  * toTitleFromCamelCase() (moved here verbatim, not reimplemented) so the
  * exact same camelCase-splitting behavior already relied upon elsewhere
  * (e.g. Wix export descriptions/titles) is reused, not duplicated.
@@ -23,7 +23,7 @@
 
 /**
  * Splits a camelCase string into title-cased words, e.g. "frontBumper" ->
- * "Front Bumper". Moved verbatim from controllers/Inventory.controller.js
+ * "Front Bumper". Moved verbatim from controllers/inventory.controller.js
  * (same regexes, same behavior) — Inventory.controller.js now imports this
  * copy instead of defining its own, so there is exactly one implementation.
  */

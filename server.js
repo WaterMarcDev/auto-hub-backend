@@ -8,14 +8,13 @@ require("dotenv").config({ override: true });   // added override: true by shiva
 const express = require("express");
 const nunjucks = require("nunjucks");
 const cors = require("cors");
-const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const connectDB = require("./config/database");
 const loggerConfig = require("./config/logger");
 const addUserContext = require("./middleware/logging");
 const morgan = require("morgan");
 const path = require("path");
-const partRequestRoutes = require("./routes/PartRequestRoutes");
+const partRequestRoutes = require("./routes/partRequest.routes");
 const junkCarRoutes = require("./routes/junkCar.routes");
 const { swaggerUi, specs } = require("./config/swagger");  // by shiva
 const http = require("http");                                // real time update by shiva
@@ -36,12 +35,26 @@ connectDB();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Browser origins allowed to call the API (REST CORS and Socket.io).
+const allowlist = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",  //added by shiva
+  "http://localhost:3000",
+  "http://192.168.1.4:5173",
+  "http://192.168.1.4:3000",
+  "https://wmshostings.us",
+  "https://www.wmshostings.us",
+  "https://autohubexpress.us",
+  "https://www.autohubexpress.us",
+];
+
 // Create Server + Socket by shiva
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: allowlist,
+    credentials: true,
   },
 });
 
@@ -99,18 +112,6 @@ njEnv.addFilter("usCurrency", function (val, fallback = "-$0.00") {
 });
 
 
-const allowlist = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",  //added by shiva
-  "http://localhost:3000",
-  "http://192.168.1.4:5173",
-  "http://192.168.1.4:3000",
-  "https://wmshostings.us",
-  "https://www.wmshostings.us",
-  "https://autohubexpress.us",
-  "https://www.autohubexpress.us",
-];
-
 
 const corsOptionsDelegate = (req, callback) => {
   const origin = req.header("Origin");
@@ -160,50 +161,6 @@ app.get("/test-direct", (req, res) => {
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
 // end here
 
-// Routes
-const fs = require("fs");
-const { marked } = require("marked");
-const partRequestmodels = require("./models/PartRequest.model");
-
-// No custom marked renderer configured — rendering uses default behavior
-
-// Serve rendered API docs at '/'
-// app.get("/", (req, res, next) => {
-//   console.log("API docs requested");
-//   const docsPath = path.join(__dirname, "API_DOCS.md");
-//   fs.readFile(docsPath, "utf8", (err, data) => {
-//     if (err) return next(err);
-//     const html = `<!doctype html>
-// <html>
-//   <head>
-//     <meta charset="utf-8">
-//     <meta name="viewport" content="width=device-width,initial-scale=1">
-//     <title>AutoHub API Docs</title>
-//     <style>
-//   :root{color-scheme: light}
-//       body{font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;margin:20px;line-height:1.6;}
-//       pre{background:#f6f8fa;padding:12px;border-radius:6px;overflow:auto;}
-//       code{background:#f6f8fa;padding:2px 6px;border-radius:4px;}
-//       h1,h2,h3{color:#0b3d91;}
-//       a{color:#0366d6;}
-//       table{border-collapse:collapse;}
-//       table td, table th{border:1px solid #dfe2e5;padding:6px 13px;}
-//   /* small responsive container for wide docs */
-//   .docs-container { max-width: 960px; margin: 0 auto; }
-//     </style>
-//   </head>
-//   <body>
-//     <div class="docs-container">
-//       ${marked.parse(data)}
-//     </div>
-
-//   </body>
-// </html>`;
-//     res.setHeader("Content-Type", "text/html; charset=utf-8");
-//     res.send(html);
-//   });
-// });
-
 app.get("/", (req, res) => {
   res.send("AutoHub API up and running");
 });
@@ -220,7 +177,7 @@ app.get("/api/status", (req, res) => {
 });
 
 // Auth routes
-app.use("/api/auth", require("./routes/auth"));
+app.use("/api/auth", require("./routes/auth.routes"));
 
 // Part Request Routes : added by shiva
 app.use("/api/part-request", partRequestRoutes);
@@ -228,29 +185,26 @@ app.use("/api/part-request", partRequestRoutes);
 // JunkCarRequest Routes: added by shiva
 app.use("/api/junk-car", junkCarRoutes);
 
-// Auth routes
-// app.use("/api/auth", require("./routes/auth"));   //end
-
 // User routes
-app.use("/api/users", require("./routes/users"));
+app.use("/api/users", require("./routes/users.routes"));
 
 // Car Intake routes
-app.use("/api/car-intake", require("./routes/carIntake"));
+app.use("/api/car-intake", require("./routes/carIntake.routes"));
 
 // Seller routes
-app.use("/api/sellers", require("./routes/sellers"));
+app.use("/api/sellers", require("./routes/sellers.routes"));
 
 // Transaction routes
-app.use("/api/transactions", require("./routes/transactions"));
+app.use("/api/transactions", require("./routes/transactions.routes"));
 
 // Tag routes
 app.use("/api/tags", require("./routes/tag.routes"));
 
 // Upload routes
-app.use("/api/upload", require("./routes/upload"));
+app.use("/api/upload", require("./routes/upload.routes"));
 
 // VIN routes
-app.use("/api/vin", require("./routes/vin"));
+app.use("/api/vin", require("./routes/vin.routes"));
 
 // Make routes
 app.use("/api/make", require("./routes/make.routes"));
@@ -294,10 +248,10 @@ app.use("/api/buyers", require("./routes/buyer.routes"));
 app.use("/api/waivers", require("./routes/waiver.routes"));
 
 // Customer routes
-app.use("/api/customers", require("./routes/customer"));
+app.use("/api/customers", require("./routes/customer.routes"));
 
 // CheckIn routes
-app.use("/api/checkins", require("./routes/checkIn"));
+app.use("/api/checkins", require("./routes/checkIn.routes"));
 
 // Dashboard routes (aggregations for frontend charts)
 app.use("/api/dashboard", require("./routes/dashboard.routes"));
@@ -328,10 +282,6 @@ require("./services/adapters/tiktokAdapter");
 
 // Entry Fee routes
 app.use("/api/entry-fee", require("./routes/entryFee.routes"));
-
-// Serve uploaded files statically
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
 
 app.use("/assets", express.static(path.join(__dirname, "assets")));
 
@@ -468,12 +418,19 @@ async function gracefulShutdown(signal) {
   try { if (ebayCatalogSyncJobRef && ebayCatalogSyncJobRef.stop) ebayCatalogSyncJobRef.stop(); } catch (_) { /* best-effort */ }
   try { if (ebayListingReconcileJobRef && ebayListingReconcileJobRef.stop) ebayListingReconcileJobRef.stop(); } catch (_) { /* best-effort */ }
 
-  // 2) Best-effort ownership-verified release of any lock THIS process holds,
-  //    bounded by a short timeout so Passenger is never blocked indefinitely.
+  // 2) Signal any in-flight protected eBay sync operation to cancel, wait
+  //    (bounded by this same timeout) for it to actually finish, and only
+  //    then release its lock — ownership-verified, as always. If it does
+  //    NOT finish within the timeout, the lock is deliberately left held
+  //    (see EbaySyncRun.shutdownActiveLocks's doc comment): the lease
+  //    expires naturally and the next process reclaims it, which is safer
+  //    than releasing a lock while this process might still be writing to
+  //    eBay. This is a SECONDARY safety layer — if it fails entirely, the
+  //    lease still expires by itself.
   try {
     const EbaySyncRun = require("./models/EbaySyncRun.model");
     const res = await EbaySyncRun.shutdownActiveLocks(3000);
-    console.log(`[SHUTDOWN] eBay sync lock cleanup: total=${res.total} released=${res.released} timedOut=${res.timedOut}`);
+    console.log(`[SHUTDOWN] eBay sync lock cleanup: total=${res.total} released=${res.released} stillRunning=${res.stillRunning} timedOut=${res.timedOut}`);
   } catch (err) {
     console.error("[SHUTDOWN] eBay sync lock cleanup failed (the lease will still expire):", (err && err.message) || err);
   }

@@ -15,7 +15,7 @@ const {
   getRevenueTrend,
   getSummaryCounts,
   getEarningGoal,
-} = require("../controllers/dashboardController");
+} = require("../controllers/dashboard.controller");
 
 // @route GET /api/dashboard/summary
 

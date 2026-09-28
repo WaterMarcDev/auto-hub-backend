@@ -14,7 +14,7 @@
  *   - OAuth token exchange and refresh
  */
 const axios = require("axios");
-const { classifyEbayError } = require("../integrationErrors");
+const { classifyEbayError } = require("../integrationErrors.service");
 
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const MAX_RETRIES = 3;

@@ -18,14 +18,14 @@ const { convert } = require("html-to-text");
 const BaseAdapter = require("./baseAdapter");
 const { EbayApiClient, EbayAuthError } = require("../clients/ebayApiClient");
 const EbayTradingClient = require("../clients/ebayTradingClient");
-const { classifyEbayError, missingRefreshTokenError } = require("../integrationErrors");
+const { classifyEbayError, missingRefreshTokenError } = require("../integrationErrors.service");
 const platformManager = require("../platformManager.service");
 const IntegrationAccount = require("../../models/IntegrationAccount.model");
 const MarketplaceListing = require("../../models/MarketplaceListing.model");
 const Conversation = require("../../models/Conversation.model");
 const Order = require("../../models/Order.model");
 const smartMatchService = require("../smartMatch.service");
-const { normalizeOrderStatuses } = require("../orderStatusMapper");
+const { normalizeOrderStatuses } = require("../orderStatusMapper.service");
 const { logAction } = require("../auditLog.service");
 
 // ─── eBay OAuth Diagnostic Tracing (observability only, no behavior change) ─
@@ -136,16 +136,7 @@ class EbayAdapter extends BaseAdapter {
       state,
     });
 
-    console.log("========== EBAY CONNECT ==========");
-    console.log("RuName:", ruName);
-    console.log("Scope:", scope);
-    console.log("Raw EBAY_SCOPES:", process.env.EBAY_SCOPES);
-    console.log("State:", state);
-
     const authUrl = this.client.getAuthorizationUrl(ruName, scope, state);
-
-    console.log("OAuth URL:", authUrl);
-    console.log("==================================");
 
     // ─── DIAGNOSTIC: LOG 3 — generated OAuth URL ────────────────────────────
     ebayTrace(traceId, "AUTH_URL_GENERATED", {
@@ -154,8 +145,6 @@ class EbayAdapter extends BaseAdapter {
     });
 
     return authUrl;
-
-    return this.client.getAuthorizationUrl(ruName, scope, state);
   }
 
   /**
@@ -733,19 +722,7 @@ class EbayAdapter extends BaseAdapter {
           conversationSummary.conversationId,
           conversationSummary.conversationType
         );
-        console.log("========= CONVERSATION SUMMARY =========");
-        console.log(JSON.stringify(conversationSummary, null, 2));
-        console.log("\n========== EBAY CONVERSATION DETAILS ==============");
-        console.log(JSON.stringify(conversationDetails, null, 2));
-        console.log("============================\n");
-
         const messages = conversationDetails.messages || [];
-
-        if (messages.length > 0) {
-          console.log("\n========== FIRST EBAY MESSAGE ==========");
-          console.log(JSON.stringify(messages[0], null, 2));
-          console.log("===========================================\n");
-        }
 
         for (const msg of messages) {
           const conversation = await this._upsertMessage(msg, conversationSummary, account);

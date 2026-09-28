@@ -1,5 +1,5 @@
-const Make = require("../models/Make");
-const CarModel = require("../models/Model.model");
+const Make = require("../models/Make.model");
+const CarModel = require("../models/CarModel.model");
 const Trim = require("../models/Trim.model");
 const Inventory = require("../models/Inventory.model");
 const Part = require("../models/Part.model");
@@ -9,6 +9,7 @@ const { isGermanVehicle } = require("../utils/vehicleClassification");
 const {
   toTitleFromCamelCase,
   buildCaseInsensitiveNameQuery,
+  escapeRegExp,
 } = require("../utils/productIdentity");
 
 
@@ -165,7 +166,7 @@ const createInventory = async (req, res) => {
 
     try {
       const partDoc = await Part.findOne({
-        name: new RegExp(`^${partName}$`, "i"),
+        name: new RegExp(`^${escapeRegExp(partName)}$`, "i"),
       });
 
       console.log("PART LOOKUP:", partName, JSON.stringify(partDoc, null, 2));
@@ -185,7 +186,7 @@ const createInventory = async (req, res) => {
         if (!partDoc) {
           // Try by name (case-insensitive)
           partDoc = await Part.findOne({
-            name: new RegExp(`^${partName}$`, "i"),
+            name: new RegExp(`^${escapeRegExp(partName)}$`, "i"),
           });
         }
         if (partDoc && partDoc.shortName) {

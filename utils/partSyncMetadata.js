@@ -164,7 +164,7 @@ function resolvePartMetadata({ partName }) {
  * Replace {YEAR}/{MAKE}/{MODEL} placeholders with real vehicle values.
  * Never leaves a placeholder token in the result — a missing value becomes
  * an empty string rather than an invented one (matches the existing "N/A"
- * data-quality convention used elsewhere in controllers/wix.js would be
+ * data-quality convention used elsewhere in controllers/wix.controller.js would be
  * misleading inside a prose sentence, so this omits the value cleanly
  * instead, e.g. "from a  Hyundai Accent" -> collapsed whitespace below).
  */

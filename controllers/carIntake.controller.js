@@ -1,10 +1,12 @@
-const CarIntake = require("../models/carInTake.model");
-const Seller = require("../models/Seller");
-const Transaction = require("../models/Transaction");
+const CarIntake = require("../models/CarIntake.model");
+const Seller = require("../models/Seller.model");
+const Transaction = require("../models/Transaction.model");
 const xlsx = require("xlsx");
 const fs = require("fs");
 const path = require("path");
-const EntryFee = require("../models/EntryFee");
+const EntryFee = require("../models/EntryFee.model");
+const { resolveUploadPath } = require("../utils/uploadPath");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 // Helper to normalize image values: accept string or object, return string (prefer url then filename)
 const normalizeImageValue = (val) => {
@@ -494,10 +496,10 @@ const getCarIntakes = async (req, res) => {
       if (excludes.length) filter.status = { $nin: excludes };
     }
     if (req.query.make) {
-      filter.make = new RegExp(req.query.make, "i");
+      filter["carDetails.make"] = new RegExp(escapeRegExp(req.query.make), "i");
     }
     if (req.query.year) {
-      filter.year = req.query.year;
+      filter["carDetails.year"] = req.query.year;
     }
     // Support free-text search across vin, make, model, trim and seller fields
     if (req.query.search) {
@@ -1147,8 +1149,8 @@ const getCarIntakeStats = async (req, res) => {
         $group: {
           _id: "$status",
           count: { $sum: 1 },
-          totalValue: { $sum: "$finalPrice" },
-          averageValue: { $avg: "$finalPrice" },
+          totalValue: { $sum: "$price.finalPrice" },
+          averageValue: { $avg: "$price.finalPrice" },
         },
       },
     ]);
@@ -1156,7 +1158,7 @@ const getCarIntakeStats = async (req, res) => {
     const totalCount = await CarIntake.countDocuments(matchStage);
     const totalValue = await CarIntake.aggregate([
       { $match: matchStage },
-      { $group: { _id: null, total: { $sum: "$finalPrice" } } },
+      { $group: { _id: null, total: { $sum: "$price.finalPrice" } } },
     ]);
 
     res.json({
@@ -1201,7 +1203,7 @@ const printPaymentSlip = async (req, res) => {
     // Try to find an existing PaymentSlip for this car intake (prefer most recent)
     let paymentSlipDoc = null;
     try {
-      const PaymentSlipModel = require("../models/PaymentSlip");
+      const PaymentSlipModel = require("../models/PaymentSlip.model");
       paymentSlipDoc = await PaymentSlipModel.findOne({
         carIntake: carIntake._id,
       })
@@ -1353,7 +1355,7 @@ const printAllDocuments = async (req, res) => {
     // Try to find an existing PaymentSlip for this car intake (prefer most recent)
     let paymentSlipDoc = null;
     try {
-      const PaymentSlipModel = require("../models/PaymentSlip");
+      const PaymentSlipModel = require("../models/PaymentSlip.model");
       paymentSlipDoc = await PaymentSlipModel.findOne({
         carIntake: carIntake._id,
       })
@@ -1561,11 +1563,11 @@ const bulkUploadCarIntakes = async (req, res) => {
     // Extract filename from URL (e.g., "/uploads/filename.xlsx" -> "filename.xlsx")
     const filename = fileUrl.replace(/^\/uploads\//, "");
 
-    // Construct file path
-    const filePath = path.join(__dirname, "../uploads", filename);
+    // Construct file path (null if the name tries to escape uploads/)
+    const filePath = resolveUploadPath(filename);
 
     // Check if file exists
-    if (!fs.existsSync(filePath)) {
+    if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: "File not found" });
     }
 
@@ -1850,9 +1852,9 @@ const bulkUploadScraped = async (req, res) => {
     }
 
     const filename = fileUrl.replace(/^\/uploads\//, "");
-    const filePath = path.join(__dirname, "../uploads", filename);
+    const filePath = resolveUploadPath(filename);
 
-    if (!fs.existsSync(filePath)) {
+    if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: "File not found" });
     }
 
@@ -2000,32 +2002,18 @@ const bulkUploadScraped = async (req, res) => {
               row["Scrap Yard Location"] || row.scrapYardLocation;
         }
 
-        const generatedAt = new Date();
-        const generatedAtStr = generatedAt.toLocaleString();
-        const transactionDateStr =
-          transaction && transaction.transactionDate
-            ? transaction.transactionDate.toLocaleString()
-            : null;
-
-        const data = {
-          carIntake,
-          transaction,
-          generatedAtStr,
-          transactionDateStr,
-          generatedBy: req.user
-            ? {
-              id: req.user._id,
-              name: req.user.first_name || req.user.name || "",
-            }
-            : null,
-          // Vehicle Purchase Amount = net to seller (carIntake.price.finalPrice),
-          // never transaction.netAmount (tax-deduction artifact) or grossAmount.
-          purchaseAmount: carIntake.price?.finalPrice ?? transaction?.amount ?? 0,
-          towingFee: readTowingFee(carIntake.price?.towingFee),
+        // Restored from before commit 06029f3, which accidentally replaced
+        // this with a copy of printPaymentSlip's render block (every row then
+        // threw a ReferenceError and the import saved nothing).
+        const doc = {
+          vin: normalizedVin,
+          carDetails,
+          status: statusForRow,
+          scrapDate: scrapDate,
+          createdBy: req.user?._id,
         };
 
-        // Render HTML using Nunjucks template
-        return res.render("paymentSlip.njk", data);
+        // Only set scrapedBy when the status is 'scraped'
         if (statusForRow === "scraped") {
           doc.scrapedBy = req.user?._id;
         }

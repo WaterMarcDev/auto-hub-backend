@@ -21,22 +21,24 @@ exports.runFullSync = async (req, res) => {
     const dryRun = req.query.dryRun === "true";
     const maxProducts = req.query.max ? parseInt(req.query.max, 10) || 0 : ebayConfig.EBAY_SYNC_MAX_PRODUCTS || 0;
 
-    const runSync = () =>
+    const runSync = (signal) =>
       syncCatalog({
         dryRun,
         maxProducts,
         trigger: dryRun ? "manual" : "manual",
+        signal,
       });
 
     // Dry runs never mutate eBay and never take the global lock (unchanged
     // behaviour). Non-dry runs take the shared eBay lease lock.
     if (dryRun) {
-      const result = await runSync();
+      const result = await runSync(null);
       return res.json({ success: true, dryRun, data: result });
     }
 
     // Centralized acquire → heartbeat → run → ownership-verified release.
-    const outcome = await EbaySyncRun.withEbaySyncLock("manual", runSync);
+    // state.signal aborts if the lease is lost mid-run.
+    const outcome = await EbaySyncRun.withEbaySyncLock("manual", (run, state) => runSync(state.signal));
 
     if (!outcome.acquired) {
       if (outcome.code === "SYNC_ALREADY_RUNNING") {

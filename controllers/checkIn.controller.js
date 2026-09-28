@@ -1,8 +1,9 @@
-const CheckIn = require("../models/checkIn");
-const Transaction = require("../models/Transaction");
-const Customer = require("../models/customer");
+const CheckIn = require("../models/CheckIn.model");
+const Transaction = require("../models/Transaction.model");
+const Customer = require("../models/Customer.model");
 const fs = require("fs");
 const path = require("path");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 // Create a new check-in. Expects body: { customer: ObjectId, transaction: { ...transactionData }, employeeSignature: string }
 // checkInTime is automatic, checkedInBy is taken from req.user (assumes auth middleware sets req.user)
@@ -89,7 +90,7 @@ exports.getAll = async (req, res) => {
     if (search) {
       // We'll search checkInToken and customer.name / customer.email via aggregation or $or with populate lookup.
       // Simpler approach: find customer IDs matching search, then filter.
-      const custRegex = new RegExp(search, "i");
+      const custRegex = new RegExp(escapeRegExp(search), "i");
       const matchingCustomers = await Customer.find({
         $or: [
           { firstName: custRegex },
@@ -101,7 +102,7 @@ exports.getAll = async (req, res) => {
       const custIds = matchingCustomers.map((c) => c._id);
 
       filter.$or = [
-        { checkInToken: { $regex: search, $options: "i" } },
+        { checkInToken: { $regex: escapeRegExp(search), $options: "i" } },
         { customer: { $in: custIds } },
       ];
     }
@@ -172,7 +173,7 @@ exports.printInvoice = async (req, res) => {
     // Try to find an existing Invoice for this check-in (prefer most recent)
     let invoiceDoc = null;
     try {
-      const InvoiceModel = require("../models/Invoice");
+      const InvoiceModel = require("../models/Invoice.model");
       invoiceDoc = await InvoiceModel.findOne({
         checkIn: checkIn._id,
       })

@@ -50,8 +50,10 @@ function startEbayCatalogSyncJob() {
     // The lease (not this try/catch) is what recovers a dead owner's lock.
     let outcome;
     try {
-      outcome = await EbaySyncRun.withEbaySyncLock("scheduled", async () => {
-        return syncCatalog({ dryRun: false, trigger: "scheduled" });
+      outcome = await EbaySyncRun.withEbaySyncLock("scheduled", async (run, state) => {
+        // state.signal aborts if the lease is lost mid-run — syncCatalog()
+        // checks it at safe boundaries and stops starting new product work.
+        return syncCatalog({ dryRun: false, trigger: "scheduled", signal: state.signal });
       });
     } catch (err) {
       // withEbaySyncLock re-throws the protected operation's error after

@@ -25,7 +25,7 @@ const VALID_CONDITIONS = new Set([
 // ebay.com/b/Car-Truck-Fenders/33644 exposes Front/Left/Rear/Right). Only
 // keys with directly-observed facet evidence for their mapped category are
 // listed — everything else (chassis, heatedSideMirrors, seats, etc.) is
-// deliberately absent rather than guessed. See ebayProductMapper.js Phase
+// deliberately absent rather than guessed. See ebayProductMapper.service.js Phase
 // 8a-pre for how this is used (additive/recommended, never a hard
 // requirement).
 const PLACEMENT_ON_VEHICLE_BY_PART = {
@@ -134,7 +134,7 @@ function mapProduct(item, options) {
       // No genuine manufacturer part number exists anywhere in the CRM
       // (verified: Inventory.sku is a CRM-generated composite descriptive
       // code — `${makeShort}/${modelShort}/${year}-${partShort}/${color}`,
-      // see controllers/Inventory.controller.js — not unique per physical
+      // see controllers/inventory.controller.js — not unique per physical
       // item and not sourced from any manufacturer). "Does Not Apply" is
       // eBay's own standard, honest Item Specifics value for exactly this
       // situation — it is not a fabricated part number, unlike sending

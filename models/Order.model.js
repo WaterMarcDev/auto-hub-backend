@@ -54,7 +54,7 @@ const OrderSchema = new mongoose.Schema(
 
     // Best-effort, derived only from signals already present on the same
     // Fulfillment API order object (no dedicated refund/return API
-    // integration exists) — see services/orderStatusMapper.js.
+    // integration exists) — see services/orderStatusMapper.service.js.
     refundStatus: {
       type: String,
       default: "Not Refunded",

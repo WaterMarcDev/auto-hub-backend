@@ -75,7 +75,7 @@ checkInSchema.post("save", async function (doc, next) {
     // Lazy require to avoid circular dependency during module load
     let Invoice;
     try {
-      Invoice = require("./Invoice");
+      Invoice = require("./Invoice.model");
     } catch (e) {
       // If Invoice model not present, skip silently
       return next();

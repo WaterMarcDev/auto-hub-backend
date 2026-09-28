@@ -1,5 +1,5 @@
 const Inventory = require("../models/Inventory.model");
-const carInTake = require("../models/carInTake.model");
+const carInTake = require("../models/CarIntake.model");
 
 const { resolvePartPrice } = require("../utils/partPricing");
 const { isGermanVehicle } = require("../utils/vehicleClassification");

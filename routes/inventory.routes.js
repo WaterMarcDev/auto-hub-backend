@@ -21,7 +21,7 @@ const {
   searchByMakeModelYear,
   exportInventories,
   deduplicateInventory,
-} = require("../controllers/Inventory.controller");
+} = require("../controllers/inventory.controller");
 
 // by shiva
 /**

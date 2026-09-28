@@ -33,46 +33,46 @@ auto-hub-backend/
 │   └── logger.js                # Logger configuration
 │
 ├── controllers/                 # Request handlers (business logic)
-│   ├── authController.js        # Authentication (login, register, refresh)
-│   ├── carIntakeController.js  # Car intake operations
-│   ├── dashboardController.js  # Dashboard metrics and aggregates
+│   ├── auth.controller.js       # Authentication (login, register, refresh)
+│   ├── carIntake.controller.js  # Car intake operations
+│   ├── dashboard.controller.js  # Dashboard metrics and aggregates
 │   ├── buyer.controller.js     # Buyer management
-│   ├── sellerController.js     # Seller management
-│   ├── Inventory.controller.js # Inventory management
+│   ├── seller.controller.js    # Seller management
+│   ├── inventory.controller.js # Inventory management
 │   ├── invoice.controller.js   # Invoice generation
 │   ├── waiver.controller.js    # Waiver processing
-│   ├── transactionController.js # Transaction handling
-│   ├── vinController.js        # VIN decoding operations
-│   ├── wix.js                  # Wix integration
+│   ├── transaction.controller.js # Transaction handling
+│   ├── vin.controller.js       # VIN decoding operations
+│   ├── wix.controller.js       # Wix integration
 │   └── ...                     # Other domain controllers
 │
 ├── routes/                      # Express route definitions
-│   ├── auth.js                 # Authentication routes
-│   ├── users.js                # User management routes
-│   ├── carIntake.js            # Car intake routes
+│   ├── auth.routes.js           # Authentication routes
+│   ├── users.routes.js          # User management routes
+│   ├── carIntake.routes.js      # Car intake routes
 │   ├── inventory.routes.js     # Inventory routes
 │   ├── buyer.routes.js         # Buyer routes
-│   ├── sellers.js              # Seller routes
+│   ├── sellers.routes.js       # Seller routes
 │   ├── waiver.routes.js        # Waiver routes
-│   ├── transactions.js         # Transaction routes
+│   ├── transactions.routes.js  # Transaction routes
 │   ├── invoice.routes.js       # Invoice routes
 │   ├── dashboard.routes.js     # Dashboard routes
-│   ├── vin.js                  # VIN routes
+│   ├── vin.routes.js           # VIN routes
 │   ├── wix.routes.js           # Wix integration routes
 │   └── ...                     # Other route modules
 │
 ├── models/                      # Mongoose schemas/models
-│   ├── User.js                 # User model
-│   ├── carInTake.model.js      # Car intake model
+│   ├── User.model.js           # User model
+│   ├── CarIntake.model.js      # Car intake model
 │   ├── Inventory.model.js      # Inventory model
 │   ├── Buyer.model.js          # Buyer model
-│   ├── Seller.js               # Seller model
+│   ├── Seller.model.js         # Seller model
 │   ├── Waiver.model.js         # Waiver model
-│   ├── Transaction.js          # Transaction model
-│   ├── Invoice.js              # Invoice model
+│   ├── Transaction.model.js    # Transaction model
+│   ├── Invoice.model.js        # Invoice model
 │   ├── Part.model.js           # Part model
-│   ├── elements.model.js       # Elements model
-│   ├── elementHub.model.js     # Element hub model
+│   ├── Element.model.js        # Elements model
+│   ├── ElementHub.model.js     # Element hub model
 │   └── ...                     # Other models
 │
 ├── middleware/                  # Express middleware
@@ -173,11 +173,10 @@ WIX_SITE_ID=your-wix-site-id
 
 2. The application will automatically connect to MongoDB on startup via `config/database.js`.
 
-3. (Optional) Seed initial admin user:
+3. (Optional) Seed the automation bot account:
    ```bash
-   npm run seed:admin
+   npm run seed:automation-bot
    ```
-   This creates an admin user if one doesn't exist. Default credentials should be documented or set via environment variables.
 
 ## Running the Server
 
@@ -225,7 +224,7 @@ pm2 startup
 |--------|-------------|
 | `npm start` | Start the server (production mode) |
 | `npm run dev` | Start server with nodemon (development mode) |
-| `npm run seed:admin` | Seed initial admin user |
+| `npm run seed:automation-bot` | Seed the automation bot account |
 
 ## API Overview
 
@@ -387,7 +386,7 @@ Error response format:
 Mongoose models define the database schema:
 
 - **User**: User accounts and authentication
-- **CarInTake**: Car intake records
+- **CarIntake**: Car intake records
 - **Inventory**: Inventory items
 - **Buyer/Seller**: Buyer and seller entities
 - **Waiver**: Waiver documents
@@ -401,26 +400,20 @@ Models are defined in `models/` directory. Refer to individual model files for s
 
 ## Operational Scripts
 
-### Seed Admin User
+### Seed Automation Bot
 
-Create an initial admin user:
+Create the automation bot service account:
 
 ```bash
-npm run seed:admin
+npm run seed:automation-bot
 ```
 
 Or run directly:
 ```bash
-node scripts/seedAdmin.js
+node scripts/seedAutomationBot.js
 ```
 
-### Verify Element Hub
-
-Run element hub verification:
-
-```bash
-node scripts/verifyElementHub.js
-```
+See `scripts/` for other one-off operational scripts (inventory bulk-add, eBay sync recovery/verification, data migrations, etc.).
 
 ## Testing
 
@@ -453,7 +446,7 @@ Currently, the project does not have automated tests configured. For production 
 1. **Clone repository** on server
 2. **Install dependencies**: `npm install`
 3. **Set environment variables**: Create `.env` with production values
-4. **Run migrations/seeds**: `npm run seed:admin` (if needed)
+4. **Run migrations/seeds**: `npm run seed:automation-bot` (if needed)
 5. **Start server**: `npm start` or use PM2/systemd
 6. **Verify health**: Check server logs and test endpoints
 7. **Configure frontend**: Update frontend `VITE_API_BASE_URL` to backend URL

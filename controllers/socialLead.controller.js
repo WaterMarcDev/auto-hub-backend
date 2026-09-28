@@ -8,6 +8,7 @@
  */
 const SocialLead = require("../models/SocialLead.model");
 const { logAction } = require("../services/auditLog.service");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 /**
  * GET /api/social-leads
@@ -34,10 +35,10 @@ exports.getAll = async (req, res) => {
 
     if (search) {
       query.$or = [
-        { customerName: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { phone: { $regex: search, $options: "i" } },
-        { lastMessage: { $regex: search, $options: "i" } },
+        { customerName: { $regex: escapeRegExp(search), $options: "i" } },
+        { email: { $regex: escapeRegExp(search), $options: "i" } },
+        { phone: { $regex: escapeRegExp(search), $options: "i" } },
+        { lastMessage: { $regex: escapeRegExp(search), $options: "i" } },
       ];
     }
 

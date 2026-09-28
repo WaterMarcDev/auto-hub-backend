@@ -19,12 +19,12 @@
  *   - Quality: read verbatim from partDetails.parts[key].quality, exactly
  *     as stored during Car Intake — never regenerated or modified.
  *   - Inventory creation: calls the real, unmodified
- *     controllers/Inventory.controller.js#createInventory function
+ *     controllers/inventory.controller.js#createInventory function
  *     directly (via a minimal mock req/res) — same make/model/trim
  *     resolution, same sku/category defaults, same unique {vin, partName}
  *     duplicate index as the real UI path.
  *   - Status transition: calls the real, unmodified
- *     controllers/carIntakeController.js#updateCarIntakeStatus function
+ *     controllers/carIntake.controller.js#updateCarIntakeStatus function
  *     directly, exactly as AddInventoryPage.jsx does after a successful
  *     submit (-> "part-added-to-inventory").
  *
@@ -39,10 +39,10 @@
 
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
-const CarIntake = require("../models/carInTake.model");
+const CarIntake = require("../models/CarIntake.model");
 const Inventory = require("../models/Inventory.model");
-const { createInventory } = require("../controllers/Inventory.controller");
-const { updateCarIntakeStatus } = require("../controllers/carIntakeController");
+const { createInventory } = require("../controllers/inventory.controller");
+const { updateCarIntakeStatus } = require("../controllers/carIntake.controller");
 
 const APPLY = process.argv.includes("--apply");
 const ELIGIBILITY_FILTER = { status: "payment-done" };

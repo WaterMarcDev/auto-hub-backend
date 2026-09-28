@@ -1,6 +1,6 @@
 const axios = require("axios");
 const cron = require("node-cron");
-const CarIntake = require("../models/carInTake.model");
+const CarIntake = require("../models/CarIntake.model");
 
 // Config - can be overridden via env
 const SCHEDULE = process.env.VIN_CRON_SCHEDULE || "*/5 * * * *"; // every 5minutes by default to prevent warnings , updated by shiva  

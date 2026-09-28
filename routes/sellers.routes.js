@@ -10,7 +10,7 @@ const {
   deleteSeller,
   getSellerCarIntakes,
   searchSellers,
-} = require("../controllers/sellerController");
+} = require("../controllers/seller.controller");
 
 // Validation middleware
 const validateSeller = [
