@@ -4,9 +4,6 @@ const {
   createScrapElement,
   getScrapElementsByVIN,
 } = require("../controllers/scrapElement.controller");
-const { auth } = require("../middleware/auth");
-
-router.use(auth);
 
 // Create a new scrap element
 router.post("/", createScrapElement);

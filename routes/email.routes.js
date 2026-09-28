@@ -1,6 +1,7 @@
+console.log("✅ Enter routes file loaded")
+
 const express = require("express");
 const router = express.Router();
-const { auth } = require("../middleware/auth");
 // added by shiva
 const multer = require("multer");
 const path = require("path");   // added by shiva
@@ -50,28 +51,27 @@ router.get("/check", (req, res) => {
 });
 // end here
 
-router.post("/test-email", auth, testCreateEmail);
+router.post("/test-email", testCreateEmail);
 
 // all emails
-router.get("/all", auth, getEmails);   //added by shiva
+router.get("/all", getEmails);   //added by shiva
 
-// inbound route — SendGrid Inbound Parse webhook, must stay public
+// inbound route
 router.post("/inbound", upload.any(), handleInboundEmail);  //added upload.none() by shiva
 
 // sendReply email route
-router.post("/reply", auth, upload.array("attachments"), sendReply);   // update with-> upload.array("attachments"),
+router.post("/reply", upload.array("attachments"), sendReply);   // update with-> upload.array("attachments"),
 
 // Forward Email Route by shiva
 router.post(
   "/forward",
-  auth,
   upload.array("attachments"),
   forwardEmail
 );
 // end here
 
 // routing for mark as read button by shiva
-router.patch("/mark-read/:id", auth, async (req, res) => {
+router.patch("/mark-read/:id", async (req, res) => {
   try {
     await CRMEmail.findByIdAndUpdate(req.params.id, {
       status: "read"
@@ -85,7 +85,7 @@ router.patch("/mark-read/:id", auth, async (req, res) => {
 });
 
 // thread route
-router.get("/thread/:id", auth, async (req, res) => {
+router.get("/thread/:id", async (req, res) => {
   try {
     // 1. Get clicked email
     const email = await CRMEmail.findById(req.params.id);

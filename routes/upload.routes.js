@@ -3,7 +3,6 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const { auth } = require("../middleware/auth");
-const { resolveUploadPath } = require("../utils/uploadPath");
 const router = express.Router();
 
 // Ensure uploads directory exists
@@ -123,10 +122,10 @@ router.post("/multiple", auth, upload.array("images", 10), (req, res) => {
 router.delete("/:filename", auth, (req, res) => {
   try {
     const filename = req.params.filename;
-    const filePath = resolveUploadPath(filename);
+    const filePath = path.join(__dirname, "../uploads", filename);
 
     // Check if file exists
-    if (!filePath || !fs.existsSync(filePath)) {
+    if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: "File not found" });
     }
 
@@ -149,10 +148,10 @@ router.delete("/:filename", auth, (req, res) => {
 router.get("/:filename", (req, res) => {
   try {
     const filename = req.params.filename;
-    const filePath = resolveUploadPath(filename);
+    const filePath = path.join(__dirname, "../uploads", filename);
 
     // Check if file exists
-    if (!filePath || !fs.existsSync(filePath)) {
+    if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: "File not found" });
     }
 

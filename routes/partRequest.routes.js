@@ -11,7 +11,6 @@ console.log("Part Request Routes Loaded");
 
 const express = require("express");
 const router = express.Router();
-const { auth } = require("../middleware/auth");
 const { automationBotAuth } = require("../middleware/automationBotAuth");
 
 const { deleteRequest } = require("../controllers/partRequest.controller");
@@ -25,6 +24,7 @@ const {
     createAutomationBotRequest,
 } = require("../controllers/partRequest.controller");
 
+// const PartRequest = require("../models/PartRequest");
 
 // by shiva
 /**
@@ -89,7 +89,7 @@ router.post("/", createRequest);
  *         description: Requests fetched successfully
  */
 // end here
-router.get("/", auth, getAllRequests);
+router.get("/", getAllRequests);
 
 // by shiva
 /**
@@ -118,7 +118,7 @@ router.get("/", auth, getAllRequests);
  *         description: Status updated successfully
  */
 // end here
-router.put("/:id", auth, updateStatus);
+router.put("/:id", updateStatus);
 
 // by shiva
 /**
@@ -138,13 +138,19 @@ router.put("/:id", auth, updateStatus);
  *         description: Request deleted successfully
  */
 //end here
-router.delete("/:id", auth, deleteRequest);
+router.delete("/:id", deleteRequest);
 
 // Source route by shiva
-router.patch("/:id/source", auth, updatePartRequestSource);
+router.patch("/:id/source", updatePartRequestSource);
 
 // Remark route by shiva
-router.patch("/:id/remark", auth, updatePartRequestRemark);
+router.patch("/:id/remark", (req, res, next) => {
+
+    console.log("REMARK ROUTE HIT");
+
+    next();
+
+}, updatePartRequestRemark);
 
 /**
  * @swagger

@@ -223,7 +223,7 @@ transactionSchema.post("save", async function (doc, next) {
     // Lazy require to avoid circular dependency during module load
     let PaymentSlip;
     try {
-      PaymentSlip = require("./PaymentSlip.model");
+      PaymentSlip = require("./PaymentSlip");
     } catch (e) {
       // If PaymentSlip model not present, skip silently
       return next();

@@ -1,5 +1,4 @@
 const Part = require("../models/Part.model");
-const { escapeRegExp } = require("../utils/productIdentity");
 
 // @desc    Create a new part
 // @route   POST /api/parts
@@ -50,7 +49,7 @@ const getAllParts = async (req, res) => {
     // Build filter object (exclude soft-deleted)
     const filter = { deleted: { $ne: true } };
     if (req.query.search) {
-      filter.name = { $regex: escapeRegExp(req.query.search), $options: "i" };
+      filter.name = { $regex: req.query.search, $options: "i" };
     }
     const parts = await Part.find(filter)
       .skip(skip)

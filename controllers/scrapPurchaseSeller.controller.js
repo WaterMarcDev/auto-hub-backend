@@ -13,7 +13,6 @@
 
 const mongoose = require("mongoose");
 const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller.model");
-const { escapeRegExp } = require("../utils/productIdentity");
 
 // US phone validation (mirrors the frontend helper). Accepts 10 digits, or 11
 // digits with a leading country code 1, allowing spaces, dashes, parentheses
@@ -68,8 +67,8 @@ const getScrapPurchaseSellers = async (req, res) => {
     const query = {};
     if (search) {
       query.$or = [
-        { name: { $regex: escapeRegExp(search), $options: "i" } },
-        { phone: { $regex: escapeRegExp(search), $options: "i" } },
+        { name: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
       ];
     }
 

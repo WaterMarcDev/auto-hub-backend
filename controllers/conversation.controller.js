@@ -16,7 +16,6 @@ const SocialLead = require("../models/SocialLead.model");
 const MarketplaceListing = require("../models/MarketplaceListing.model");
 const platformManager = require("../services/platformManager.service");
 const { logAction } = require("../services/auditLog.service");
-const { escapeRegExp } = require("../utils/productIdentity");
 
 /**
  * Resolve the authoritative time for a message subdocument, for sorting
@@ -90,9 +89,9 @@ exports.getAll = async (req, res) => {
 
     if (search) {
       query.$or = [
-        { customerName: { $regex: escapeRegExp(search), $options: "i" } },
-        { lastMessage: { $regex: escapeRegExp(search), $options: "i" } },
-        { tags: { $regex: escapeRegExp(search), $options: "i" } },
+        { customerName: { $regex: search, $options: "i" } },
+        { lastMessage: { $regex: search, $options: "i" } },
+        { tags: { $regex: search, $options: "i" } },
       ];
     }
 
