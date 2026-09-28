@@ -157,6 +157,22 @@ exports.checkout = async (req, res) => {
   }
 };
 
+// In-memory cache for invoice logo
+let cachedLogoDataUri = null;
+const getLogoDataUri = () => {
+  if (cachedLogoDataUri) return cachedLogoDataUri;
+  try {
+    const logoPath = path.join(__dirname, "..", "assets", "logo-sm1.png");
+    if (fs.existsSync(logoPath)) {
+      const buf = fs.readFileSync(logoPath);
+      cachedLogoDataUri = `data:image/png;base64,${buf.toString("base64")}`;
+    }
+  } catch (e) {
+    console.warn("Could not read logo for invoice:", e && e.message);
+  }
+  return cachedLogoDataUri;
+};
+
 // @desc    Print invoice for a check-in
 // @access  Private
 exports.printInvoice = async (req, res) => {
@@ -225,19 +241,8 @@ exports.printInvoice = async (req, res) => {
       invoiceDoc = null;
     }
 
-    // Load logo as base64 data URI
-    let logoDataUri = null;
-    try {
-      const logoPath = path.join(__dirname, "..", "assets", "logo-sm1.png");
-      if (fs.existsSync(logoPath)) {
-        const buf = fs.readFileSync(logoPath);
-        const b64 = buf.toString("base64");
-        logoDataUri = `data:image/png;base64,${b64}`;
-      }
-    } catch (e) {
-      console.warn("Could not read logo for invoice:", e && e.message);
-      logoDataUri = null;
-    }
+    // Load logo as base64 data URI (cached)
+    const logoDataUri = getLogoDataUri();
 
     // Compute padded invoice string if invoice found
     const invoicePadded =

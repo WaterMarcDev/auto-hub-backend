@@ -155,7 +155,7 @@ flowchart TD
 1. **Visitor Registry & Waiver (`CustomerInfoStep.jsx`)**:
    - Customer arrives at front desk; staff selects Buyer or Seller customer type.
    - **Validation Rules**:
-     - `mobileNo`: Strictly **mandatory** (red asterisk), formatted dynamically as `(XXX)XXX-XXXX`, and validates that exactly 10 digits are provided.
+     - `mobileNo`: Strictly **mandatory** (red asterisk), formatted dynamically as `(XXX) XXX-XXXX`, and validates that exactly 10 digits are provided.
      - `idProofType`, `idProofNumber`, `idProofImage`, and `signature`: **Optional** fields.
    - Submitting the waiver registers the `Customer` record and immediately opens the "Create Check-In" modal with the customer pre-selected.
 2. **"Create Check-In" Modal Lifecycle**:
