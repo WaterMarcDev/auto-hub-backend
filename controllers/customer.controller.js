@@ -67,6 +67,7 @@ const createCustomer = async (req, res) => {
     });
 
     await newCustomer.save();
+    req.app.get("io")?.emit("cache:invalidate", { scope: "customers", customer: newCustomer });
     res.status(201).json(newCustomer);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -105,7 +106,8 @@ const getAllCustomers = async (req, res) => {
         options: { sort: { createdAt: -1 } },
       })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
     const total = await Customer.countDocuments(filter);
     res.status(200).json({ customers, pagination: { page, limit, total } });
   } catch (error) {
@@ -138,6 +140,7 @@ const updateCustomerById = async (req, res) => {
     if (!customer) {
       return res.status(404).json({ message: "Customer not found" });
     }
+    req.app.get("io")?.emit("cache:invalidate", { scope: "customers", customer });
     res.status(200).json(customer);
   } catch (error) {
     res.status(500).json({ message: error.message });

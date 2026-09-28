@@ -225,6 +225,11 @@ const createWaiver = async (req, res) => {
       .populate("payment")
       .populate("createdBy", "first_name last_name email");
 
+    // Invalidate dashboard metrics and notify connected staff via WebSocket
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("dash:");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "waivers", item: populatedWaiver });
+
     res.status(201).json({
       message: "Waiver created successfully",
       waiver: populatedWaiver,
@@ -326,7 +331,8 @@ const getWaivers = async (req, res) => {
       .populate("createdBy", "first_name last_name email")
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
     // Exclude soft-deleted documents
     filter.isDeleted = { $ne: true };
