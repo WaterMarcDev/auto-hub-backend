@@ -21,6 +21,10 @@ const createMake = async (req, res) => {
       description,
     });
 
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("master:make");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "make" });
+
     res.status(201).json(make);
   } catch (error) {
     console.error(error);
@@ -50,7 +54,8 @@ const getAllMakes = async (req, res) => {
     const makes = await Make.find(filter)
       .skip(skip)
       .limit(limit)
-      .sort({ name: 1 }); // Sort by name ascending
+      .sort({ name: 1 })
+      .lean(); // Sort by name ascending, bypass Mongoose hydration
 
     res.status(200).json({
       makes,
@@ -102,6 +107,11 @@ const updateMake = async (req, res) => {
     make.description = description || make.description;
 
     await make.save();
+
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("master:make");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "make" });
+
     res.status(200).json(make);
   } catch (error) {
     console.error(error);
@@ -119,6 +129,11 @@ const deleteMake = async (req, res) => {
     make.isDeleted = true;
     make.deletedAt = new Date();
     await make.save();
+
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("master:make");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "make" });
+
     res.status(200).json({ message: "Make deleted successfully" });
   } catch (error) {
     console.error(error);

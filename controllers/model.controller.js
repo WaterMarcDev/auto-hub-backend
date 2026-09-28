@@ -22,6 +22,10 @@ const createModel = async (req, res) => {
       description,
     });
 
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("master:model");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "model" });
+
     res.status(201).json(model);
   } catch (error) {
     console.error(error);
@@ -57,7 +61,8 @@ const getAllModels = async (req, res) => {
       .populate("make")
       .skip(skip)
       .limit(limit)
-      .sort({ name: 1 });
+      .sort({ name: 1 })
+      .lean(); // Faster JSON serialization without Mongoose change tracking
 
     res.status(200).json({
       models,
@@ -108,6 +113,10 @@ const updateModel = async (req, res) => {
       return res.status(404).json({ message: "Model not found" });
     }
 
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("master:model");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "model" });
+
     res.status(200).json(model);
   } catch (error) {
     console.error(error);
@@ -125,6 +134,10 @@ const deleteModel = async (req, res) => {
     model.isDeleted = true;
     model.deletedAt = new Date();
     await model.save();
+
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("master:model");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "model" });
 
     res.status(200).json({ message: "Model soft-deleted successfully" });
   } catch (error) {

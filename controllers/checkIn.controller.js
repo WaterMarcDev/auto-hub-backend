@@ -65,6 +65,11 @@ exports.create = async (req, res) => {
       .populate("transaction")
       .populate("checkedInBy", "name email");
 
+    // Invalidate dashboard micro-cache and notify connected staff via WebSocket
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("dash:");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "checkins", item: populated });
+
     return res.status(201).json(populated);
   } catch (err) {
     console.error(err);
@@ -114,7 +119,8 @@ exports.getAll = async (req, res) => {
       .populate("customer")
       .populate("transaction")
       .populate("checkedInBy", "name email")
-      .populate("checkedOutBy", "name email");
+      .populate("checkedOutBy", "name email")
+      .lean();
 
     return res.json({ page, limit, total, items });
   } catch (err) {
@@ -147,6 +153,11 @@ exports.checkout = async (req, res) => {
       .populate("transaction")
       .populate("checkedInBy", "name email")
       .populate("checkedOutBy", "name email");
+
+    // Invalidate dashboard micro-cache and notify connected staff via WebSocket
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("dash:");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "checkins", item: populated });
 
     return res.json(populated);
   } catch (err) {

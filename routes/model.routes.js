@@ -11,8 +11,10 @@ const {
   deleteModel,
 } = require("../controllers/model.controller");
 
+const { cacheMiddleware } = require("../middleware/cache");
+
 router.post("/", auth, createModel);
-router.get("/", auth, getAllModels);
+router.get("/", auth, cacheMiddleware("master:model", 3600), getAllModels);
 router.get("/:id", auth, getModelById);
 router.put("/:id", auth, updateModel);
 router.delete("/:id", auth, deleteModel);
