@@ -1,4 +1,5 @@
 const Trim = require("../models/Trim.model");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 // @desc    Create a new trim
 // @route   POST /api/trims
@@ -50,7 +51,7 @@ const getAllTrims = async (req, res) => {
     filter.isDeleted = { $ne: true };
 
     if (req.query.search) {
-      filter.name = { $regex: req.query.search, $options: "i" };
+      filter.name = { $regex: escapeRegExp(req.query.search), $options: "i" };
     }
 
     if (req.query.make) {

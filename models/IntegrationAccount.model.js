@@ -162,7 +162,17 @@ const IntegrationAccountSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
+    // Credentials never leave the server: res.json(doc) / doc.toJSON() omit
+    // them. Code that needs a token reads doc.accessToken directly.
+    toJSON: {
+      virtuals: true,
+      transform: (doc, ret) => {
+        delete ret.accessToken;
+        delete ret.refreshToken;
+        delete ret.webhookSecret;
+        return ret;
+      },
+    },
     toObject: { virtuals: true },
   }
 );

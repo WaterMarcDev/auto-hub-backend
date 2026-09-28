@@ -12,6 +12,7 @@
  */
 const Order = require("../models/Order.model");
 const { logAction } = require("../services/auditLog.service");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 /**
  * GET /api/orders
@@ -60,13 +61,13 @@ exports.getAll = async (req, res) => {
 
     if (search) {
       query.$or = [
-        { orderId: { $regex: search, $options: "i" } },
-        { legacyOrderId: { $regex: search, $options: "i" } },
-        { customerName: { $regex: search, $options: "i" } },
-        { buyerUsername: { $regex: search, $options: "i" } },
-        { buyerEmail: { $regex: search, $options: "i" } },
-        { "items.title": { $regex: search, $options: "i" } },
-        { "items.sku": { $regex: search, $options: "i" } },
+        { orderId: { $regex: escapeRegExp(search), $options: "i" } },
+        { legacyOrderId: { $regex: escapeRegExp(search), $options: "i" } },
+        { customerName: { $regex: escapeRegExp(search), $options: "i" } },
+        { buyerUsername: { $regex: escapeRegExp(search), $options: "i" } },
+        { buyerEmail: { $regex: escapeRegExp(search), $options: "i" } },
+        { "items.title": { $regex: escapeRegExp(search), $options: "i" } },
+        { "items.sku": { $regex: escapeRegExp(search), $options: "i" } },
       ];
     }
 

@@ -1,5 +1,6 @@
 const Tag = require("../models/Tag.model");
 const { formatBarcode } = require("../utils/barcode");
+const { escapeRegExp } = require("../utils/productIdentity");
 const toTagDTO = (tag) => ({
   id: tag._id,
   barcodeNumber: tag.barcodeNumber,
@@ -127,9 +128,9 @@ const getAvailableTags = async (req, res) => {
     filter.$or = isNumber
       ? [
         { barcodeNumber: Number(search) },
-        { barcodeString: { $regex: search, $options: "i" } },
+        { barcodeString: { $regex: escapeRegExp(search), $options: "i" } },
       ]
-      : [{ barcodeString: { $regex: `^${search}`, $options: "i" } }];
+      : [{ barcodeString: { $regex: `^${escapeRegExp(search)}`, $options: "i" } }];
   }
 
 

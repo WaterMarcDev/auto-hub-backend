@@ -302,7 +302,7 @@ const getEarningGoal = async (req, res) => {
     const scrapAgg = await CarIntake.aggregate([
       { $match: scrapMatch },
       {
-        $group: { _id: null, total: { $sum: { $ifNull: ["$finalPrice", 0] } } },
+        $group: { _id: null, total: { $sum: { $ifNull: ["$price.finalPrice", 0] } } },
       },
     ]);
 

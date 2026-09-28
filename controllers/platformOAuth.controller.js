@@ -24,6 +24,9 @@ const { logAction } = require("../services/auditLog.service");
 const { classifyEbayError, invalidCallbackError } = require("../services/integrationErrors.service");
 const {
   unsupportedPlatformResponse,
+  signOAuthState,
+  verifyOAuthState,
+  escapeHtml,
   generateEbayTraceId,
   logEbayTrace,
   logEbayError,
@@ -61,7 +64,7 @@ exports.connectPlatform = async (req, res) => {
     }
 
     const userIdForState = req.user?._id?.toString() || "";
-    const stateValue = isEbay ? `${userIdForState}::${traceId}` : userIdForState;
+    const stateValue = signOAuthState(isEbay ? `${userIdForState}::${traceId}` : userIdForState);
 
     const authUrl = await platformManager.connect(platform, {
       redirectUri: `${req.protocol}://${req.get("host")}/api/integrations/${platform}/callback`,
@@ -116,7 +119,7 @@ exports.handleCallback = async (req, res) => {
     logEbayTrace(ebayTraceId, "CALLBACK_ENTERED", {
       function: "handleCallback",
       fullCallbackUrl: `${req.protocol}://${req.get("host")}${req.originalUrl}`,
-      queryParams: req.query,
+      queryParams: { ...req.query, ...(code ? { code: "[redacted]" } : {}) },
       codePresent: Boolean(code),
       statePresent: Boolean(state),
       errorPresent: Boolean(error),
@@ -142,7 +145,7 @@ exports.handleCallback = async (req, res) => {
       return res.send(`
         <html><body style="font-family: sans-serif; text-align: center; padding: 40px;">
           <h2 style="color: #e53e3e;">OAuth Failed</h2>
-          <p>${error}: ${req.query.error_description || "Authorization was denied"}</p>
+          <p>${escapeHtml(error)}: ${escapeHtml(req.query.error_description || "Authorization was denied")}</p>
           <p><a href="${process.env.FRONTEND_URL || "http://localhost:5173"}/integrations">Back to Integrations</a></p>
         </body></html>
       `);
@@ -155,6 +158,18 @@ exports.handleCallback = async (req, res) => {
         return res.status(classified.statusCode).json({ ...classified.toJSON(), traceId: ebayTraceId });
       }
       return res.status(400).json({ success: false, message: "Authorization code is required" });
+    }
+
+    if (!verifyOAuthState(state)) {
+      if (isEbay) {
+        const classified = invalidCallbackError("OAuth 'state' is missing, invalid or expired (older than 1 hour).");
+        logEbayError(ebayTraceId, "CALLBACK_INVALID_STATE", "handleCallback", classified);
+        return res.status(classified.statusCode).json({ ...classified.toJSON(), traceId: ebayTraceId });
+      }
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired OAuth state. Start the connection again from the Integrations page.",
+      });
     }
 
     //----------------------------------------------------
@@ -357,8 +372,8 @@ exports.handleCallback = async (req, res) => {
       return res.send(`
         <html><body style="font-family: sans-serif; text-align: center; padding: 40px;">
           <h2 style="color: #e53e3e;">Connection Failed</h2>
-          <p>${classified.message}</p>
-          ${classified.recoverySuggestion ? `<p style="color: #6b7280; font-size: 14px;">${classified.recoverySuggestion}</p>` : ""}
+          <p>${escapeHtml(classified.message)}</p>
+          ${classified.recoverySuggestion ? `<p style="color: #6b7280; font-size: 14px;">${escapeHtml(classified.recoverySuggestion)}</p>` : ""}
           <p><a href="${process.env.FRONTEND_URL || "http://localhost:5173"}/integrations">Back to Integrations</a></p>
         </body></html>
       `);
@@ -377,7 +392,7 @@ exports.handleCallback = async (req, res) => {
     res.send(`
       <html><body style="font-family: sans-serif; text-align: center; padding: 40px;">
         <h2 style="color: #e53e3e;">Connection Failed</h2>
-        <p>${err.message}</p>
+        <p>${escapeHtml(err.message)}</p>
         <p><a href="${process.env.FRONTEND_URL || "http://localhost:5173"}/integrations">Back to Integrations</a></p>
       </body></html>
     `);

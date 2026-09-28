@@ -24,7 +24,10 @@ const register = async (req, res) => {
     //   });
     // }
 
-    const { first_name, last_name, email, password, role } = req.body;
+    // `role` is deliberately not read from the body: this route is public, so
+    // accepting it would let anyone self-register as admin. Privileged users
+    // are created via POST /api/users (admin/manager only).
+    const { first_name, last_name, email, password } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -40,7 +43,7 @@ const register = async (req, res) => {
       last_name,
       email,
       password,
-      role: role || "staff",
+      role: "staff",
     });
 
     await user.save();

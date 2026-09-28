@@ -9,6 +9,7 @@ const fs = require("fs");
 const mongoose = require("mongoose");
 const ScrapPurchase = require("../models/ScrapPurchase.model");
 const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller.model");
+const { escapeRegExp } = require("../utils/productIdentity");
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -190,10 +191,10 @@ const getScrapPurchases = async (req, res) => {
     const query = { isDeleted: { $ne: true } };
     if (search) {
       query.$or = [
-        { materialName: { $regex: search, $options: "i" } },
-        { note: { $regex: search, $options: "i" } },
-        { "supplierSnapshot.name": { $regex: search, $options: "i" } },
-        { "supplierSnapshot.phone": { $regex: search, $options: "i" } },
+        { materialName: { $regex: escapeRegExp(search), $options: "i" } },
+        { note: { $regex: escapeRegExp(search), $options: "i" } },
+        { "supplierSnapshot.name": { $regex: escapeRegExp(search), $options: "i" } },
+        { "supplierSnapshot.phone": { $regex: escapeRegExp(search), $options: "i" } },
       ];
     }
 

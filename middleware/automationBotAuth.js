@@ -14,17 +14,9 @@ const automationBotAuth = async (req, res, next) => {
   }
 
   try {
-    console.log("======================================");
-    console.log("Current DB:", User.db.name);
-    console.log("ENV EMAIL:", process.env.AUTOMATION_BOT_EMAIL);
-    console.log("ENV API KEY:", process.env.AUTOMATION_BOT_API_KEY);
-
     if (!cachedBotUser) {
       cachedBotUser = await User.findOne({ email: process.env.AUTOMATION_BOT_EMAIL });
     }
-
-    console.log("FOUND USER:", cachedBotUser);
-    console.log("======================================");
 
     if (!cachedBotUser) {
       console.error(

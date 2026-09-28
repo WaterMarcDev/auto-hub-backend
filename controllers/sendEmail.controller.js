@@ -1,6 +1,3 @@
-console.log("API KEY:", process.env.SENDGRID_API_KEY);
-console.log("BASE URL:", process.env.BASE_URL);
-
 const CRMEmail = require("../models/CRMEmail.model");
 const sgMail = require("@sendgrid/mail");
 const fs = require("fs");
