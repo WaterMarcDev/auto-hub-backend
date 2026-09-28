@@ -52,4 +52,8 @@ const WaiverSchema = new mongoose.Schema(
   }
 );
 
+// Indexes for waiver listing and filtering
+WaiverSchema.index({ customerType: 1, createdAt: -1 });
+WaiverSchema.index({ isDeleted: 1, createdAt: -1 });
+
 module.exports = mongoose.model("Waiver", WaiverSchema);
