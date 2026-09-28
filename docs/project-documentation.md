@@ -152,17 +152,23 @@ flowchart TD
 ---
 
 ### 4.3 Customer Check-In & Physical Yard Operations
-1. **Visitor Registry**:
-   - Customer arrives at front desk; staff selects Buyer, Seller, or General Visitor.
-   - Customer enters contact details and signs the liability waiver on a digital signature canvas (`react-signature-canvas`).
-2. **Token Generation**:
-   - System generates a unique 6-character alphanumeric token (e.g. `K9X2P4`).
-   - Staff writes the token on a physical visitor badge or prints the check-in receipt.
-3. **Entry Fee**:
-   - Configured via `/admin/entry-fee` (stored in `EntryFeeSetting`).
-   - Fee collected and tracked in daily revenue reports.
+1. **Visitor Registry & Waiver (`CustomerInfoStep.jsx`)**:
+   - Customer arrives at front desk; staff selects Buyer or Seller customer type.
+   - **Validation Rules**:
+     - `mobileNo`: Strictly **mandatory** (red asterisk), formatted dynamically as `(XXX)XXX-XXXX`, and validates that exactly 10 digits are provided.
+     - `idProofType`, `idProofNumber`, `idProofImage`, and `signature`: **Optional** fields.
+   - Submitting the waiver registers the `Customer` record and immediately opens the "Create Check-In" modal with the customer pre-selected.
+2. **"Create Check-In" Modal Lifecycle**:
+   - **Responsive UI**: Sized responsively (`maxWidth: calc(100vw - 32px)`, `maxHeight: calc(85vh - 100px)`) with strictly vertical Y-axis scrolling (`overflowY: auto`, `overflowX: hidden`). The digital canvas dynamically adapts without triggering horizontal (X-axis) scrollbars.
+   - **Check-In Creation**: Staff enters the Check-In Type (`seller`, `buyer`, `both`), number of persons (1+), and payment method for the entry fee.
+   - **Lifecycle Rule**: Check-in records (`CheckIn` model) are created upon submission of this modal. If the staff cancels or dismisses the modal, the customer is saved in the `/waivers` database but will **not appear in the active `/checkins` list** until checked in.
+3. **Token Generation & Entry Fee**:
+   - System automatically generates a unique 6-character alphanumeric token (e.g. `K9X2P4`).
+   - Entry fee transaction is recorded (`Transaction` model, credit) and invoice snapshot is prepared.
+   - Printable HTML receipt generated via `GET /api/checkins/:id/print-invoice`.
 4. **Check-Out**:
-   - Customer returns badge; staff searches by token or customer name to mark check-out time.
+   - Customer returns badge; staff searches by token or customer name on `/checkins` to mark check-out time (`POST /api/checkins/:id/checkout`).
+   - Historical records remain viewable under `/checkins/all`.
 
 ---
 
