@@ -34,6 +34,7 @@ console.log("[ENV CHECK]", {
 connectDB();
 
 const app = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 5000;
 
 // Create Server + Socket by shiva
@@ -144,6 +145,10 @@ app.use(
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(addUserContext);
+
+// Rate limiter: Enforce max 5 requests per second per user/IP
+const { rateLimiter } = require("./middleware/rateLimiter");
+app.use("/api", rateLimiter);
 
 //added by shiva
 const emailRoutes = require("./routes/email.routes");
