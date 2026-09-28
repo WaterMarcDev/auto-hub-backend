@@ -32,61 +32,11 @@ const {
  *       200:
  *         description: Dashboard summary fetched successfully
  */
-//end here
-router.get("/summary", auth, getDashboardSummary);
+const { cacheMiddleware } = require("../middleware/cache");
 
-// @route GET /api/dashboard/revenue-trend
-
-// by shiva
-/**
- * @swagger
- * /api/dashboard/revenue-trend:
- *   get:
- *     summary: Get revenue trend analytics
- *     tags: [Dashboard]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Revenue trend fetched successfully
- */
-//end here
-router.get("/revenue-trend", auth, getRevenueTrend);
-
-// @route GET /api/dashboard/summary-counts
-
-// by shiva
-/**
- * @swagger
- * /api/dashboard/summary-counts:
- *   get:
- *     summary: Get summary counts
- *     tags: [Dashboard]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Summary counts fetched successfully
- */
-//end here
-router.get("/summary-counts", auth, getSummaryCounts);
-
-// @route GET /api/dashboard/earning-goal
-
-// by shiva
-/**
- * @swagger
- * /api/dashboard/earning-goal:
- *   get:
- *     summary: Get earning goal progress
- *     tags: [Dashboard]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Earning goal fetched successfully
- */
-//end here
-router.get("/earning-goal", auth, getEarningGoal);
+router.get("/summary", auth, cacheMiddleware("dash:summary", 30), getDashboardSummary);
+router.get("/revenue-trend", auth, cacheMiddleware("dash:trend", 30), getRevenueTrend);
+router.get("/summary-counts", auth, cacheMiddleware("dash:counts", 30), getSummaryCounts);
+router.get("/earning-goal", auth, cacheMiddleware("dash:goal", 30), getEarningGoal);
 
 module.exports = router;

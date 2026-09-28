@@ -4,6 +4,8 @@ const { auth, requireAdmin } = require("../middleware/auth");
 
 const router = express.Router();
 
+const { cacheMiddleware } = require("../middleware/cache");
+
 // All routes require authentication and admin role
 router.use(auth);
 router.use(requireAdmin);
@@ -11,7 +13,7 @@ router.use(requireAdmin);
 // @route   GET /api/entry-fee
 // @desc    Get entry fee setting
 // @access  Private/Admin
-router.get("/", getEntryFee);
+router.get("/", cacheMiddleware("master:entryFee", 3600), getEntryFee);
 
 // @route   PUT /api/entry-fee
 // @desc    Update entry fee setting

@@ -11,8 +11,10 @@ const {
   deleteMake,
 } = require("../controllers/make.controller");
 
+const { cacheMiddleware } = require("../middleware/cache");
+
 router.post("/", auth, createMake);
-router.get("/", auth, getAllMakes);
+router.get("/", auth, cacheMiddleware("master:make", 3600), getAllMakes);
 router.get("/:id", auth, getMakeById);
 router.put("/:id", auth, updateMake);
 router.delete("/:id", auth, deleteMake);
