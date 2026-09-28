@@ -175,6 +175,7 @@ router.get("/analytics", auth, requireAdmin, async (req, res) => {
         gatewayStatus: io ? "active" : "offline",
       },
       rateLimiter: rateLimiterStats,
+      cache: require("../services/cache.service").getStats(),
       backgroundTasks: {
         ebaySync: {
           latestRun: latestSyncRun,

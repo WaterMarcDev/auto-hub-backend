@@ -55,6 +55,11 @@ const updateEntryFee = async (req, res) => {
 
     const populatedSetting = await EntryFee.findById(setting._id).populate("updatedBy", "first_name last_name email");
 
+    // Purge cache and notify all connected clients in real-time
+    const cacheService = require("../services/cache.service");
+    cacheService.delPrefix("master:entryFee");
+    req.app.get("io")?.emit("cache:invalidate", { scope: "entryFee", setting: populatedSetting });
+
     res.json({
       success: true,
       message: "Entry fee updated successfully",
