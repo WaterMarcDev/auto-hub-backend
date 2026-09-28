@@ -125,6 +125,27 @@ class SlidingWindowRateLimiter {
       return next();
     };
   }
+
+  /**
+   * Returns current telemetry for technical supervisor diagnostics
+   */
+  getStats() {
+    const now = Date.now();
+    let activeInWindow = 0;
+    for (const [, timestamps] of this.store.entries()) {
+      if (timestamps.some((t) => now - t < this.windowMs)) {
+        activeInWindow++;
+      }
+    }
+
+    return {
+      windowMs: this.windowMs,
+      maxRequests: this.max,
+      totalTrackedKeys: this.store.size,
+      activeKeysInWindow: activeInWindow,
+      status: "enforcing",
+    };
+  }
 }
 
 // Default instance for application APIs
@@ -133,4 +154,5 @@ const defaultRateLimiter = new SlidingWindowRateLimiter();
 module.exports = {
   SlidingWindowRateLimiter,
   rateLimiter: defaultRateLimiter.middleware(),
+  getRateLimiterStats: () => defaultRateLimiter.getStats(),
 };

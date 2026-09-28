@@ -90,6 +90,12 @@ const CustomerSchema = new mongoose.Schema(
   }
 );
 
+// Indexes for rapid customer lookup and deduplication
+CustomerSchema.index({ mobileNo: 1 });
+CustomerSchema.index({ email: 1 });
+CustomerSchema.index({ firstName: 1, lastName: 1 });
+CustomerSchema.index({ isDeleted: 1, createdAt: -1 });
+
 CustomerSchema.virtual("carIntakes", {
   ref: "CarIntake",
   localField: "_id",
