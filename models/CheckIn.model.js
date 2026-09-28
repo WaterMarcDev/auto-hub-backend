@@ -54,6 +54,10 @@ const checkInSchema = new mongoose.Schema({
   },
 });
 
+// Indexes for high-frequency queries
+checkInSchema.index({ status: 1, checkInTime: -1 });
+checkInSchema.index({ customer: 1, checkInTime: -1 });
+
 checkInSchema.pre("save", function (next) {
   if (!this.checkInToken) {
     // Generate a unique 6 character alphanumeric token
