@@ -33,8 +33,35 @@ console.log("[ENV CHECK]", {
 // Connect to MongoDB
 connectDB();
 
+const allowlist = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",  //added by shiva
+  "http://localhost:3000",
+  "http://192.168.1.4:5173",
+  "http://192.168.1.4:3000",
+  "https://wmshostings.us",
+  "https://www.wmshostings.us",
+  "https://autohubexpress.us",
+  "https://www.autohubexpress.us",
+];
+
+if (process.env.FRONTEND_URL && !allowlist.includes(process.env.FRONTEND_URL)) {
+  allowlist.push(process.env.FRONTEND_URL);
+}
+
 const app = express();
 app.set("trust proxy", 1);
+
+// Security headers via helmet (configured to keep Swagger UI, cross-subdomain assets & invoice iframes working)
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    frameguard: false, // Allows cross-subdomain invoice printing iframes from frontend
+  })
+);
+
 const PORT = process.env.PORT || 5000;
 
 // Create Server + Socket by shiva
@@ -42,7 +69,14 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: (origin, callback) => {
+      // allow requests with no origin (like mobile apps, curl, or server-to-server) or from allowlist
+      if (!origin || allowlist.includes(origin) || process.env.NODE_ENV === "development") {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    },
+    credentials: true,
   },
 });
 
@@ -98,19 +132,6 @@ njEnv.addFilter("usCurrency", function (val, fallback = "-$0.00") {
     return fallback;
   }
 });
-
-
-const allowlist = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",  //added by shiva
-  "http://localhost:3000",
-  "http://192.168.1.4:5173",
-  "http://192.168.1.4:3000",
-  "https://wmshostings.us",
-  "https://www.wmshostings.us",
-  "https://autohubexpress.us",
-  "https://www.autohubexpress.us",
-];
 
 
 const corsOptionsDelegate = (req, callback) => {
@@ -223,6 +244,9 @@ app.get("/api/status", (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// System Telemetry & Health Analytics routes
+app.use("/api/system", require("./routes/system.routes"));
 
 // Auth routes
 app.use("/api/auth", require("./routes/auth.routes"));

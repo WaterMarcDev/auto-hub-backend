@@ -86,6 +86,7 @@ CRM/
 - **Documentation**: Swagger / OpenAPI 3.0 via `swagger-jsdoc` and `swagger-ui-express`.
 - **Scheduled Tasks**: `node-cron` with distributed MongoDB lease locks (`models/EbaySyncRun.model.js`).
 - **Template Rendering**: `nunjucks` for dynamic document and receipt printing.
+- **Traffic Protection & Rate Limiting**: In-memory sliding-window rate limiter (`middleware/rateLimiter.js`) enforcing per-user (`user:<userId>`) and per-IP (`ip:<clientIp>`) quotas with standard `X-RateLimit-*` and `Retry-After` headers.
 
 ### 3.2 Frontend (`auto-hub-frontend`)
 - **Framework & Build**: React 18.3, Vite 7.x
@@ -165,7 +166,7 @@ flowchart TD
 3. **Token Generation & Entry Fee**:
    - System automatically generates a unique 6-character alphanumeric token (e.g. `K9X2P4`).
    - Entry fee transaction is recorded (`Transaction` model, credit) and invoice snapshot is prepared.
-   - Printable HTML receipt generated via `GET /api/checkins/:id/print-invoice`.
+   - **Optimized Invoice Printing**: Printable receipt generated via `GET /api/checkins/:id/print-invoice`. Rendered client-side using off-screen non-zero dimension iframes (preventing Chromium/WebKit layout freezes) with row-specific button `loading` spinners (`printingId`) and server-side memory-cached logo URIs.
 4. **Check-Out**:
    - Customer returns badge; staff searches by token or customer name on `/checkins` to mark check-out time (`POST /api/checkins/:id/checkout`).
    - Historical records remain viewable under `/checkins/all`.
@@ -387,22 +388,35 @@ export default api;
 - **Background**: AutoHub uses MongoDB lease locking (`models/EbaySyncRun.model.js`) to coordinate scheduled jobs across potential restarts and deployments.
 - **Implementation**: Never run eBay sync jobs concurrently. Always acquire lock with lease expiration (`acquireLock`), heartbeat during execution (`heartbeat`), and release on completion (`releaseLock`).
 
+### Rule 5: User-Level Rate Limiting & Denial-of-Service Defense
+- **Middleware**: `middleware/rateLimiter.js` mounted globally over `/api` routes in `server.js`.
+- **Default Policy**: 5 requests per second per authenticated user (`user:<userId>`) or per client IP (`ip:<clientIp>`).
+- **Standard Headers**: Emits `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After: 1`.
+- **Exemptions**: CORS preflight `OPTIONS` requests, static media (`/uploads`, `/assets`, `/api-docs`), and verified automation bot requests (`x-automation-bot-key`) are strictly exempted from throttling.
+- **Reverse Proxy**: `app.set("trust proxy", 1)` must remain enabled in `server.js` so client IPs are accurate behind Nginx/Cloudflare.
+
 ---
 
 ## 8. Development & Environment Reference
 
 ### 8.1 Backend `.env` Configuration (`auto-hub-backend/.env`)
+AutoHub maintains a tracked **`.env.example`** template in the repository root. Copy `.env.example` to `.env` to configure your local or staging server:
 ```env
-PORT=5000
+PORT=3000
 NODE_ENV=development
-MONGO_URI=mongodb+srv://<username>:<password>@cluster.mongodb.net/autohub
+MONGODB_URI=mongodb+srv://<username>:<password>@cluster.mongodb.net/autohub
 JWT_SECRET=your_jwt_secret_key_here
 JWT_EXPIRE=7d
+FRONTEND_URL=http://localhost:5173
+
+# API Rate Limiter
+RATE_LIMIT_WINDOW_MS=1000
+RATE_LIMIT_MAX_REQUESTS=5
 
 # Outbound / Inbound Email (SendGrid)
 SENDGRID_API_KEY=SG.your_sendgrid_api_key
 EMAIL_FROM=support@autohubexpress.us
-BASE_URL=http://localhost:5000
+BASE_URL=http://localhost:3000
 
 # Wix Integration
 WIX_API_KEY=your_wix_api_key
@@ -413,11 +427,12 @@ PART_SYNC_SECRET=your_velo_shared_secret
 # AI / Chatbot Automation Bot
 AUTOMATION_BOT_API_KEY=your_automation_bot_secret_key
 
-# eBay Developer API
-EBAY_APP_ID=your_ebay_app_id
-EBAY_CERT_ID=your_ebay_cert_id
+# eBay Developer API (Optional / Production)
+EBAY_ENVIRONMENT=PRODUCTION
+EBAY_CLIENT_ID=your_ebay_client_id
+EBAY_CLIENT_SECRET=your_ebay_client_secret
 EBAY_DEV_ID=your_ebay_dev_id
-EBAY_REFRESH_TOKEN=your_ebay_refresh_token
+EBAY_RUNAME=your_ebay_runame
 ```
 
 ### 8.2 Frontend `.env` Configuration (`auto-hub-frontend/.env`)
@@ -448,3 +463,27 @@ When starting any new feature or bug fix:
 4. **Preserve Case-Sensitivity**:
    - Check file naming and module paths against existing imports.
    - Match branch names cleanly avoiding mixed-case collisions.
+
+---
+
+## 10. Multi-Stage Branch Promotion & Release Pipeline
+
+AutoHub follows a strictly staged release governance model to prevent regressions in production:
+
+```
+[Feature Branch] (e.g. DEV-rate-limiter)
+       │
+       ▼ (Pull Request & Local Verification)
+    [ DEV ] (Development integration environment)
+       │
+       ▼ (Pull Request & Staging Smoke Tests)
+  [ STAGING ] (Pre-production release staging)
+       │
+       ▼ (Pull Request & Final Production Release)
+   [ main ] (Live Production: autohubexpress.us / api.autohubexpress.us)
+```
+
+1. **Feature Branches**: Created off `DEV` (e.g. `DEV-rate-limiter`). All active development and exploratory unit tests take place here.
+2. **Promotion to DEV**: Once feature development is verified, open a PR from `DEV-<feature>` into `DEV`.
+3. **Promotion to STAGING**: After integration testing on DEV, promote from `DEV` into `STAGING`.
+4. **Promotion to MAIN**: Final automated build check and deployment cut from `STAGING` into `main`.
