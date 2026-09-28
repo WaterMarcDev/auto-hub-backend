@@ -375,9 +375,7 @@ class MetaAdapter extends BaseAdapter {
     account.accessToken = null;
     account.refreshToken = null;
     account.tokenExpiresAt = null;
-    // accessToken is `required` in the schema; skip validation so clearing it
-    // doesn't throw (same approach as the eBay and TikTok adapters).
-    await account.save({ validateBeforeSave: false });
+    await account.save();
 
     await logAction({
       action: "platform_disconnected",

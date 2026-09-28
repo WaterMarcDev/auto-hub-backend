@@ -76,7 +76,7 @@ router.post("/automation-bot", automationBotAuth, createAutomationBotJunkCarRequ
  *         description: List fetched successfully
  */
 //end here
-router.get("/", auth, getAllJunkCars);
+router.get("/", getAllJunkCars);
 
 // by shiva
 /**
@@ -113,10 +113,10 @@ router.patch("/:id/remark", auth, updateJunkCarRemark);
 router.patch("/:id/status", auth, updateJunkCarStatus);
 
 // Source route by shiva
-router.patch("/:id/source", auth, updateJunkCarSource);
+router.patch("/:id/source", updateJunkCarSource);
 
 // AssignJunkCarStaff route by shiva
-router.patch("/:id/assign", auth, assignJunkCarStaff);
+router.patch("/:id/assign", assignJunkCarStaff);
 
 // Junkcar paymentStatus by shiva route
 router.patch("/:id/payment-status", auth, updateJunkCarPaymentStatus);

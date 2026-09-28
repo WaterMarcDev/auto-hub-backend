@@ -1,5 +1,4 @@
 const Buyer = require("../models/Buyer.model");
-const { escapeRegExp } = require("../utils/productIdentity");
 
 // @desc    Create new buyer
 // @route   POST /api/buyers
@@ -44,7 +43,7 @@ const getBuyers = async (req, res) => {
     // Exclude soft-deleted buyers explicitly
     filter.isDeleted = { $ne: true };
     if (req.query.search) {
-      const searchRegex = new RegExp(escapeRegExp(req.query.search), "i");
+      const searchRegex = new RegExp(req.query.search, "i");
       filter.$or = [
         { firstName: searchRegex },
         { lastName: searchRegex },

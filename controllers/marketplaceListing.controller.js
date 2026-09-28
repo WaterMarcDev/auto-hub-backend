@@ -17,7 +17,6 @@ const EbaySyncRun = require("../models/EbaySyncRun.model");
 const platformManager = require("../services/platformManager.service");
 const ebayListingReconcile = require("../services/ebay/ebayListingReconcile.service");
 const { logAction } = require("../services/auditLog.service");
-const { escapeRegExp } = require("../utils/productIdentity");
 
 /**
  * Emit a real-time `new_message` Socket.io event per synced conversation, so
@@ -91,18 +90,18 @@ exports.getAll = async (req, res) => {
       // Base fields (unchanged — kept for backward compatibility with any
       // order/lead-shaped MarketplaceListing documents/callers).
       const orConditions = [
-        { customerName: { $regex: escapeRegExp(search), $options: "i" } },
-        { customerEmail: { $regex: escapeRegExp(search), $options: "i" } },
-        { marketplaceOrderId: { $regex: escapeRegExp(search), $options: "i" } },
-        { productName: { $regex: escapeRegExp(search), $options: "i" } },
-        { trackingNumber: { $regex: escapeRegExp(search), $options: "i" } },
+        { customerName: { $regex: search, $options: "i" } },
+        { customerEmail: { $regex: search, $options: "i" } },
+        { marketplaceOrderId: { $regex: search, $options: "i" } },
+        { productName: { $regex: search, $options: "i" } },
+        { trackingNumber: { $regex: search, $options: "i" } },
         // Listing fields — additive, so the Marketplace Listings page's
         // search actually covers what it displays (Listing ID, Marketplace,
         // SKU, Listing Status).
-        { marketplaceListingId: { $regex: escapeRegExp(search), $options: "i" } },
-        { productSku: { $regex: escapeRegExp(search), $options: "i" } },
-        { marketplace: { $regex: escapeRegExp(search), $options: "i" } },
-        { listingStatus: { $regex: escapeRegExp(search), $options: "i" } },
+        { marketplaceListingId: { $regex: search, $options: "i" } },
+        { productSku: { $regex: search, $options: "i" } },
+        { marketplace: { $regex: search, $options: "i" } },
+        { listingStatus: { $regex: search, $options: "i" } },
       ];
 
       // Numeric fields (Price, Quantity): $regex only matches string BSON
@@ -688,6 +687,7 @@ exports.testEbayConversations = async (req, res) => {
       message: err.message,
       status: err.response?.status || null,
       response: err.response?.data || null,
+      stack: err.stack,
     });
   }
 };

@@ -9,7 +9,6 @@ const { isGermanVehicle } = require("../utils/vehicleClassification");
 const {
   toTitleFromCamelCase,
   buildCaseInsensitiveNameQuery,
-  escapeRegExp,
 } = require("../utils/productIdentity");
 
 
@@ -166,7 +165,7 @@ const createInventory = async (req, res) => {
 
     try {
       const partDoc = await Part.findOne({
-        name: new RegExp(`^${escapeRegExp(partName)}$`, "i"),
+        name: new RegExp(`^${partName}$`, "i"),
       });
 
       console.log("PART LOOKUP:", partName, JSON.stringify(partDoc, null, 2));
@@ -186,7 +185,7 @@ const createInventory = async (req, res) => {
         if (!partDoc) {
           // Try by name (case-insensitive)
           partDoc = await Part.findOne({
-            name: new RegExp(`^${escapeRegExp(partName)}$`, "i"),
+            name: new RegExp(`^${partName}$`, "i"),
           });
         }
         if (partDoc && partDoc.shortName) {

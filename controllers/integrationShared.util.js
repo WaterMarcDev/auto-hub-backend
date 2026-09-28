@@ -74,51 +74,8 @@ function logEbayError(traceId, step, functionName, err) {
   }));
 }
 
-// ─── OAuth state signing (CSRF protection) ─────────────────────────────────
-// The callback route is public, so without a signed state anyone could send
-// the consent URL to their own marketplace account and have the callback
-// overwrite the company's integration. The signed state is
-// "<value>::<issuedAt>::<hmac>". The value stays at the front so the eBay
-// trace ID remains at state.split("::")[1].
-const OAUTH_STATE_TTL_MS = 60 * 60 * 1000;
-
-function oauthStateHmac(payload) {
-  const secret = process.env.JWT_SECRET || "fallback_secret";
-  return crypto.createHmac("sha256", secret).update(payload).digest("hex");
-}
-
-function signOAuthState(value) {
-  const payload = `${value}::${Date.now()}`;
-  return `${payload}::${oauthStateHmac(payload)}`;
-}
-
-/** Returns true when `state` was issued by signOAuthState and hasn't expired. */
-function verifyOAuthState(state) {
-  if (typeof state !== "string") return false;
-  const sigIndex = state.lastIndexOf("::");
-  if (sigIndex === -1) return false;
-  const payload = state.slice(0, sigIndex);
-  const expected = Buffer.from(oauthStateHmac(payload));
-  const actual = Buffer.from(state.slice(sigIndex + 2));
-  if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
-    return false;
-  }
-  const issuedAt = Number(payload.slice(payload.lastIndexOf("::") + 2));
-  return Number.isFinite(issuedAt) && Date.now() - issuedAt <= OAUTH_STATE_TTL_MS;
-}
-
-/** Escapes text for interpolation into the callback's inline HTML pages. */
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[ch]);
-}
-
 module.exports = {
   unsupportedPlatformResponse,
-  signOAuthState,
-  verifyOAuthState,
-  escapeHtml,
   generateEbayTraceId,
   logEbayTrace,
   logEbayError,

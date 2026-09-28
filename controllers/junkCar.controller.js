@@ -176,6 +176,8 @@ exports.getAllJunkCars = async (req, res) => {
             .populate("assignedTo","first_name last_name email role")  // get data first
             .populate("createdBy", "first_name last_name email role");
 
+        console.log(JSON.stringify(data, null, 2));   // added by shiva  The temp debug
+
         // added by shiva for status order
         const statusOrder = {
             pending: 1,

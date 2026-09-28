@@ -8,6 +8,7 @@ require("dotenv").config({ override: true });   // added override: true by shiva
 const express = require("express");
 const nunjucks = require("nunjucks");
 const cors = require("cors");
+const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const connectDB = require("./config/database");
 const loggerConfig = require("./config/logger");
@@ -35,26 +36,12 @@ connectDB();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Browser origins allowed to call the API (REST CORS and Socket.io).
-const allowlist = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",  //added by shiva
-  "http://localhost:3000",
-  "http://192.168.1.4:5173",
-  "http://192.168.1.4:3000",
-  "https://wmshostings.us",
-  "https://www.wmshostings.us",
-  "https://autohubexpress.us",
-  "https://www.autohubexpress.us",
-];
-
 // Create Server + Socket by shiva
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: allowlist,
-    credentials: true,
+    origin: "*",
   },
 });
 
@@ -112,6 +99,18 @@ njEnv.addFilter("usCurrency", function (val, fallback = "-$0.00") {
 });
 
 
+const allowlist = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",  //added by shiva
+  "http://localhost:3000",
+  "http://192.168.1.4:5173",
+  "http://192.168.1.4:3000",
+  "https://wmshostings.us",
+  "https://www.wmshostings.us",
+  "https://autohubexpress.us",
+  "https://www.autohubexpress.us",
+];
+
 
 const corsOptionsDelegate = (req, callback) => {
   const origin = req.header("Origin");
@@ -161,6 +160,50 @@ app.get("/test-direct", (req, res) => {
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(specs));
 // end here
 
+// Routes
+const fs = require("fs");
+const { marked } = require("marked");
+const partRequestmodels = require("./models/PartRequest.model");
+
+// No custom marked renderer configured — rendering uses default behavior
+
+// Serve rendered API docs at '/'
+// app.get("/", (req, res, next) => {
+//   console.log("API docs requested");
+//   const docsPath = path.join(__dirname, "API_DOCS.md");
+//   fs.readFile(docsPath, "utf8", (err, data) => {
+//     if (err) return next(err);
+//     const html = `<!doctype html>
+// <html>
+//   <head>
+//     <meta charset="utf-8">
+//     <meta name="viewport" content="width=device-width,initial-scale=1">
+//     <title>AutoHub API Docs</title>
+//     <style>
+//   :root{color-scheme: light}
+//       body{font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;margin:20px;line-height:1.6;}
+//       pre{background:#f6f8fa;padding:12px;border-radius:6px;overflow:auto;}
+//       code{background:#f6f8fa;padding:2px 6px;border-radius:4px;}
+//       h1,h2,h3{color:#0b3d91;}
+//       a{color:#0366d6;}
+//       table{border-collapse:collapse;}
+//       table td, table th{border:1px solid #dfe2e5;padding:6px 13px;}
+//   /* small responsive container for wide docs */
+//   .docs-container { max-width: 960px; margin: 0 auto; }
+//     </style>
+//   </head>
+//   <body>
+//     <div class="docs-container">
+//       ${marked.parse(data)}
+//     </div>
+
+//   </body>
+// </html>`;
+//     res.setHeader("Content-Type", "text/html; charset=utf-8");
+//     res.send(html);
+//   });
+// });
+
 app.get("/", (req, res) => {
   res.send("AutoHub API up and running");
 });
@@ -184,6 +227,9 @@ app.use("/api/part-request", partRequestRoutes);
 
 // JunkCarRequest Routes: added by shiva
 app.use("/api/junk-car", junkCarRoutes);
+
+// Auth routes
+// app.use("/api/auth", require("./routes/auth.routes"));   //end
 
 // User routes
 app.use("/api/users", require("./routes/users.routes"));
@@ -282,6 +328,10 @@ require("./services/adapters/tiktokAdapter");
 
 // Entry Fee routes
 app.use("/api/entry-fee", require("./routes/entryFee.routes"));
+
+// Serve uploaded files statically
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
 
 app.use("/assets", express.static(path.join(__dirname, "assets")));
 

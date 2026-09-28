@@ -3,7 +3,6 @@ const Transaction = require("../models/Transaction.model");
 const Customer = require("../models/Customer.model");
 const fs = require("fs");
 const path = require("path");
-const { escapeRegExp } = require("../utils/productIdentity");
 
 // Create a new check-in. Expects body: { customer: ObjectId, transaction: { ...transactionData }, employeeSignature: string }
 // checkInTime is automatic, checkedInBy is taken from req.user (assumes auth middleware sets req.user)
@@ -90,7 +89,7 @@ exports.getAll = async (req, res) => {
     if (search) {
       // We'll search checkInToken and customer.name / customer.email via aggregation or $or with populate lookup.
       // Simpler approach: find customer IDs matching search, then filter.
-      const custRegex = new RegExp(escapeRegExp(search), "i");
+      const custRegex = new RegExp(search, "i");
       const matchingCustomers = await Customer.find({
         $or: [
           { firstName: custRegex },
@@ -102,7 +101,7 @@ exports.getAll = async (req, res) => {
       const custIds = matchingCustomers.map((c) => c._id);
 
       filter.$or = [
-        { checkInToken: { $regex: escapeRegExp(search), $options: "i" } },
+        { checkInToken: { $regex: search, $options: "i" } },
         { customer: { $in: custIds } },
       ];
     }

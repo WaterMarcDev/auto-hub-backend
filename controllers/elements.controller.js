@@ -1,5 +1,4 @@
 const Element = require("../models/Element.model");
-const { escapeRegExp } = require("../utils/productIdentity");
 
 // @desc    Create a new element
 // @route   POST /api/elements
@@ -49,7 +48,7 @@ const getAllElements = async (req, res) => {
     // Exclude soft-deleted elements
     filter.isDeleted = { $ne: true };
     if (req.query.search) {
-      filter.name = { $regex: escapeRegExp(req.query.search), $options: "i" };
+      filter.name = { $regex: req.query.search, $options: "i" };
     }
     const elements = await Element.find(filter)
       .skip(skip)
