@@ -39,6 +39,40 @@ router.get("/health", async (req, res) => {
 
 /**
  * @swagger
+ * /api/system/badge-counts:
+ *   get:
+ *     summary: Ultra-lightweight count endpoint for sidebar indicators (0MB memory overhead)
+ *     tags: [System]
+ *     responses:
+ *       200:
+ *         description: Unread email, active part, and active junk request counts
+ */
+router.get("/badge-counts", async (req, res) => {
+  try {
+    const CRMEmail = require("../models/CRMEmail.model");
+    const PartRequest = require("../models/PartRequest.model");
+    const JunkCar = require("../models/JunkCar.model");
+
+    const [unreadEmails, activePartRequests, activeJunkRequests] = await Promise.all([
+      CRMEmail.countDocuments({ status: "unread" }).exec(),
+      PartRequest.countDocuments({ status: { $nin: ["completed", "Completed", "COMPLETED"] } }).exec(),
+      JunkCar.countDocuments({ status: { $nin: ["completed", "Completed", "COMPLETED"] } }).exec(),
+    ]);
+
+    return res.json({
+      success: true,
+      unreadCount: unreadEmails,
+      partRequestCount: activePartRequests,
+      junkRequestCount: activeJunkRequests,
+    });
+  } catch (error) {
+    console.error("Badge counts error:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * @swagger
  * /api/system/analytics:
  *   get:
  *     summary: Comprehensive system, network, and database telemetry (Admin only)

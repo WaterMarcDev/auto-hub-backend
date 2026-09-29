@@ -218,6 +218,7 @@ const handleInboundEmail = async (req, res) => {
             email,
         unread: true
         });
+        io.emit("badge:update");
     }
 //  end here
 
@@ -254,7 +255,7 @@ const testCreateEmail = async (req, res) => {
 // GET ALL - added by shiva
 const getEmails = async (req, res) => {
   try {
-    const emails = await CRMEmail.find().sort({ created_at: -1 });
+    const emails = await CRMEmail.find().sort({ created_at: -1 }).lean();
 
     res.json(emails);
   } catch (error) {
