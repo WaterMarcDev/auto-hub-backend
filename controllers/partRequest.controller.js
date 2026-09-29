@@ -58,6 +58,7 @@ exports.createRequest = async (req, res) => {
         });
 
         await request.save();
+        req.app.get("io")?.emit("badge:update");
 
         res.status(201).json({
             success: true,
@@ -155,16 +156,11 @@ exports.createAutomationBotRequest = async (req, res) => {
 };
 
 exports.getAllRequests = async (req, res) => {
-    console.log("GET all part requests hit");
-
     try {
-        console.log("Before find");
-
         const requests = await PartRequest.find()
             .sort({ createdAt: -1 })
-            .populate("createdBy", "first_name last_name email role");
-
-        console.log("After fing");
+            .populate("createdBy", "first_name last_name email role")
+            .lean();
 
         res.json({
             success: true,
