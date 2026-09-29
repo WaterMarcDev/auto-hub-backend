@@ -58,6 +58,9 @@ exports.createJunkCarRequest = async (req, res) => {
             source: normalizedSource,  // was previously dropped — see PartRequestController.createRequest for the equivalent pattern (kept byte-for-byte symmetric with it: raw passthrough, no normalization, so Junk Car can never diverge from Part Request's own casing/behavior)
         });
 
+        req.app.get("io")?.emit("cache:invalidate", { scope: "junkCars" });
+        req.app.get("io")?.emit("badge:update");
+
         res.status(201).json({
             success: true,
             // message: "Junk car request submitted successfully",
@@ -147,6 +150,9 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
             // assignedTo: req.user._id,
         });
 
+        req.app.get("io")?.emit("cache:invalidate", { scope: "junkCars" });
+        req.app.get("io")?.emit("badge:update");
+
         res.status(201).json({
             success: true,
             data: newRequest,
@@ -174,9 +180,8 @@ exports.getAllJunkCars = async (req, res) => {
 
         const data = await JunkCar.find(filter)
             .populate("assignedTo","first_name last_name email role")  // get data first
-            .populate("createdBy", "first_name last_name email role");
-
-        console.log(JSON.stringify(data, null, 2));   // added by shiva  The temp debug
+            .populate("createdBy", "first_name last_name email role")
+            .lean();
 
         // added by shiva for status order
         const statusOrder = {
@@ -308,7 +313,9 @@ exports.updateJunkCarStatus = async (req, res) => {
                 console.log("Duplicate VIN - Skipped");
             }
         }
-        // end here
+        req.app.get("io")?.emit("cache:invalidate", { scope: "junkCars" });
+        req.app.get("io")?.emit("badge:update");
+
         res.json({
             success: true,
             data: updated,

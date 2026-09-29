@@ -6,7 +6,7 @@
  */
 
 class MemoryCacheService {
-  constructor(defaultTtlSeconds = 3600, maxEntries = 2000) {
+  constructor(defaultTtlSeconds = 3600, maxEntries = 500) {
     this.defaultTtlMs = defaultTtlSeconds * 1000;
     this.maxEntries = maxEntries;
     this.store = new Map();
