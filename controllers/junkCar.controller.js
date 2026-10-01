@@ -2,81 +2,285 @@ const mongoose = require("mongoose");
 const JunkCar = require("../models/JunkCar.model");
 const CarIntake = require("../models/CarIntake.model");  // by shiva
 const User = require("../models/User.model");
+const {
+    LEAD_CAPTURE_UPDATE_WINDOW_MS,
+    LeadValidationError,
+    EMAIL_PATTERN,
+    normalizers,
+    pickLeadFields,
+    resolveLeadId,
+    hasValue,
+    sendLeadError,
+} = require("../utils/leadCapture");
 // const { normalizeRequestSource } = require("../utils/requestSources");
 
-exports.createJunkCarRequest = async (req, res) => {
+// Same mapping as updateJunkCarSource, but an unknown value is rejected
+// rather than downgraded to "other".
+const JUNK_CAR_SOURCE_MAP = {
+    website: "website",
+    online: "website",
+    instagram: "instagram",
+    facebook: "facebook",
+    tiktok: "tiktok",
+    ebay: "ebay",
+    "google business": "google business",
+    whatsapp: "whatsApp",
+    sms: "sms",
+    other: "other",
+};
+
+const JUNK_CAR_STATUSES = ["pending", "in progress", "completed"];
+
+// Field rules shared by the lead-capture route (POST /) and the staff PATCH
+// route, so both validate a value the same way.
+const JUNK_CAR_FIELD_RULES = {
+    // Schema-required — clearing one falls back to the same "none"
+    // placeholder the create path stores.
+    name: normalizers.requiredText(),
+    email: normalizers.contact(EMAIL_PATTERN, "Invalid email format"),
+    phone: normalizers.requiredText(),
+    make: normalizers.requiredText(),
+    model: normalizers.requiredText(),
+    year: normalizers.year(),
+    engineOrVin: normalizers.text(),
+    condition: normalizers.text(),
+    message: normalizers.text(),
+    location: normalizers.text(),
+    remark: normalizers.text(),
+    status: normalizers.oneOf(JUNK_CAR_STATUSES),
+    source: normalizers.oneOf(Object.keys(JUNK_CAR_SOURCE_MAP), { map: JUNK_CAR_SOURCE_MAP }),
+    paymentStatus: normalizers.oneOf(JunkCar.schema.path("paymentStatus").enumValues),
+    // Existence of the user is checked separately (needs the DB).
+    assignedTo: (field, value) => {
+        if (value === null || value === "") return null;
+
+        if (typeof value !== "string" || !/^[0-9a-f]{24}$/i.test(value.trim())) {
+            throw new LeadValidationError("assignedTo must be a valid user id");
+        }
+
+        return value.trim();
+    },
+};
+
+// What the public form (website / CRM "Add Junk Car") may send. Same set the
+// old create handler read from its body; source is always "website" on this
+// route and staff/system fields (status, paymentStatus, remark, assignedTo,
+// createdBy, movedToIntake) are never taken from it.
+const JUNK_CAR_CAPTURE_FIELDS = [
+    "name",
+    "email",
+    "phone",
+    "year",
+    "make",
+    "model",
+    "engineOrVin",
+    "condition",
+    "message",
+    "location",
+];
+
+const JUNK_CAR_CONTACT_FIELDS = ["name", "phone", "email"];
+
+const JUNK_CAR_POPULATE = [
+    { path: "assignedTo", select: "first_name last_name email role" },
+    { path: "createdBy", select: "first_name last_name email role" },
+];
+
+// Lead forms may call the VIN field "vin"; it is stored in engineOrVin.
+const applyVinAlias = (body) => {
+    if (!body || typeof body !== "object" || Array.isArray(body) || !("vin" in body)) {
+        return body;
+    }
+
+    const { vin, ...rest } = body;
+
+    if ("engineOrVin" in rest && rest.engineOrVin !== vin) {
+        throw new LeadValidationError("Send either vin or engineOrVin, not both");
+    }
+
+    return { ...rest, engineOrVin: vin };
+};
+
+// A captured lead stays editable through the capture routes only until staff
+// start working it (status / payment / intake) and, when a window is given,
+// only for a limited time after creation.
+const isOpenJunkCarLead = (junkCar, windowStart) =>
+    (junkCar.status || "pending").toLowerCase() === "pending" &&
+    (junkCar.paymentStatus || "Not Paid") === "Not Paid" &&
+    !junkCar.movedToIntake &&
+    (!windowStart || junkCar.createdAt >= windowStart);
+
+// Updates an already-captured lead with whitelisted `values`. Shared by the
+// public capture route and the Automation Bot route.
+//  - ownerId:     only a lead created by this user can be updated
+//  - windowStart: only a lead created after this date can be updated
+// Returns { junkCar } or { error: { status, message } }.
+const updateCapturedJunkCar = async (leadId, values, { ownerId, windowStart } = {}) => {
+    if (Object.keys(values).length === 0) {
+        return { error: { status: 400, message: "No fields to update were provided" } };
+    }
+
+    const existing = await JunkCar.findById(leadId);
+
+    if (!existing || (ownerId && String(existing.createdBy) !== String(ownerId))) {
+        return { error: { status: 404, message: "Lead not found" } };
+    }
+
+    if (!isOpenJunkCarLead(existing, windowStart)) {
+        return { error: { status: 409, message: "This lead can no longer be updated" } };
+    }
+
+    if (
+        JUNK_CAR_CONTACT_FIELDS.some((field) => field in values) &&
+        !JUNK_CAR_CONTACT_FIELDS.some((field) =>
+            hasValue(field in values ? values[field] : existing[field])
+        )
+    ) {
+        return { error: { status: 400, message: "Name, phone or email is required" } };
+    }
+
+    // The lock conditions are repeated in the filter so a status / payment
+    // change made by staff between the read above and this write still wins.
+    const junkCar = await JunkCar.findOneAndUpdate(
+        {
+            _id: leadId,
+            status: { $in: [existing.status, null] },
+            paymentStatus: { $in: ["Not Paid", null] },
+            movedToIntake: { $ne: true },
+            ...(windowStart && { createdAt: { $gte: windowStart } }),
+            ...(ownerId && { createdBy: ownerId }),
+        },
+        { $set: values },
+        { new: true, runValidators: true }
+    ).populate(JUNK_CAR_POPULATE);
+
+    if (!junkCar) {
+        return { error: { status: 409, message: "This lead can no longer be updated" } };
+    }
+
+    return { junkCar };
+};
+
+const sendJunkCarUpdateResult = (res, { junkCar, error }) => {
+    if (error) {
+        return res.status(error.status).json({ success: false, message: error.message });
+    }
+
+    return res.json({
+        success: true,
+        operation: "updated",
+        leadId: junkCar._id,
+        message: "Lead updated successfully",
+        data: junkCar,
+    });
+};
+
+// POST /api/junk-car — progressive lead capture for Junk Car.
+//  - no lead id            -> create the lead, respond 201 with its leadId
+//  - lead id (body.leadId or X-Lead-ID header) -> update only the supplied
+//    fields of that lead, respond 200
+// Existing callers that never send a lead id keep getting a create with the
+// same defaults and response fields (plus operation/leadId).
+exports.saveJunkCarLead = async (req, res) => {
     try {
-        const {
-            name,
-            email,
-            phone,
-            year,
-            make,
-            model,
-            engineOrVin,
-            condition,
-            message,
-        } = req.body;
+        const { leadId } = resolveLeadId(req);
 
-        // added by shiva
-        let parsedYear = null;
+        const values = pickLeadFields(applyVinAlias(req.body ?? {}), {
+            rules: JUNK_CAR_FIELD_RULES,
+            fields: JUNK_CAR_CAPTURE_FIELDS,
+            ignore: ["leadId"],
+        });
 
-        if (year) {
-            const yearStr = year.toString().trim();
-
-            if (!/^\d{4}$/.test(yearStr)) {
+        if (!leadId) {
+            if (!JUNK_CAR_CONTACT_FIELDS.some((field) => hasValue(values[field]))) {
                 return res.status(400).json({
                     success: false,
-                    message: "Year must be exactly 4 digits"
+                    message: "Name, phone or email is required",
                 });
             }
 
-            parsedYear = parseInt(yearStr, 10);
+            const newRequest = await JunkCar.create({
+                name: values.name || "none",
+                email: values.email || "none",
+                phone: values.phone || "none",
+                year: values.year ?? null,
+                make: values.make || "none",
+                model: values.model || "none",
+                engineOrVin: values.engineOrVin || "none",
+                condition: values.condition || "none",
+                message: values.message || "",
+                location: values.location || "",
+                source: "website",
+            });
+
+            return res.status(201).json({
+                success: true,
+                operation: "created",
+                leadId: newRequest._id,
+                data: newRequest,
+            });
         }
-        //end here
 
-        // const rawSource = req.body.source?.toString().trim().toLowerCase();
-
-        const normalizedSource = "website";
-
-        // if (rawSource === "instagram") {
-        //     normalizedSource = "instagram";
-        // } else if (rawSource === "facebook") {
-        //     normalizedSource = "facebook";
-        // } else if (rawSource === "website" || rawSource === "online") {
-        //     normalizedSource = "website";
-        // }
-
-        const newRequest = await JunkCar.create({
-            name: name || "none",
-            email: email || "none",
-            phone: phone || "none",
-            year: parsedYear,
-            make: make || "none",
-            model: model || "none",
-            engineOrVin: engineOrVin || "none",
-            condition: condition || "none",
-            message: message || "",
-            source: normalizedSource,  // was previously dropped — see PartRequestController.createRequest for the equivalent pattern (kept byte-for-byte symmetric with it: raw passthrough, no normalization, so Junk Car can never diverge from Part Request's own casing/behavior)
+        const result = await updateCapturedJunkCar(leadId, values, {
+            windowStart: new Date(Date.now() - LEAD_CAPTURE_UPDATE_WINDOW_MS),
         });
 
-        res.status(201).json({
-            success: true,
-            // message: "Junk car request submitted successfully",
-            data: newRequest,
-        });
+        return sendJunkCarUpdateResult(res, result);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: error.message,
-        });
+        return sendLeadError(res, error, "SAVE JUNK CAR LEAD ERROR");
     }
 };
 
-exports.createAutomationBotJunkCarRequest = async (req, res) => {
+// What the Automation Bot may send — the same fields its create has always
+// read, plus location. Values are normalized the way the bot create does it:
+// empty text becomes "none" and an unknown source becomes "other".
+const JUNK_CAR_BOT_FIELDS = [
+    "name",
+    "email",
+    "phone",
+    "year",
+    "make",
+    "model",
+    "engineOrVin",
+    "condition",
+    "source",
+    "message",
+    "location",
+];
+
+const JUNK_CAR_BOT_RULES = {
+    ...JUNK_CAR_FIELD_RULES,
+    email: normalizers.requiredText(),
+    engineOrVin: normalizers.requiredText(),
+    condition: normalizers.requiredText(),
+    source: (field, value) =>
+        JUNK_CAR_SOURCE_MAP[value?.toString().trim().toLowerCase()] || "other",
+};
+
+// POST /api/junk-car/automation-bot — junk car request from the AI Chatbot
+// (Automation Bot); req.user is attached by middleware/automationBotAuth.js.
+//  - no lead id -> create (unchanged behavior), respond 201 with its leadId
+//  - lead id (body.leadId or X-Lead-ID header) -> update only the supplied
+//    fields of a lead the bot itself created, while staff haven't started
+//    working it; respond 200
+exports.saveAutomationBotJunkCarRequest = async (req, res) => {
     try {
         console.log("JUNK CAR AUTOMATION BODY:", JSON.stringify(req.body, null, 2));
+
+        const { leadId } = resolveLeadId(req);
+
+        if (leadId) {
+            const values = pickLeadFields(req.body ?? {}, {
+                rules: JUNK_CAR_BOT_RULES,
+                fields: JUNK_CAR_BOT_FIELDS,
+                ignore: ["leadId"],
+            });
+
+            const result = await updateCapturedJunkCar(leadId, values, { ownerId: req.user._id });
+
+            return sendJunkCarUpdateResult(res, result);
+        }
+
         const {
             name,
             email,
@@ -88,7 +292,8 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
             condition,
             source,
             message,
-        } = req.body;
+            location,
+        } = req.body ?? {};
 
         let parsedYear = null;
 
@@ -107,30 +312,7 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
 
         const rawSource = source?.toString().trim().toLowerCase();
 
-        const sourceMap = {
-            // manual: "manual",
-            website: "website",
-            online: "website",
-            instagram: "instagram",
-            facebook: "facebook",
-            tiktok: "tiktok",
-            ebay: "ebay",
-            "google business": "google business",
-            whatsapp: "whatsApp",
-            // "whatsapp": "whatsApp",
-            sms: "sms",
-            other: "other",
-        };
-
-        const resolvedSource = sourceMap[rawSource] || "other";
-
-        // if (rawSource === "instagram") {
-        //     resolvedSource = "instagram";
-        // } else if (rawSource === "facebook") {
-        //     resolvedSource = "facebook";
-        // } else if (rawSource === "website" || rawSource === "online") {
-        //     resolvedSource = "website";
-        // }
+        const resolvedSource = JUNK_CAR_SOURCE_MAP[rawSource] || "other";
 
         const newRequest = await JunkCar.create({
             name: name || "none",
@@ -142,6 +324,7 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
             engineOrVin: engineOrVin || "none",
             condition: condition || "none",
             message: message || "",
+            location: location || "",
 
             //  Added for Automation Bot
             source: resolvedSource,
@@ -151,16 +334,12 @@ exports.createAutomationBotJunkCarRequest = async (req, res) => {
 
         res.status(201).json({
             success: true,
+            operation: "created",
+            leadId: newRequest._id,
             data: newRequest,
         });
     } catch (error) {
-
-        console.error(error);
-
-        res.status(500).json({
-            success: false,
-            message: error.message,
-        });
+        return sendLeadError(res, error, "SAVE AUTOMATION BOT JUNK CAR ERROR");
     }
 };
 
@@ -484,48 +663,6 @@ exports.assignJunkCarStaff = async (req, res) => {
 };
 // end here
 
-// PATCH /api/junk-car/:id — partial update of a Junk Car request. Only the
-// fields sent in the body are changed. Unknown or system-managed fields
-// (createdBy, movedToIntake, timestamps, _id) are rejected instead of
-// silently ignored.
-const JUNK_CAR_PATCHABLE_FIELDS = [
-    "name",
-    "email",
-    "phone",
-    "year",
-    "make",
-    "model",
-    "engineOrVin",
-    "condition",
-    "message",
-    "remark",
-    "status",
-    "source",
-    "paymentStatus",
-    "assignedTo",
-];
-
-// Required in the schema — clearing one falls back to the same "none"
-// placeholder createJunkCarRequest stores.
-const JUNK_CAR_REQUIRED_TEXT_FIELDS = ["name", "email", "phone", "make", "model"];
-
-const JUNK_CAR_STATUSES = ["pending", "in progress", "completed"];
-
-// Same mapping as updateJunkCarSource, but an unknown value is rejected
-// rather than downgraded to "other".
-const JUNK_CAR_SOURCE_MAP = {
-    website: "website",
-    online: "website",
-    instagram: "instagram",
-    facebook: "facebook",
-    tiktok: "tiktok",
-    ebay: "ebay",
-    "google business": "google business",
-    whatsapp: "whatsApp",
-    sms: "sms",
-    other: "other",
-};
-
 // Mirrors the intake hand-off in updateJunkCarStatus /
 // updateJunkCarPaymentStatus: a completed and paid request becomes a Car
 // Intake once. Returns true when an intake was created.
@@ -574,6 +711,12 @@ const moveJunkCarToIntake = async (junkCar) => {
     return true;
 };
 
+// PATCH /api/junk-car/:id — authenticated staff edit of a Junk Car request.
+// Only the fields sent in the body are changed. Unknown or system-managed
+// fields (createdBy, movedToIntake, timestamps, _id) are rejected instead of
+// silently ignored. Uses the same field rules as the lead-capture route.
+const JUNK_CAR_PATCHABLE_FIELDS = Object.keys(JUNK_CAR_FIELD_RULES);
+
 exports.patchJunkCar = async (req, res) => {
     try {
         const { id } = req.params;
@@ -594,146 +737,21 @@ exports.patchJunkCar = async (req, res) => {
             });
         }
 
-        const unknownFields = Object.keys(body).filter(
-            (key) => !JUNK_CAR_PATCHABLE_FIELDS.includes(key)
-        );
+        const updates = pickLeadFields(applyVinAlias(body), {
+            rules: JUNK_CAR_FIELD_RULES,
+            fields: JUNK_CAR_PATCHABLE_FIELDS,
+            rejectUnknown: true,
+        });
 
-        if (unknownFields.length > 0) {
-            return res.status(400).json({
-                success: false,
-                message: `These fields cannot be updated: ${unknownFields.join(", ")}`,
-                allowedFields: JUNK_CAR_PATCHABLE_FIELDS,
-            });
-        }
+        if (updates.assignedTo) {
+            const userExists = await User.exists({ _id: updates.assignedTo });
 
-        const updates = {};
-
-        for (const field of JUNK_CAR_PATCHABLE_FIELDS) {
-            if (!(field in body)) continue;
-
-            const value = body[field];
-
-            if (field === "year") {
-                if (value === null || value === "") {
-                    updates.year = null;
-                    continue;
-                }
-
-                const yearStr = value.toString().trim();
-
-                if (!/^\d{4}$/.test(yearStr)) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Year must be exactly 4 digits",
-                    });
-                }
-
-                updates.year = parseInt(yearStr, 10);
-                continue;
-            }
-
-            if (field === "assignedTo") {
-                if (value === null || value === "") {
-                    updates.assignedTo = null;
-                    continue;
-                }
-
-                if (typeof value !== "string" || !mongoose.Types.ObjectId.isValid(value)) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "assignedTo must be a valid user id",
-                    });
-                }
-
-                const userExists = await User.exists({ _id: value });
-
-                if (!userExists) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Assigned user not found",
-                    });
-                }
-
-                updates.assignedTo = value;
-                continue;
-            }
-
-            if (value !== null && typeof value !== "string") {
+            if (!userExists) {
                 return res.status(400).json({
                     success: false,
-                    message: `${field} must be a string`,
+                    message: "Assigned user not found",
                 });
             }
-
-            const trimmed = typeof value === "string" ? value.trim() : "";
-
-            if (JUNK_CAR_REQUIRED_TEXT_FIELDS.includes(field)) {
-                if (!trimmed) {
-                    updates[field] = "none";
-                    continue;
-                }
-
-                if (
-                    field === "email" &&
-                    trimmed.toLowerCase() !== "none" &&
-                    !/^\S+@\S+\.\S+$/.test(trimmed)
-                ) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Invalid email format",
-                    });
-                }
-
-                updates[field] = trimmed;
-                continue;
-            }
-
-            if (field === "status") {
-                const status = trimmed.toLowerCase();
-
-                if (!JUNK_CAR_STATUSES.includes(status)) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `Invalid status. Allowed values: ${JUNK_CAR_STATUSES.join(", ")}`,
-                    });
-                }
-
-                updates.status = status;
-                continue;
-            }
-
-            if (field === "source") {
-                const source = JUNK_CAR_SOURCE_MAP[trimmed.toLowerCase()];
-
-                if (!source) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `Invalid source. Allowed values: ${Object.keys(JUNK_CAR_SOURCE_MAP).join(", ")}`,
-                    });
-                }
-
-                updates.source = source;
-                continue;
-            }
-
-            if (field === "paymentStatus") {
-                const allowed = JunkCar.schema.path("paymentStatus").enumValues;
-                const paymentStatus = allowed.find(
-                    (option) => option.toLowerCase() === trimmed.toLowerCase()
-                );
-
-                if (!paymentStatus) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `Invalid paymentStatus. Allowed values: ${allowed.join(", ")}`,
-                    });
-                }
-
-                updates.paymentStatus = paymentStatus;
-                continue;
-            }
-
-            updates[field] = trimmed;
         }
 
         // Status / payment changes record who handled the request, same as
@@ -752,15 +770,26 @@ exports.patchJunkCar = async (req, res) => {
             });
         }
 
+        // Same rule as lead capture: keep at least one way to identify or
+        // reach the customer.
+        if (
+            JUNK_CAR_CONTACT_FIELDS.some((field) => field in updates) &&
+            !JUNK_CAR_CONTACT_FIELDS.some((field) =>
+                hasValue(field in updates ? updates[field] : junkCar[field])
+            )
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Name, phone or email is required",
+            });
+        }
+
         junkCar.set(updates);
         await junkCar.save();
 
         const movedToIntake = await moveJunkCarToIntake(junkCar);
 
-        await junkCar.populate([
-            { path: "assignedTo", select: "first_name last_name email role" },
-            { path: "createdBy", select: "first_name last_name email role" },
-        ]);
+        await junkCar.populate(JUNK_CAR_POPULATE);
 
         res.json({
             success: true,
@@ -769,18 +798,6 @@ exports.patchJunkCar = async (req, res) => {
             data: junkCar,
         });
     } catch (error) {
-        console.error("PATCH JUNK CAR ERROR:", error);
-
-        if (error.name === "ValidationError" || error.name === "CastError") {
-            return res.status(400).json({
-                success: false,
-                message: error.message,
-            });
-        }
-
-        res.status(500).json({
-            success: false,
-            message: error.message,
-        });
+        return sendLeadError(res, error, "PATCH JUNK CAR ERROR");
     }
 };

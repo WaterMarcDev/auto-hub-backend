@@ -14,8 +14,8 @@ const { automationBotAuth } = require("../middleware/automationBotAuth");  // ad
 
 
 const {
-    createJunkCarRequest,
-    createAutomationBotJunkCarRequest,  // added by shiva
+    saveJunkCarLead,
+    saveAutomationBotJunkCarRequest,  // added by shiva
     getAllJunkCars,
     updateJunkCarStatus,
     updateJunkCarPaymentStatus,
@@ -32,8 +32,20 @@ const {
  * @swagger
  * /api/junk-car:
  *   post:
- *     summary: Create junk car request
+ *     summary: Create or progressively update a junk car lead
+ *     description: >
+ *       Without a lead ID this creates a lead (name, phone or email required) and returns its leadId.
+ *       With a lead ID (body `leadId`, or `X-Lead-ID` header) it updates only the supplied fields
+ *       of that lead. Updates through this route are only allowed while the lead is still pending,
+ *       unpaid, not moved to Car Intake and less than 24 hours old; otherwise 409
+ *       (staff use PATCH /api/junk-car/{id}).
  *     tags: [Junk Car]
+ *     parameters:
+ *       - in: header
+ *         name: X-Lead-ID
+ *         required: false
+ *         schema:
+ *           type: string
  *     requestBody:
  *       required: true
  *       content:
@@ -41,29 +53,88 @@ const {
  *           schema:
  *             type: object
  *             properties:
- *               name:
- *                 type: string
- *               phone:
- *                 type: string
- *               email:
- *                 type: string
- *               year:
- *                 type: string
- *               make:
- *                 type: string
- *               model:
- *                 type: string
- *               engineOrVin:
- *                 type: string
+ *               leadId: { type: string, description: Omit to create a new lead }
+ *               name: { type: string }
+ *               phone: { type: string }
+ *               email: { type: string }
+ *               year: { type: string, example: "2015" }
+ *               make: { type: string }
+ *               model: { type: string }
+ *               engineOrVin: { type: string }
+ *               vin: { type: string, description: Alias of engineOrVin }
+ *               condition: { type: string }
+ *               message: { type: string }
+ *               location: { type: string }
  *     responses:
  *       201:
- *         description: Request created successfully
+ *         description: Lead created (operation "created", leadId)
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Missing contact, invalid lead ID, no fields to update or invalid value
+ *       404:
+ *         description: Lead not found
+ *       409:
+ *         description: Lead can no longer be updated through this route
  */
-//end here
-router.post("/", createJunkCarRequest);
+router.post("/", saveJunkCarLead);
 
 // Automation bot route by shiva
-router.post("/automation-bot", automationBotAuth, createAutomationBotJunkCarRequest); // added by shiva
+/**
+ * @swagger
+ * /api/junk-car/automation-bot:
+ *   post:
+ *     summary: Create or update a junk car request from the AI Chatbot (Automation Bot)
+ *     description: >
+ *       Without a lead ID this creates a junk car request attributed to the Automation Bot and returns its leadId.
+ *       With a lead ID (body `leadId`, or `X-Lead-ID` header) it updates only the supplied fields of a lead the
+ *       bot itself created, while it is still pending, unpaid and not moved to Car Intake; otherwise 404 / 409.
+ *     tags: [Junk Car]
+ *     parameters:
+ *       - in: header
+ *         name: x-automation-bot-key
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: header
+ *         name: X-Lead-ID
+ *         required: false
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               leadId: { type: string, description: Omit to create a new lead }
+ *               name: { type: string }
+ *               email: { type: string }
+ *               phone: { type: string }
+ *               year: { type: string, example: "2015" }
+ *               make: { type: string }
+ *               model: { type: string }
+ *               engineOrVin: { type: string }
+ *               condition: { type: string }
+ *               message: { type: string }
+ *               location: { type: string }
+ *               source: { type: string, example: instagram }
+ *     responses:
+ *       201:
+ *         description: Request created, attributed to the Automation Bot user (operation "created", leadId)
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Invalid lead ID, no fields to update or invalid value
+ *       401:
+ *         description: Invalid or missing Automation Bot API key
+ *       404:
+ *         description: Lead not found (or not created by the Automation Bot)
+ *       409:
+ *         description: Lead is already being worked by staff
+ */
+router.post("/automation-bot", automationBotAuth, saveAutomationBotJunkCarRequest); // added by shiva
 
 // by shiva
 /**
@@ -143,6 +214,7 @@ router.get("/", getAllJunkCars);
  *               engineOrVin: { type: string }
  *               condition: { type: string }
  *               message: { type: string }
+ *               location: { type: string }
  *               remark: { type: string }
  *               status: { type: string, enum: [pending, in progress, completed] }
  *               source: { type: string, example: instagram }
