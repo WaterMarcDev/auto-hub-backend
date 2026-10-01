@@ -22,4 +22,8 @@ router.post("/catalog-sync/retry-failed", auth, requireAdmin, controller.retryFa
 // GET /api/ebay/catalog-sync/status  — Get sync status (authenticated users)
 router.get("/catalog-sync/status", auth, controller.getSyncStatus);
 
+// GET /api/ebay/catalog-sync/products  — Paginated products with eBay IDs + sync status (authenticated users)
+// Supports ?page, ?pageSize (max 100), ?status, ?search
+router.get("/catalog-sync/products", auth, controller.getSyncedProducts);
+
 module.exports = router;

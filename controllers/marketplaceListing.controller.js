@@ -470,8 +470,9 @@ exports.syncListings = async (req, res) => {
       // The EXTERNAL 409 behaviour (code EBAY_SYNC_IN_PROGRESS + message) is
       // preserved exactly; only the internal lock lifecycle changed.
       const outcome = await EbaySyncRun.withEbaySyncLock("manual", fetchListings, {
+        jobType: "listing_reconcile",
         mapOutcome: (result) => ({
-          status: "completed",
+          status: result.summary?.fetchComplete === false ? "failed" : "completed",
           summary: {
             totalDiscovered: result.summary?.activeOnEbay ?? 0,
             totalCreated: result.summary?.created ?? 0,

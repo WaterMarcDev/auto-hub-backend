@@ -54,7 +54,7 @@ function startEbayCatalogSyncJob() {
         // state.signal aborts if the lease is lost mid-run — syncCatalog()
         // checks it at safe boundaries and stops starting new product work.
         return syncCatalog({ dryRun: false, trigger: "scheduled", signal: state.signal });
-      });
+      }, { jobType: "catalog_push" });
     } catch (err) {
       // withEbaySyncLock re-throws the protected operation's error after
       // safely releasing; log here like the previous catch-did.

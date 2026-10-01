@@ -100,6 +100,11 @@ const EbaySyncRunSchema = new mongoose.Schema(
   {
     runId: { type: String, required: true, unique: true, default: function() { return new mongoose.Types.ObjectId().toString(); } },
     trigger: { type: String, enum: ["scheduled", "manual", "retry", "single-product"], required: true },
+    // Which eBay pipeline produced this run. Both pipelines share this
+    // collection (and its lock), so readers filter by it. Absent on documents
+    // written before the field existed — see getLatestRun() for how those are
+    // classified.
+    jobType: { type: String, enum: ["catalog_push", "listing_reconcile"] },
     isLocked: { type: Boolean, default: false },
     lockedAt: { type: Date, default: null },
     lockedBy: { type: String, default: null },
@@ -133,6 +138,8 @@ const EbaySyncRunSchema = new mongoose.Schema(
 
 EbaySyncRunSchema.index({ status: 1, isLocked: 1 });
 EbaySyncRunSchema.index({ createdAt: -1 });
+// Supports getLatestRun(jobType) without scanning the other job's history.
+EbaySyncRunSchema.index({ jobType: 1, createdAt: -1 });
 // Supports the lease-expiry sweep (recoverStaleLocks) with an index.
 EbaySyncRunSchema.index({ isLocked: 1, leaseExpiresAt: 1 });
 // Enforces the lock atomically AT THE DATABASE LEVEL: at most one document
@@ -197,10 +204,13 @@ EbaySyncRunSchema.statics.recoverStaleLocks = async function(now) {
  * mutual-exclusion guarantee).
  *
  * @param {string} trigger - "scheduled" | "manual" | "retry" | "single-product"
+ * @param {Object} [opts]
+ * @param {string} [opts.jobType] - "catalog_push" | "listing_reconcile"
  * @returns {Promise<Object|null>} Run doc if acquired; null if held by another.
  * @throws {EbaySyncLockError} LOCK_DATABASE_ERROR on unexpected DB failure.
  */
-EbaySyncRunSchema.statics.acquireLock = async function(trigger) {
+EbaySyncRunSchema.statics.acquireLock = async function(trigger, opts) {
+  const jobType = opts && opts.jobType ? opts.jobType : undefined;
   const now = new Date();
 
   // Reclaim expired leases first (best-effort ordering aid). Two racers may
@@ -211,6 +221,7 @@ EbaySyncRunSchema.statics.acquireLock = async function(trigger) {
   try {
     const run = await this.create({
       trigger: trigger,
+      jobType: jobType,
       status: "running",
       isLocked: true,
       lockedAt: now,
@@ -341,6 +352,9 @@ EbaySyncRunSchema.statics.releaseLock = async function(run, status, summary) {
  *
  * `opts.onLeaseLost(run, code)` is an optional observability hook.
  *
+ * `opts.jobType` ("catalog_push" | "listing_reconcile") tags the run document
+ * so each pipeline's status can be read back independently.
+ *
  * Returns `{ acquired, released, code, result, error }`. Lock contention
  * returns `{ acquired:false, code:"SYNC_ALREADY_RUNNING" }` — callers map that
  * to their existing behaviour. A genuine protected-operation error is
@@ -353,7 +367,7 @@ EbaySyncRunSchema.statics.withEbaySyncLock = async function(trigger, fn, opts) {
   const options = opts || {};
   let run;
   try {
-    run = await this.acquireLock(trigger);
+    run = await this.acquireLock(trigger, { jobType: options.jobType });
   } catch (err) {
     const code = (err && err.code) || "LOCK_DATABASE_ERROR";
     logLock(code === "SYNC_ALREADY_RUNNING" ? "SYNC_ALREADY_RUNNING" : "LOCK_DATABASE_ERROR", null, { trigger: trigger, code: code, reason: (err && err.message) });
@@ -566,9 +580,39 @@ EbaySyncRunSchema.statics.shutdownActiveLocks = async function(timeoutMs) {
   return { total: entries.length, released, timedOut, stillRunning };
 };
 
-/** Get the most recent EbaySyncRun document. */
-EbaySyncRunSchema.statics.getLatestRun = function() {
-  return this.findOne().sort({ createdAt: -1 }).lean();
+/**
+ * Counters only the catalog push ever writes. The listing reconciliation only
+ * records discovered/created/updated/unchanged/failed, so a legacy document
+ * (no jobType) with any of these above zero was a catalog push run.
+ */
+const CATALOG_ONLY_COUNTERS = [
+  "totalEligible", "totalExcluded", "totalSkipped", "totalPublished",
+  "totalValidationErrors", "totalApiErrors",
+];
+
+/**
+ * Get the most recent EbaySyncRun document.
+ *
+ * With no argument, returns the newest run of ANY job (previous behaviour).
+ * With a jobType, returns the newest run of that job only. Tagged documents
+ * are always newer than untagged legacy ones, so the legacy fallback query
+ * only runs until the first tagged run of that job exists.
+ *
+ * @param {string} [jobType] - "catalog_push" | "listing_reconcile"
+ */
+EbaySyncRunSchema.statics.getLatestRun = async function(jobType) {
+  if (!jobType) {
+    return this.findOne().sort({ createdAt: -1 }).lean();
+  }
+
+  const tagged = await this.findOne({ jobType }).sort({ createdAt: -1 }).lean();
+  if (tagged) return tagged;
+
+  const catalogSignal = CATALOG_ONLY_COUNTERS.map((f) => ({ [f]: { $gt: 0 } }));
+  const legacyFilter = jobType === "catalog_push"
+    ? { jobType: null, $or: catalogSignal }
+    : { jobType: null, $nor: catalogSignal };
+  return this.findOne(legacyFilter).sort({ createdAt: -1 }).lean();
 };
 
 /** Lease configuration + process identity (for diagnostics/tests). */
