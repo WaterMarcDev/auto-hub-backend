@@ -163,6 +163,10 @@ inventorySchema.index(
   }
 );
 
+// Serves the eBay Catalog Sync products table (filter by ebaySyncStatus,
+// newest sync first) without a collection scan.
+inventorySchema.index({ ebaySyncStatus: 1, ebayLastSyncedAt: -1 });
+
 const Inventory = mongoose.model("Inventory", inventorySchema);
 
 module.exports = Inventory;

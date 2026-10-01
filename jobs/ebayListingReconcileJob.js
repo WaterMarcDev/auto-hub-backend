@@ -60,13 +60,13 @@ function startEbayListingReconcileJob() {
         "scheduled",
         async () => reconcileEbayListings(),
         {
-          // Preserve the EXACT previous release mapping: status is always
-          // "completed" for this job (fetch completeness is recorded in
-          // totalFailed/error, never as a "failed" run).
+          jobType: "listing_reconcile",
+          // An incomplete eBay fetch is recorded as a "failed" run (with the
+          // reason in error) so it is never displayed as a clean completion.
           mapOutcome: (summary) => {
             const s = summary || {};
             return {
-              status: "completed",
+              status: s.fetchComplete ? "completed" : "failed",
               summary: {
                 totalDiscovered: s.activeOnEbay,
                 totalCreated: s.created,

@@ -55,6 +55,15 @@ const EBAY_SYNC_BATCH_SIZE = parseInt(process.env.EBAY_SYNC_BATCH_SIZE || "25", 
 const EBAY_SYNC_MAX_PRODUCTS = parseInt(process.env.EBAY_SYNC_MAX_PRODUCTS || "0", 10) || 0;
 
 /**
+ * Whether the automatic 6-hour CRM → eBay catalog push cron is registered.
+ * OFF unless EBAY_CATALOG_CRON_ENABLED is explicitly "true", so the automatic
+ * push stays paused without any server env change. Manual Sync Now / Dry Run
+ * and the 30-minute eBay → CRM listing reconciliation are not affected.
+ */
+const EBAY_CATALOG_CRON_ENABLED =
+  (process.env.EBAY_CATALOG_CRON_ENABLED || "").toLowerCase().trim() === "true";
+
+/**
  * LEGACY migration fallback only: a lock document that predates the lease
  * implementation (no leaseExpiresAt) is treated as stale once it is this old.
  * This is NOT the permanent recovery mechanism — the lease below is. Do not
@@ -559,6 +568,7 @@ module.exports = {
   EBAY_SYNC_CONCURRENCY,
   EBAY_SYNC_BATCH_SIZE,
   EBAY_SYNC_MAX_PRODUCTS,
+  EBAY_CATALOG_CRON_ENABLED,
   EBAY_SYNC_MAX_RUN_DURATION_MS,
   EBAY_SYNC_LEASE_MS,
   EBAY_SYNC_HEARTBEAT_MS,

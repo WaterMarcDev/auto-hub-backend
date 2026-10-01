@@ -38,7 +38,9 @@ exports.runFullSync = async (req, res) => {
 
     // Centralized acquire → heartbeat → run → ownership-verified release.
     // state.signal aborts if the lease is lost mid-run.
-    const outcome = await EbaySyncRun.withEbaySyncLock("manual", (run, state) => runSync(state.signal));
+    const outcome = await EbaySyncRun.withEbaySyncLock("manual", (run, state) => runSync(state.signal), {
+      jobType: "catalog_push",
+    });
 
     if (!outcome.acquired) {
       if (outcome.code === "SYNC_ALREADY_RUNNING") {
@@ -146,19 +148,129 @@ exports.retryFailed = async (req, res) => {
  */
 exports.getSyncStatus = async (req, res) => {
   try {
-    const latestRun = await EbaySyncRun.getLatestRun();
+    // The catalog push and the eBay → CRM listing reconciliation share the
+    // EbaySyncRun collection; lastRun must only ever be a catalog push run.
+    const [latestRun, latestReconcileRun] = await Promise.all([
+      EbaySyncRun.getLatestRun("catalog_push"),
+      EbaySyncRun.getLatestRun("listing_reconcile"),
+    ]);
+
+    const scheduleEnabled = ebayConfig.EBAY_CATALOG_CRON_ENABLED;
 
     const status = {
       configured: ebayConfig.isCatalogConfigured(),
       missingConfiguration: ebayConfig.getMissingConfiguration(),
       environment: ebayConfig.EBAY_ENVIRONMENT,
       lastRun: latestRun || null,
-      nextScheduledAt: getNextScheduledTime(),
+      scheduleEnabled,
+      nextScheduledAt: scheduleEnabled ? getNextScheduledTime() : null,
+      lastReconcileRun: latestReconcileRun
+        ? {
+            status: latestReconcileRun.status,
+            startedAt: latestReconcileRun.startedAt,
+            completedAt: latestReconcileRun.completedAt,
+            totalDiscovered: latestReconcileRun.totalDiscovered,
+            totalCreated: latestReconcileRun.totalCreated,
+            totalUpdated: latestReconcileRun.totalUpdated,
+            error: latestReconcileRun.error,
+          }
+        : null,
     };
 
     res.json({ success: true, data: status });
   } catch (err) {
     console.error("[EBAY_CATALOG_SYNC] Error getting status:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/** Statuses a product can hold once the catalog sync has processed it. */
+const PRODUCT_SYNC_STATUSES = ["PUBLISHED", "UPDATED", "FAILED", "EXCLUDED", "SKIPPED", "VALIDATING", "NOT_SYNCED"];
+const PRODUCTS_MAX_PAGE_SIZE = 100;
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildEbayListingUrl(listingId) {
+  if (!listingId) return null;
+  const host = ebayConfig.EBAY_ENVIRONMENT === "sandbox" ? "www.sandbox.ebay.com" : "www.ebay.com";
+  return `https://${host}/itm/${encodeURIComponent(listingId)}`;
+}
+
+/**
+ * GET /api/ebay/catalog-sync/products
+ * Paginated list of Inventory products the catalog sync has processed, with
+ * their eBay identifiers and per-product sync status.
+ *
+ * Query: page (1-based), pageSize (max 100), status (one ebaySyncStatus),
+ * search (part name, SKU, eBay SKU, offer ID or listing ID).
+ * Read-only; served by the { ebaySyncStatus, ebayLastSyncedAt } index.
+ */
+exports.getSyncedProducts = async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const pageSize = Math.min(Math.max(parseInt(req.query.pageSize, 10) || 10, 1), PRODUCTS_MAX_PAGE_SIZE);
+
+    const status = typeof req.query.status === "string" ? req.query.status.trim().toUpperCase() : "";
+    if (status && !PRODUCT_SYNC_STATUSES.includes(status)) {
+      return res.status(400).json({ success: false, error: `Invalid status. Use one of: ${PRODUCT_SYNC_STATUSES.join(", ")}` });
+    }
+
+    const filter = {
+      ebaySyncStatus: status ? status : { $in: PRODUCT_SYNC_STATUSES },
+      isDeleted: { $ne: true },
+    };
+
+    const search = typeof req.query.search === "string" ? req.query.search.trim().slice(0, 100) : "";
+    if (search) {
+      const pattern = new RegExp(escapeRegex(search), "i");
+      filter.$or = [
+        { partName: pattern },
+        { sku: pattern },
+        { ebaySku: pattern },
+        { ebayOfferId: pattern },
+        { ebayListingId: pattern },
+      ];
+    }
+
+    const [total, items] = await Promise.all([
+      Inventory.countDocuments(filter),
+      Inventory.find(filter)
+        .select(
+          "partName year sku make model trim ebaySku ebayOfferId ebayListingId ebayMarketplaceId ebayCategoryId ebaySyncStatus ebaySyncError ebayLastSyncedAt"
+        )
+        .populate("make", "name")
+        .populate("model", "name")
+        .populate("trim", "name")
+        .sort({ ebayLastSyncedAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        .lean(),
+    ]);
+
+    const data = items.map((item) => ({
+      _id: item._id,
+      partName: item.partName,
+      year: item.year ?? null,
+      make: item.make?.name ?? null,
+      model: item.model?.name ?? null,
+      trim: item.trim?.name ?? null,
+      sku: item.sku ?? null,
+      ebaySku: item.ebaySku,
+      ebayOfferId: item.ebayOfferId,
+      ebayListingId: item.ebayListingId,
+      ebayMarketplaceId: item.ebayMarketplaceId,
+      ebayCategoryId: item.ebayCategoryId,
+      ebaySyncStatus: item.ebaySyncStatus,
+      ebaySyncError: item.ebaySyncError,
+      ebayLastSyncedAt: item.ebayLastSyncedAt,
+      ebayListingUrl: buildEbayListingUrl(item.ebayListingId),
+    }));
+
+    res.json({ success: true, data, total, page, pageSize });
+  } catch (err) {
+    console.error("[EBAY_CATALOG_SYNC] Error listing synced products:", err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 };
