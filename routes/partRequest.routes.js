@@ -12,6 +12,7 @@ console.log("Part Request Routes Loaded");
 const express = require("express");
 const router = express.Router();
 const { automationBotAuth } = require("../middleware/automationBotAuth");
+const { auth } = require("../middleware/auth");
 
 const { deleteRequest } = require("../controllers/partRequest.controller");
 
@@ -22,6 +23,7 @@ const {
     updatePartRequestSource,
     updatePartRequestRemark,
     createAutomationBotRequest,
+    patchPartRequest,
 } = require("../controllers/partRequest.controller");
 
 // const PartRequest = require("../models/PartRequest");
@@ -139,6 +141,54 @@ router.put("/:id", updateStatus);
  */
 //end here
 router.delete("/:id", deleteRequest);
+
+/**
+ * @swagger
+ * /api/part-request/{id}:
+ *   patch:
+ *     summary: Partially update a Search Part (part request)
+ *     description: Updates only the fields sent in the body. Unknown or system-managed fields are rejected with 400.
+ *     tags: [Part Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             minProperties: 1
+ *             properties:
+ *               name: { type: string }
+ *               phone: { type: string, example: "5551234567" }
+ *               email: { type: string }
+ *               make: { type: string }
+ *               model: { type: string }
+ *               year: { type: string, example: "2015" }
+ *               partName: { type: string }
+ *               condition: { type: string }
+ *               message: { type: string }
+ *               remark: { type: string }
+ *               source: { type: string, example: Instagram }
+ *               status: { type: string, enum: [Pending, In Progress, Completed, Rejected] }
+ *               fulfilledBy: { type: string }
+ *     responses:
+ *       200:
+ *         description: Part request updated successfully
+ *       400:
+ *         description: Invalid id, empty body, unknown field or invalid value
+ *       401:
+ *         description: Missing or invalid token
+ *       404:
+ *         description: Part request not found
+ */
+router.patch("/:id", auth, patchPartRequest);
 
 // Source route by shiva
 router.patch("/:id/source", updatePartRequestSource);
