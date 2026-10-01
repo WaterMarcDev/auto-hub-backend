@@ -221,6 +221,20 @@ async function fetchOfferState(accessToken, sku) {
 }
 
 /**
+ * Render eBay's Errors container as a short suffix for a run's error message,
+ * e.g. ": [932] Auth token is hard expired.". Bounded so a verbose response
+ * can never bloat the stored run document.
+ */
+function describeTradingErrors(errors) {
+  if (!Array.isArray(errors) || errors.length === 0) return "";
+  const parts = errors.slice(0, 3).map((e) => {
+    const text = e.longMessage || e.shortMessage || "Unknown eBay error";
+    return e.code ? `[${e.code}] ${text}` : text;
+  });
+  return `: ${parts.join(" | ")}`.slice(0, 500);
+}
+
+/**
  * Fetch EVERY currently active eBay listing, page by page.
  *
  * @param {string} accessToken
@@ -268,7 +282,7 @@ async function fetchAllActiveEbayListings(accessToken, options = {}) {
     // eBay reported a protocol-level failure on this page.
     if (pageResult.ack && !/^(success|warning)$/i.test(pageResult.ack)) {
       complete = false;
-      error = `GetMyeBaySelling page ${page} returned Ack=${pageResult.ack}`;
+      error = `GetMyeBaySelling page ${page} returned Ack=${pageResult.ack}${describeTradingErrors(pageResult.errors)}`;
       warn(error);
       break;
     }

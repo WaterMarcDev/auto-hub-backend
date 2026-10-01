@@ -453,11 +453,17 @@ server.listen(PORT, () => {
   // Start the eBay catalog sync (6-hour) cron job.
   // Automatically syncs CRM Inventory to eBay every 6 hours.
   // Failure-tolerant: one failed run never prevents future runs.
+  // Paused unless EBAY_CATALOG_CRON_ENABLED=true (see config/ebayCatalogConfig.js).
+  // Manual Sync Now / Dry Run from the eBay Catalog Sync page still work.
   try {
-    const startEbayCatalogSync = require("./jobs/ebayCatalogSyncJob");
-    startEbayCatalogSync();
-    ebayCatalogSyncJobRef = startEbayCatalogSync;
-    console.log("eBay catalog 6-hour sync cron job started");
+    if (require("./config/ebayCatalogConfig").EBAY_CATALOG_CRON_ENABLED) {
+      const startEbayCatalogSync = require("./jobs/ebayCatalogSyncJob");
+      startEbayCatalogSync();
+      ebayCatalogSyncJobRef = startEbayCatalogSync;
+      console.log("eBay catalog 6-hour sync cron job started");
+    } else {
+      console.log("eBay catalog 6-hour sync cron job disabled (set EBAY_CATALOG_CRON_ENABLED=true to enable)");
+    }
   } catch (err) {
     console.error("Failed to start eBay catalog sync cron job:", err.message || err);
   }

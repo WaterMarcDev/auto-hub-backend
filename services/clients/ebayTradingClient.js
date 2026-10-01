@@ -98,7 +98,7 @@ class EbayTradingClient {
      * @param {string} accessToken - valid eBay user access token
      * @param {number} [page=1] - 1-based page number
      * @param {number} [entriesPerPage=200] - items per page (eBay caps at 200)
-     * @returns {Promise<{items: Array<Object>, totalEntries: number, totalPages: number, ack: string|null}>}
+     * @returns {Promise<{items: Array<Object>, totalEntries: number, totalPages: number, ack: string|null, errors: Array<Object>}>}
      */
     async getActiveListingsPage(accessToken, page = 1, entriesPerPage = 200) {
         const safeEntries = Math.min(Math.max(parseInt(entriesPerPage, 10) || 200, 1), 200);
@@ -136,6 +136,7 @@ class EbayTradingClient {
             totalEntries,
             totalPages,
             ack: response?.Ack != null ? String(response.Ack) : null,
+            errors: EbayTradingClient.extractErrors(response),
         };
     }
 
@@ -178,6 +179,21 @@ class EbayTradingClient {
 // value), so every consumer needs the same defensive unwrapping. Declared
 // once here and used by BOTH the eBay adapter's listing upsert and the
 // reconciliation service, so the two can never drift apart.
+
+/**
+ * eBay's Errors container from a Trading-API response, normalised to an array
+ * of { code, severity, shortMessage, longMessage }. Empty when none returned.
+ */
+EbayTradingClient.extractErrors = function (response) {
+    const raw = response?.Errors;
+    const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    return list.map((e) => ({
+        code: e?.ErrorCode != null ? String(e.ErrorCode) : null,
+        severity: e?.SeverityCode != null ? String(e.SeverityCode) : null,
+        shortMessage: e?.ShortMessage != null ? String(e.ShortMessage) : null,
+        longMessage: e?.LongMessage != null ? String(e.LongMessage) : null,
+    }));
+};
 
 /** Real eBay item number (ItemID) for a Trading-API listing, or null. */
 EbayTradingClient.extractItemId = function (item) {
