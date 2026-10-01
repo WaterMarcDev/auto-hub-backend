@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const PartRequest = require("../models/PartRequest.model");
 const auditLogService = require("../services/auditLog.service");
 const { normalizeRequestSource } = require("../utils/requestSources");
@@ -290,5 +291,202 @@ exports.deleteRequest = async (req, res) => {
     } catch (error) {
         console.log(error);
         res.status(500).json({ error: error.message });
+    }
+};
+
+// PATCH /api/part-request/:id — partial update of a Search Part (Part
+// Request). Only the fields sent in the body are changed; everything else is
+// left as-is. Unknown or system-managed fields (createdBy, completedAt,
+// timestamps, _id) are rejected instead of silently ignored.
+const PART_REQUEST_PATCHABLE_FIELDS = [
+    "name",
+    "phone",
+    "email",
+    "make",
+    "model",
+    "year",
+    "partName",
+    "condition",
+    "message",
+    "remark",
+    "source",
+    "status",
+    "fulfilledBy",
+];
+
+// Case/whitespace-tolerant match against a schema enum, e.g. "in progress"
+// -> "In Progress". Returns null when there is no match.
+const matchEnumValue = (value, allowed) => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim().toLowerCase();
+    return allowed.find((option) => option.toLowerCase() === trimmed) || null;
+};
+
+exports.patchPartRequest = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid part request id",
+            });
+        }
+
+        const body = req.body;
+
+        if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Request body must contain at least one field to update",
+            });
+        }
+
+        const unknownFields = Object.keys(body).filter(
+            (key) => !PART_REQUEST_PATCHABLE_FIELDS.includes(key)
+        );
+
+        if (unknownFields.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `These fields cannot be updated: ${unknownFields.join(", ")}`,
+                allowedFields: PART_REQUEST_PATCHABLE_FIELDS,
+            });
+        }
+
+        const updates = {};
+
+        for (const field of PART_REQUEST_PATCHABLE_FIELDS) {
+            if (!(field in body)) continue;
+
+            const value = body[field];
+
+            if (field === "year") {
+                if (value === null || value === "") {
+                    updates.year = null;
+                    continue;
+                }
+
+                const yearStr = value.toString().trim();
+
+                if (!/^\d{4}$/.test(yearStr)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Year must be exactly 4 digits",
+                    });
+                }
+
+                updates.year = parseInt(yearStr, 10);
+                continue;
+            }
+
+            if (value !== null && typeof value !== "string") {
+                return res.status(400).json({
+                    success: false,
+                    message: `${field} must be a string`,
+                });
+            }
+
+            const trimmed = typeof value === "string" ? value.trim() : value;
+
+            if (field === "phone" || field === "email") {
+                // Empty clears the field back to the same "none" placeholder
+                // createRequest stores when it isn't provided.
+                if (!trimmed || trimmed.toLowerCase() === "none") {
+                    updates[field] = "none";
+                    continue;
+                }
+
+                if (field === "phone" && !/^[0-9]{10}$/.test(trimmed)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Phone number must be 10 digits",
+                    });
+                }
+
+                if (field === "email" && !/^\S+@\S+\.\S+$/.test(trimmed)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Invalid email format",
+                    });
+                }
+
+                updates[field] = trimmed;
+                continue;
+            }
+
+            if (field === "source" || field === "status") {
+                const allowed = PartRequest.schema.path(field).enumValues;
+                const matched = matchEnumValue(trimmed, allowed);
+
+                if (!matched) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Invalid ${field}. Allowed values: ${allowed.join(", ")}`,
+                    });
+                }
+
+                updates[field] = matched;
+                continue;
+            }
+
+            if (field === "fulfilledBy") {
+                updates.fulfilledBy = trimmed || null;
+                continue;
+            }
+
+            updates[field] = trimmed ?? "";
+        }
+
+        const request = await PartRequest.findById(id);
+
+        if (!request) {
+            return res.status(404).json({
+                success: false,
+                message: "Part request not found",
+            });
+        }
+
+        // Same rule as createRequest: a request must keep at least one way
+        // to contact the customer.
+        const nextPhone = "phone" in updates ? updates.phone : request.phone;
+        const nextEmail = "email" in updates ? updates.email : request.email;
+        const hasContact = (v) => v && v !== "none";
+
+        if (("phone" in updates || "email" in updates) && !hasContact(nextPhone) && !hasContact(nextEmail)) {
+            return res.status(400).json({
+                success: false,
+                message: "Either phone or email is required",
+            });
+        }
+
+        // Stamp completedAt exactly once, matching updateStatus.
+        if (updates.status === "Completed" && !request.completedAt) {
+            updates.completedAt = new Date();
+        }
+
+        request.set(updates);
+        await request.save();
+        await request.populate("createdBy", "first_name last_name email role");
+
+        res.json({
+            success: true,
+            message: "Part request updated successfully",
+            data: request,
+        });
+    } catch (error) {
+        console.error("PATCH PART REQUEST ERROR:", error);
+
+        if (error.name === "ValidationError" || error.name === "CastError") {
+            return res.status(400).json({
+                success: false,
+                message: error.message,
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            message: error.message,
+        });
     }
 };
