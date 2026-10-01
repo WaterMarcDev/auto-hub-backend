@@ -23,21 +23,39 @@ class LeadValidationError extends Error {
 
 const isBlank = (value) => value === undefined || value === null || value === "";
 
+const normalizeLeadId = (raw) => {
+    const leadId = typeof raw === "string" ? raw.trim().toLowerCase() : raw;
+
+    if (typeof leadId !== "string" || !leadId || !mongoose.Types.ObjectId.isValid(leadId) || !/^[0-9a-f]{24}$/.test(leadId)) {
+        throw new LeadValidationError("Invalid lead ID");
+    }
+
+    return leadId;
+};
+
+// Lead id sources, in order: URL (/:id), body.leadId, X-Lead-ID header.
 // Returns { leadId: null } when none was sent, { leadId } when a valid one was
-// sent, or throws when one was sent but isn't a valid ObjectId.
+// sent, or throws when one was sent but isn't a valid ObjectId (or the URL
+// and body disagree).
 const resolveLeadId = (req) => {
+    const fromUrl = req.params ? req.params.id : undefined;
     const fromBody = req.body && typeof req.body === "object" ? req.body.leadId : undefined;
+
+    if (!isBlank(fromUrl)) {
+        const leadId = normalizeLeadId(fromUrl);
+
+        if (!isBlank(fromBody) && normalizeLeadId(fromBody) !== leadId) {
+            throw new LeadValidationError("Lead ID in the URL and body do not match");
+        }
+
+        return { leadId };
+    }
+
     const raw = !isBlank(fromBody) ? fromBody : req.get(LEAD_ID_HEADER);
 
     if (isBlank(raw)) return { leadId: null };
 
-    const leadId = typeof raw === "string" ? raw.trim() : raw;
-
-    if (typeof leadId !== "string" || !leadId || !mongoose.Types.ObjectId.isValid(leadId) || !/^[0-9a-f]{24}$/i.test(leadId)) {
-        throw new LeadValidationError("Invalid lead ID");
-    }
-
-    return { leadId };
+    return { leadId: normalizeLeadId(raw) };
 };
 
 // Plain text. Numbers are accepted and stringified (Mongoose used to cast them
@@ -149,6 +167,16 @@ const pickLeadFields = (body, { rules, fields, rejectUnknown = false, ignore = [
 
 const hasValue = (value) => !isBlank(value) && value !== "none";
 
+// True when at least one of `fields` in a raw request body carries a real
+// value (not missing, empty, whitespace-only or the "none" placeholder).
+const hasAnyField = (body, fields) =>
+    !!body &&
+    typeof body === "object" &&
+    fields.some((field) => {
+        const value = body[field];
+        return hasValue(typeof value === "string" ? value.trim() : value);
+    });
+
 const sendLeadError = (res, error, logLabel) => {
     if (error instanceof LeadValidationError) {
         return res.status(error.status).json({
@@ -185,5 +213,6 @@ module.exports = {
     pickLeadFields,
     resolveLeadId,
     hasValue,
+    hasAnyField,
     sendLeadError,
 };

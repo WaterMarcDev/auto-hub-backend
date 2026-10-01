@@ -10,6 +10,7 @@ const {
     pickLeadFields,
     resolveLeadId,
     hasValue,
+    hasAnyField,
     sendLeadError,
 } = require("../utils/leadCapture");
 
@@ -53,11 +54,12 @@ const PART_REQUEST_POPULATE = { path: "createdBy", select: "first_name last_name
 
 // Updates an already-captured lead with whitelisted `values`. Shared by the
 // public capture route and the Automation Bot route.
-//  - ownerId:     only a lead created by this user can be updated
-//  - windowStart: only a lead created after this date can be updated
+//  - ownerId:        only a lead created by this user can be updated
+//  - windowStart:    only a lead created after this date can be updated
+//  - requireContact: the lead must keep a phone or email (public route)
 // A lead staff have started working (status no longer Pending) is never
 // changed here. Returns { request } or { error: { status, message } }.
-const updateCapturedPartRequest = async (leadId, values, { ownerId, windowStart } = {}) => {
+const updateCapturedPartRequest = async (leadId, values, { ownerId, windowStart, requireContact = true } = {}) => {
     if (Object.keys(values).length === 0) {
         return { error: { status: 400, message: "No fields to update were provided" } };
     }
@@ -75,7 +77,7 @@ const updateCapturedPartRequest = async (leadId, values, { ownerId, windowStart 
     const nextPhone = "phone" in values ? values.phone : existing.phone;
     const nextEmail = "email" in values ? values.email : existing.email;
 
-    if (!hasValue(nextPhone) && !hasValue(nextEmail)) {
+    if (requireContact && !hasValue(nextPhone) && !hasValue(nextEmail)) {
         return { error: { status: 400, message: "Either phone or email is required" } };
     }
 
@@ -184,6 +186,10 @@ exports.savePartRequestLead = async (req, res) => {
 // phone / email become "none" and an unknown source becomes "Other".
 const PART_REQUEST_BOT_FIELDS = ["name", "phone", "email", "make", "model", "year", "partName", "source"];
 
+// A bot create needs at least one of these. Phone/email are not compulsory
+// for the bot; source alone doesn't count since the bot always sends it.
+const PART_REQUEST_BOT_CREATE_FIELDS = PART_REQUEST_BOT_FIELDS.filter((field) => field !== "source");
+
 const PART_REQUEST_BOT_RULES = {
     ...PART_REQUEST_FIELD_RULES,
     name: normalizers.requiredText(),
@@ -192,10 +198,11 @@ const PART_REQUEST_BOT_RULES = {
 
 // POST /api/part-request/automation-bot — part request from the AI Chatbot
 // (Automation Bot); req.user is attached by middleware/automationBotAuth.js.
-//  - no lead id -> create (unchanged behavior), respond 201 with its leadId
-//  - lead id (body.leadId or X-Lead-ID header) -> update only the supplied
-//    fields of a lead the bot itself created, while staff haven't started
-//    working it; respond 200
+//  - no lead id -> create with at least one field, respond 201 with its leadId
+//  - lead id (URL /automation-bot/:id, body.leadId or X-Lead-ID header) ->
+//    update only the supplied fields of a lead the bot itself created, while
+//    staff haven't started working it; respond 200
+// Phone and email are optional on this route (create and update).
 exports.saveAutomationBotRequest = async (req, res) => {
     try {
         const { leadId } = resolveLeadId(req);
@@ -207,7 +214,10 @@ exports.saveAutomationBotRequest = async (req, res) => {
                 ignore: ["leadId"],
             });
 
-            const result = await updateCapturedPartRequest(leadId, values, { ownerId: req.user._id });
+            const result = await updateCapturedPartRequest(leadId, values, {
+                ownerId: req.user._id,
+                requireContact: false,
+            });
 
             if (result.request) {
                 await auditLogService.logAction({
@@ -227,14 +237,14 @@ exports.saveAutomationBotRequest = async (req, res) => {
 
         const { name, phone, email, make, model, year, partName, source } = req.body ?? {};
 
-        // Phn, Email Validation — mirrors createRequest
-        if (!phone && !email) {
+        if (!hasAnyField(req.body, PART_REQUEST_BOT_CREATE_FIELDS)) {
             return res.status(400).json({
                 success: false,
-                message: "Either phone or email is required",
+                message: "At least one field is required to create a lead",
             });
         }
 
+        // Phone / email are optional, but must be valid when sent
         if (phone && !/^[0-9]{10}$/.test(phone)) {
             return res.status(400).json({
                 success: false,

@@ -282,4 +282,65 @@ router.patch("/:id/remark", (req, res, next) => {
  */
 router.post("/automation-bot", automationBotAuth, saveAutomationBotRequest);
 
+// Create-or-update with the lead id in the URL. Registered last so the
+// fixed paths above (e.g. /automation-bot) are matched first.
+/**
+ * @swagger
+ * /api/part-request/automation-bot/{id}:
+ *   post:
+ *     summary: Update a lead the Automation Bot created (id in the URL)
+ *     description: Same as POST /api/part-request/automation-bot with a leadId — updates only the supplied fields. Only leads the bot created, while still Pending.
+ *     tags: [Part Requests]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: header
+ *         name: x-automation-bot-key
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Invalid lead ID, URL/body lead ID mismatch, no fields to update or invalid value
+ *       401:
+ *         description: Invalid or missing Automation Bot API key
+ *       404:
+ *         description: Lead not found (or not created by the Automation Bot)
+ *       409:
+ *         description: Lead is already being worked by staff
+ */
+router.post("/automation-bot/:id", automationBotAuth, saveAutomationBotRequest);
+
+/**
+ * @swagger
+ * /api/part-request/{id}:
+ *   post:
+ *     summary: Update a lead (id in the URL)
+ *     description: >
+ *       Same as POST /api/part-request with a leadId — updates only the supplied fields. Only while the lead is still Pending and less than 24 hours old.
+ *       Without an id, POST /api/part-request creates the lead.
+ *     tags: [Part Requests]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Invalid lead ID, URL/body lead ID mismatch, no fields to update or invalid value
+ *       404:
+ *         description: Lead not found
+ *       409:
+ *         description: Lead can no longer be updated through this route
+ */
+router.post("/:id", savePartRequestLead);
+
 module.exports = router;

@@ -10,6 +10,7 @@ const {
     pickLeadFields,
     resolveLeadId,
     hasValue,
+    hasAnyField,
     sendLeadError,
 } = require("../utils/leadCapture");
 // const { normalizeRequestSource } = require("../utils/requestSources");
@@ -112,10 +113,11 @@ const isOpenJunkCarLead = (junkCar, windowStart) =>
 
 // Updates an already-captured lead with whitelisted `values`. Shared by the
 // public capture route and the Automation Bot route.
-//  - ownerId:     only a lead created by this user can be updated
-//  - windowStart: only a lead created after this date can be updated
+//  - ownerId:        only a lead created by this user can be updated
+//  - windowStart:    only a lead created after this date can be updated
+//  - requireContact: the lead must keep a name, phone or email (public route)
 // Returns { junkCar } or { error: { status, message } }.
-const updateCapturedJunkCar = async (leadId, values, { ownerId, windowStart } = {}) => {
+const updateCapturedJunkCar = async (leadId, values, { ownerId, windowStart, requireContact = true } = {}) => {
     if (Object.keys(values).length === 0) {
         return { error: { status: 400, message: "No fields to update were provided" } };
     }
@@ -131,6 +133,7 @@ const updateCapturedJunkCar = async (leadId, values, { ownerId, windowStart } = 
     }
 
     if (
+        requireContact &&
         JUNK_CAR_CONTACT_FIELDS.some((field) => field in values) &&
         !JUNK_CAR_CONTACT_FIELDS.some((field) =>
             hasValue(field in values ? values[field] : existing[field])
@@ -248,6 +251,10 @@ const JUNK_CAR_BOT_FIELDS = [
     "location",
 ];
 
+// A bot create needs at least one of these. Name/phone/email are not
+// compulsory; source alone doesn't count since the bot always sends it.
+const JUNK_CAR_BOT_CREATE_FIELDS = JUNK_CAR_BOT_FIELDS.filter((field) => field !== "source");
+
 const JUNK_CAR_BOT_RULES = {
     ...JUNK_CAR_FIELD_RULES,
     email: normalizers.requiredText(),
@@ -259,10 +266,11 @@ const JUNK_CAR_BOT_RULES = {
 
 // POST /api/junk-car/automation-bot — junk car request from the AI Chatbot
 // (Automation Bot); req.user is attached by middleware/automationBotAuth.js.
-//  - no lead id -> create (unchanged behavior), respond 201 with its leadId
-//  - lead id (body.leadId or X-Lead-ID header) -> update only the supplied
-//    fields of a lead the bot itself created, while staff haven't started
-//    working it; respond 200
+//  - no lead id -> create with at least one field, respond 201 with its leadId
+//  - lead id (URL /automation-bot/:id, body.leadId or X-Lead-ID header) ->
+//    update only the supplied fields of a lead the bot itself created, while
+//    staff haven't started working it; respond 200
+// Name, phone and email are optional on this route (create and update).
 exports.saveAutomationBotJunkCarRequest = async (req, res) => {
     try {
         console.log("JUNK CAR AUTOMATION BODY:", JSON.stringify(req.body, null, 2));
@@ -276,7 +284,10 @@ exports.saveAutomationBotJunkCarRequest = async (req, res) => {
                 ignore: ["leadId"],
             });
 
-            const result = await updateCapturedJunkCar(leadId, values, { ownerId: req.user._id });
+            const result = await updateCapturedJunkCar(leadId, values, {
+                ownerId: req.user._id,
+                requireContact: false,
+            });
 
             return sendJunkCarUpdateResult(res, result);
         }
@@ -294,6 +305,13 @@ exports.saveAutomationBotJunkCarRequest = async (req, res) => {
             message,
             location,
         } = req.body ?? {};
+
+        if (!hasAnyField(req.body, JUNK_CAR_BOT_CREATE_FIELDS)) {
+            return res.status(400).json({
+                success: false,
+                message: "At least one field is required to create a lead",
+            });
+        }
 
         let parsedYear = null;
 
