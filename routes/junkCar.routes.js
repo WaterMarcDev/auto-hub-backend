@@ -246,5 +246,65 @@ router.patch("/:id/assign", assignJunkCarStaff);
 // Junkcar paymentStatus by shiva route
 router.patch("/:id/payment-status", auth, updateJunkCarPaymentStatus);
 
+// Create-or-update with the lead id in the URL. Registered last so the
+// fixed paths above (e.g. /automation-bot) are matched first.
+/**
+ * @swagger
+ * /api/junk-car/automation-bot/{id}:
+ *   post:
+ *     summary: Update a lead the Automation Bot created (id in the URL)
+ *     description: Same as POST /api/junk-car/automation-bot with a leadId — updates only the supplied fields. Only leads the bot created, while still pending, unpaid and not moved to Car Intake.
+ *     tags: [Junk Car]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: header
+ *         name: x-automation-bot-key
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Invalid lead ID, URL/body lead ID mismatch, no fields to update or invalid value
+ *       401:
+ *         description: Invalid or missing Automation Bot API key
+ *       404:
+ *         description: Lead not found (or not created by the Automation Bot)
+ *       409:
+ *         description: Lead is already being worked by staff
+ */
+router.post("/automation-bot/:id", automationBotAuth, saveAutomationBotJunkCarRequest);
+
+/**
+ * @swagger
+ * /api/junk-car/{id}:
+ *   post:
+ *     summary: Update a lead (id in the URL)
+ *     description: >
+ *       Same as POST /api/junk-car with a leadId — updates only the supplied fields. Only while the lead is still pending, unpaid, not moved to Car Intake and less than 24 hours old.
+ *       Without an id, POST /api/junk-car creates the lead.
+ *     tags: [Junk Car]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Invalid lead ID, URL/body lead ID mismatch, no fields to update or invalid value
+ *       404:
+ *         description: Lead not found
+ *       409:
+ *         description: Lead can no longer be updated through this route
+ */
+router.post("/:id", saveJunkCarLead);
 
 module.exports = router;
