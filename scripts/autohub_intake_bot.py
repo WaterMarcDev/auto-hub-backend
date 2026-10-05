@@ -251,6 +251,69 @@ def upload_photos(page, photos):
     page.remove_listener("response", on_response)
 
 
+def deselect_excluded_parts(page, excluded_names=("a1", "a2", "converter", "catalytic converter")):
+    """
+    On the Car Diagnostic page, finds table rows corresponding to A1 and A2
+    (and converter variants) and flips their Ant Design switch to OFF so that
+    selected=false and unit=0 in the intake record.
+    """
+    js = """
+    async (targets) => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      let table = null;
+      for (let i = 0; i < 30; i++) {
+        table = document.querySelector('.diagnosis-table') || document.querySelector('table');
+        if (table && table.querySelectorAll('tbody tr').length > 0) break;
+        await sleep(500);
+      }
+      if (!table) return { ok: false, error: "diagnosis_table_not_found", count: 0, items: [] };
+
+      const rows = [...table.querySelectorAll('tbody tr')];
+      const deselected = [];
+
+      for (const row of rows) {
+        const nameCell = row.querySelector('td:nth-child(2)') || row;
+        const text = (nameCell.textContent || '').trim().toLowerCase();
+
+        const matched = targets.find(t => {
+          const pattern = new RegExp('(^|[^a-z0-9])' + t.toLowerCase() + '([^a-z0-9]|$)', 'i');
+          return pattern.test(text);
+        });
+
+        if (matched) {
+          const switchBtn = row.querySelector('.ant-switch, button[role="switch"]');
+          if (switchBtn) {
+            const isChecked = switchBtn.classList.contains('ant-switch-checked') ||
+                              switchBtn.getAttribute('aria-checked') === 'true';
+            if (isChecked) {
+              switchBtn.click();
+              deselected.push(`${matched.toUpperCase()} (switch toggled OFF -> Units: 0)`);
+              await sleep(300);
+            } else {
+              deselected.push(`${matched.toUpperCase()} (already OFF -> Units: 0)`);
+            }
+          }
+        }
+      }
+      return { ok: true, count: deselected.length, items: deselected };
+    }
+    """
+    try:
+        res = page.evaluate(js, list(excluded_names))
+        if res.get("ok"):
+            for item in res.get("items", []):
+                print(f"    [Deselect Part] {item}")
+            if not res.get("items"):
+                print("    (no A1/A2 rows found to deselect)")
+            return res.get("count", 0)
+        else:
+            print(f"    (could not deselect parts: {res.get('error')})")
+            return 0
+    except Exception as e:
+        print(f"    (deselect_excluded_parts error: {e})")
+        return 0
+
+
 def set_parts_quality(page, value: str):
     """Set every 'Select Quality' dropdown on the Car Diagnostic page to `value`
     ('good' or 'average'). Re-finds the next unset dropdown each pass so it
@@ -261,7 +324,7 @@ def set_parts_quality(page, value: str):
       const sleep = ms => new Promise(r => setTimeout(r, ms));
       let done = 0, safety = 200;
       while (safety-- > 0) {
-        const sel = [...document.querySelectorAll('.ant-select')]
+        const sel = [...document.querySelectorAll('.ant-select:not(.ant-select-disabled)')]
           .find(s => s.textContent.includes('Select Quality'));
         if (!sel) break;
         sel.scrollIntoView({block: 'center'});
@@ -374,6 +437,12 @@ def process_car(page, folder: Path, quality: str = ""):
         return
 
     upload_photos(page, photos)
+
+    # Continue inside upload_photos transitions the wizard to the Car Diagnostic step.
+    # Deselect A1 and A2 rows so they are recorded with selected=false and Unit: 0.
+    print("  Checking Car Diagnostic step for excluded parts (A1, A2)...")
+    time.sleep(2)
+    deselect_excluded_parts(page)
 
     if quality:
         print(f"  Setting all part qualities to '{quality}'...")
