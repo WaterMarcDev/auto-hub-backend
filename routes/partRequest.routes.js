@@ -12,16 +12,18 @@ console.log("Part Request Routes Loaded");
 const express = require("express");
 const router = express.Router();
 const { automationBotAuth } = require("../middleware/automationBotAuth");
+const { auth } = require("../middleware/auth");
 
 const { deleteRequest } = require("../controllers/partRequest.controller");
 
 const {
-    createRequest,
+    savePartRequestLead,
     getAllRequests,
     updateStatus,
     updatePartRequestSource,
     updatePartRequestRemark,
-    createAutomationBotRequest,
+    saveAutomationBotRequest,
+    patchPartRequest,
 } = require("../controllers/partRequest.controller");
 
 // const PartRequest = require("../models/PartRequest");
@@ -47,8 +49,19 @@ router.get("/test", (req, res) => {
  * @swagger
  * /api/part-request:
  *   post:
- *     summary: Create part request
+ *     summary: Create or progressively update a Search Part (part request) lead
+ *     description: >
+ *       Without a lead ID this creates a lead (phone or email required) and returns its leadId.
+ *       With a lead ID (body `leadId`, or `X-Lead-ID` header) it updates only the supplied fields
+ *       of that lead. Updates through this route are only allowed while the lead is still Pending
+ *       and less than 24 hours old; otherwise 409 (staff use PATCH /api/part-request/{id}).
  *     tags: [Part Requests]
+ *     parameters:
+ *       - in: header
+ *         name: X-Lead-ID
+ *         required: false
+ *         schema:
+ *           type: string
  *     requestBody:
  *       required: true
  *       content:
@@ -56,26 +69,31 @@ router.get("/test", (req, res) => {
  *           schema:
  *             type: object
  *             properties:
- *               name:
- *                 type: string
- *               phone:
- *                 type: string
- *               email:
- *                 type: string
- *               make:
- *                 type: string
- *               model:
- *                 type: string
- *               year:
- *                 type: string
- *               partName:
- *                 type: string
+ *               leadId: { type: string, description: Omit to create a new lead }
+ *               name: { type: string }
+ *               phone: { type: string, example: "5551234567" }
+ *               email: { type: string }
+ *               make: { type: string }
+ *               model: { type: string }
+ *               year: { type: string, example: "2020" }
+ *               partName: { type: string }
+ *               condition: { type: string }
+ *               message: { type: string }
+ *               source: { type: string, example: Website }
+ *               status: { type: string, enum: [Pending, In Progress, Completed, Rejected] }
  *     responses:
  *       201:
- *         description: Request created successfully
+ *         description: Lead created (operation "created", leadId)
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Missing contact, invalid lead ID, no fields to update or invalid value
+ *       404:
+ *         description: Lead not found
+ *       409:
+ *         description: Lead can no longer be updated through this route
  */
-//end here
-router.post("/", createRequest);
+router.post("/", savePartRequestLead);
 
 // by shiva
 /**
@@ -140,6 +158,54 @@ router.put("/:id", updateStatus);
 //end here
 router.delete("/:id", deleteRequest);
 
+/**
+ * @swagger
+ * /api/part-request/{id}:
+ *   patch:
+ *     summary: Partially update a Search Part (part request)
+ *     description: Updates only the fields sent in the body. Unknown or system-managed fields are rejected with 400.
+ *     tags: [Part Requests]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             minProperties: 1
+ *             properties:
+ *               name: { type: string }
+ *               phone: { type: string, example: "5551234567" }
+ *               email: { type: string }
+ *               make: { type: string }
+ *               model: { type: string }
+ *               year: { type: string, example: "2015" }
+ *               partName: { type: string }
+ *               condition: { type: string }
+ *               message: { type: string }
+ *               remark: { type: string }
+ *               source: { type: string, example: Instagram }
+ *               status: { type: string, enum: [Pending, In Progress, Completed, Rejected] }
+ *               fulfilledBy: { type: string }
+ *     responses:
+ *       200:
+ *         description: Part request updated successfully
+ *       400:
+ *         description: Invalid id, empty body, unknown field or invalid value
+ *       401:
+ *         description: Missing or invalid token
+ *       404:
+ *         description: Part request not found
+ */
+router.patch("/:id", auth, patchPartRequest);
+
 // Source route by shiva
 router.patch("/:id/source", updatePartRequestSource);
 
@@ -156,12 +222,21 @@ router.patch("/:id/remark", (req, res, next) => {
  * @swagger
  * /api/part-request/automation-bot:
  *   post:
- *     summary: Create a part request from the AI Chatbot (Automation Bot)
+ *     summary: Create or update a part request from the AI Chatbot (Automation Bot)
+ *     description: >
+ *       Without a lead ID this creates a part request attributed to the Automation Bot and returns its leadId.
+ *       With a lead ID (body `leadId`, or `X-Lead-ID` header) it updates only the supplied fields of a
+ *       lead the bot itself created, while it is still Pending; otherwise 404 / 409.
  *     tags: [Part Requests]
  *     parameters:
  *       - in: header
  *         name: x-automation-bot-key
  *         required: true
+ *         schema:
+ *           type: string
+ *       - in: header
+ *         name: X-Lead-ID
+ *         required: false
  *         schema:
  *           type: string
  *     requestBody:
@@ -171,6 +246,9 @@ router.patch("/:id/remark", (req, res, next) => {
  *           schema:
  *             type: object
  *             properties:
+ *               leadId:
+ *                 type: string
+ *                 description: Omit to create a new lead
  *               name:
  *                 type: string
  *               phone:
@@ -190,10 +268,79 @@ router.patch("/:id/remark", (req, res, next) => {
  *                 example: WhatsApp
  *     responses:
  *       201:
- *         description: Request created successfully, attributed to the Automation Bot user
+ *         description: Request created successfully, attributed to the Automation Bot user (operation "created", leadId)
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Invalid lead ID, no fields to update or invalid value
  *       401:
  *         description: Invalid or missing Automation Bot API key
+ *       404:
+ *         description: Lead not found (or not created by the Automation Bot)
+ *       409:
+ *         description: Lead is already being worked by staff
  */
-router.post("/automation-bot", automationBotAuth, createAutomationBotRequest);
+router.post("/automation-bot", automationBotAuth, saveAutomationBotRequest);
+
+// Create-or-update with the lead id in the URL. Registered last so the
+// fixed paths above (e.g. /automation-bot) are matched first.
+/**
+ * @swagger
+ * /api/part-request/automation-bot/{id}:
+ *   post:
+ *     summary: Update a lead the Automation Bot created (id in the URL)
+ *     description: Same as POST /api/part-request/automation-bot with a leadId — updates only the supplied fields. Only leads the bot created, while still Pending.
+ *     tags: [Part Requests]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: header
+ *         name: x-automation-bot-key
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Invalid lead ID, URL/body lead ID mismatch, no fields to update or invalid value
+ *       401:
+ *         description: Invalid or missing Automation Bot API key
+ *       404:
+ *         description: Lead not found (or not created by the Automation Bot)
+ *       409:
+ *         description: Lead is already being worked by staff
+ */
+router.post("/automation-bot/:id", automationBotAuth, saveAutomationBotRequest);
+
+/**
+ * @swagger
+ * /api/part-request/{id}:
+ *   post:
+ *     summary: Update a lead (id in the URL)
+ *     description: >
+ *       Same as POST /api/part-request with a leadId — updates only the supplied fields. Only while the lead is still Pending and less than 24 hours old.
+ *       Without an id, POST /api/part-request creates the lead.
+ *     tags: [Part Requests]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Lead updated (operation "updated", leadId, data)
+ *       400:
+ *         description: Invalid lead ID, URL/body lead ID mismatch, no fields to update or invalid value
+ *       404:
+ *         description: Lead not found
+ *       409:
+ *         description: Lead can no longer be updated through this route
+ */
+router.post("/:id", savePartRequestLead);
 
 module.exports = router;

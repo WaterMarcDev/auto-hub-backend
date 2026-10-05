@@ -5,6 +5,7 @@ const xlsx = require("xlsx");
 const fs = require("fs");
 const path = require("path");
 const EntryFee = require("../models/EntryFee.model");
+const { applyIntakePartExclusions } = require("../utils/intakePartExclusions");
 
 // Helper to normalize image values: accept string or object, return string (prefer url then filename)
 const normalizeImageValue = (val) => {
@@ -314,11 +315,13 @@ const createCarIntake = async (req, res) => {
       })(),
 
       partDetails: {
-        parts:
+        // A1/A2 are always stored as not selected (utils/intakePartExclusions.js)
+        parts: applyIntakePartExclusions(
           formData.partDetails?.parts ||
           formData.parts ||
           formData.diagnosis ||
-          {},
+          {}
+        ),
         partsDescription:
           formData.partDetails?.partsDescription ||
           formData.partsDescription ||
@@ -723,9 +726,8 @@ const updateCarIntake = async (req, res) => {
 
     // Parts
     if (carIntakeData.parts) {
-      carIntake.parts = Object.assign(
-        carIntake.parts || {},
-        carIntakeData.parts
+      carIntake.parts = applyIntakePartExclusions(
+        Object.assign(carIntake.parts || {}, carIntakeData.parts)
       );
       carIntake.parts.partsUploadedBy = req.user._id;
     }
@@ -733,12 +735,14 @@ const updateCarIntake = async (req, res) => {
     // Ensure grouped `partDetails` is also kept in sync with incoming parts
     if (carIntakeData.parts || carIntakeData.partsDescription) {
       carIntake.partDetails = carIntake.partDetails || {};
-      carIntake.partDetails.parts =
+      // A1/A2 are always stored as not selected (utils/intakePartExclusions.js)
+      carIntake.partDetails.parts = applyIntakePartExclusions(
         carIntakeData.partDetails?.parts ||
         carIntakeData.parts ||
         carIntakeData.diagnosis ||
         carIntake.partDetails.parts ||
-        {};
+        {}
+      );
       carIntake.partDetails.partsDescription =
         carIntakeData.partDetails?.partsDescription ||
         carIntakeData.partsDescription ||
