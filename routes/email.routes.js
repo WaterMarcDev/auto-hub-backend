@@ -77,6 +77,8 @@ router.patch("/mark-read/:id", async (req, res) => {
       status: "read"
     });
 
+    req.app.get("io")?.emit("badge:update");
+
     res.json({ success: true });
   } catch (err) {
     console.error(err);

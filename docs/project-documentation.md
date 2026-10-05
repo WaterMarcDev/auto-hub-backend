@@ -84,9 +84,11 @@ CRM/
   - eBay REST API (`@ebay/api-client-nodejs` / Axios) & Trading XML API for marketplace listings.
   - Wix Velo serverless function endpoints for live eCommerce store updates.
 - **Documentation**: Swagger / OpenAPI 3.0 via `swagger-jsdoc` and `swagger-ui-express`.
-- **Scheduled Tasks**: `node-cron` with distributed MongoDB lease locks (`models/EbaySyncRun.model.js`).
+- **Scheduled Tasks**: `node-cron` with distributed MongoDB lease locks (`models/EbaySyncRun.model.js` and `models/JobLock.model.js`).
 - **Template Rendering**: `nunjucks` for dynamic document and receipt printing.
 - **Traffic Protection & Rate Limiting**: In-memory sliding-window rate limiter (`middleware/rateLimiter.js`) enforcing per-user (`user:<userId>`) and per-IP (`ip:<clientIp>`) quotas with standard `X-RateLimit-*` and `Retry-After` headers.
+- **In-Memory Caching & Telemetry**: Bounded LRU/FIFO in-memory cache layer (`services/cache.service.js`, hard-capped at 500 entries, <5 MB footprint) with real-time socket-driven invalidations and operational telemetry probe (`/api/system/analytics`).
+- **Vehicle Intelligence**: Integrated NHTSA VPIC API for automated vehicle spec and VIN decoding (`jobs/fetchVinDetailsJob.js`).
 
 ### 3.2 Frontend (`auto-hub-frontend`)
 - **Framework & Build**: React 18.3, Vite 7.x
@@ -96,6 +98,7 @@ CRM/
 - **HTTP Client**: Axios 1.11 configured with `withCredentials: true` and response interceptors
 - **Signatures & Scanning**: `react-signature-canvas` for waivers; `html5-qrcode` for VIN and barcode intake
 - **Data Visualization**: ApexCharts with `react-apexcharts`
+- **Client Caching & SWR Layer**: Stale-While-Revalidate caching utility (`src/utils/cacheManager.js`) enabling 0ms screen navigation across high-frequency views (Junk Car Requests, Part Requests, Waivers, Dashboard) and listening to real-time `cache:invalidate` and `badge:update` WebSocket events.
 
 ---
 
@@ -252,12 +255,18 @@ AutoHub captures customer leads through three distinct pipelines:
 | `CheckIn` | `models/CheckIn.model.js` | On-premise visitor logs | `customer`, `checkInToken`, `waiverSigned`, `entryFeePaid`, `status` (`in`/`out`) |
 | `Waiver` | `models/Waiver.model.js` | Digital liability releases | `customer`, `type` (`Buyer`/`Seller`), `signatureUrl`, `pdfUrl`, `termsAccepted` |
 | `EbaySyncRun` | `models/EbaySyncRun.model.js` | Distributed cron lease lock | `runType`, `isLocked`, `leaseExpiresAt`, `heartbeatAt`, `status` |
+| `JobLock` | `models/JobLock.model.js` | Distributed lease lock for jobs | `jobName`, `isLocked`, `lockedAt`, `leaseExpiresAt`, `lastCompletedAt` |
 | `EntryFeeSetting` | `models/EntryFeeSetting.model.js`| Daily yard entry price | `amount`, `currency`, `updatedBy` |
 | `IntegrationAccount`| `models/IntegrationAccount.model.js`| OAuth credentials | `platform` (`ebay`/`facebook`), `accessToken`, `refreshToken`, `tokenExpiresAt` |
 
 ### 5.4 Backend Route Reference Catalog
 
 ```
+/api/system
+  GET    /health                      Public health probe (database status, uptime)
+  GET    /badge-counts                Ultra-lightweight sidebar badge counters (0MB Node heap)
+  GET    /analytics                   Full system telemetry (Admin: memory RSS, DB ping, rate limits, socket count)
+
 /api/auth
   POST   /register                    Public user registration
   POST   /login                       Public login (sets cookie + returns JWT)
@@ -395,6 +404,19 @@ export default api;
 - **Exemptions**: CORS preflight `OPTIONS` requests, static media (`/uploads`, `/assets`, `/api-docs`), and verified automation bot requests (`x-automation-bot-key`) are strictly exempted from throttling.
 - **Reverse Proxy**: `app.set("trust proxy", 1)` must remain enabled in `server.js` so client IPs are accurate behind Nginx/Cloudflare.
 
+### Rule 6: Never Use Full Collection Fetches for Badge/Status Counters
+- **Antipattern**: Running polling loops that fetch `/api/email/all` or entire collections just to compute `.filter(e => e.status === "unread").length`. This floods the Node.js event loop with multi-megabyte JSON allocations and exhausts 2GB VPS memory.
+- **Standard**: Always use `/api/system/badge-counts` which leverages native MongoDB `countDocuments()` (reads collection B-tree metadata, 0MB Node.js heap overhead, transfers ~80 bytes).
+- **Updates**: Wire real-time Socket.io events (`badge:update`, `new_email`) to increment/decrement counts dynamically.
+
+### Rule 7: Enforce Mongoose `.lean()` on High-Volume Read Endpoints
+- **Why**: Mongoose hydrates raw documents into complex Mongoose Documents with schema getters, setters, and change tracking proxies. Hydrating 1,000 documents consumes ~40–70MB of heap.
+- **Standard**: Always append `.lean()` to list queries (`find()`, `findById()`) in read-only controllers (`junkCar`, `partRequest`, `email`, `waiver`).
+
+### Rule 8: In-Memory Caching Boundaries (2GB Server Budget)
+- **Constraint**: The Node.js in-memory cache (`services/cache.service.js`) must remain bounded.
+- **Standard**: Strictly enforce `maxEntries` (capped at 500 entries) with LRU/FIFO eviction and TTL expiration so the cache heap footprint never exceeds 5 MB.
+
 ---
 
 ## 8. Development & Environment Reference
@@ -426,6 +448,10 @@ PART_SYNC_SECRET=your_velo_shared_secret
 
 # AI / Chatbot Automation Bot
 AUTOMATION_BOT_API_KEY=your_automation_bot_secret_key
+
+# VIN Decoding Cron Schedule (Default: Hourly; saves CPU on 2GB server)
+VIN_CRON_SCHEDULE="0 * * * *"
+VIN_CRON_BATCH_SIZE=100
 
 # eBay Developer API (Optional / Production)
 EBAY_ENVIRONMENT=PRODUCTION

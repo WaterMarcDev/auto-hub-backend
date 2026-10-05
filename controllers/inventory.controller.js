@@ -3,6 +3,8 @@ const CarModel = require("../models/CarModel.model");
 const Trim = require("../models/Trim.model");
 const Inventory = require("../models/Inventory.model");
 const Part = require("../models/Part.model");
+const CarIntake = require("../models/CarIntake.model");
+const Tag = require("../models/Tag.model");
 const { isWixExcludedPart } = require("../utils/wixExportExclusions");
 const { resolvePartPrice } = require("../utils/partPricing");
 const { isGermanVehicle } = require("../utils/vehicleClassification");
@@ -254,6 +256,180 @@ const createInventory = async (req, res) => {
   } catch (error) {
     console.error("Error creating inventory:", error);
     res.status(500).json({ message: "Server error while creating inventory" });
+  }
+};
+
+// Runs the real createInventory handler for one part without an HTTP round
+// trip (same pattern as scripts/bulkAddCarsToInventory.js), so every part
+// created in bulk goes through exactly the same validation, Make/Model/Trim
+// resolution, SKU, category and price handling as a single create.
+const createInventoryInternal = async (body) => {
+  let statusCode = 200;
+  let payload = null;
+  const res = {
+    status(code) {
+      statusCode = code;
+      return this;
+    },
+    json(data) {
+      payload = data;
+      return this;
+    },
+  };
+  await createInventory({ body }, res);
+  return { statusCode, payload };
+};
+
+const BULK_INVENTORY_MAX_PARTS = 200;
+
+// @desc    Add several parts of one car to inventory in a single request
+// @route   POST /api/inventory/bulk
+// @access  Private
+// Body: { carIntakeId?, vin, make, model, trim, year, color,
+//         parts: [{ partName, unit, cleaned, quality, location, weight,
+//                   dimensions, image, assetTagId }] }
+// Only the parts sent are created (the Add To Inventory page sends the
+// ones ticked "Extracted"). Parts already in inventory for the VIN are
+// skipped. Each part succeeds or fails on its own. When carIntakeId is
+// given and every selected part of that car is now in inventory, the car
+// moves to "part-added-to-inventory" — the same rule the page used to apply.
+const bulkCreateInventory = async (req, res) => {
+  try {
+    const { carIntakeId, vin, make, model, trim, year, color, parts } = req.body || {};
+
+    if (typeof vin !== "string" || !vin.trim()) {
+      return res.status(400).json({ success: false, message: "VIN is required" });
+    }
+
+    if (!Array.isArray(parts) || parts.length === 0) {
+      return res.status(400).json({ success: false, message: "At least one part is required" });
+    }
+
+    if (parts.length > BULK_INVENTORY_MAX_PARTS) {
+      return res.status(400).json({
+        success: false,
+        message: `A maximum of ${BULK_INVENTORY_MAX_PARTS} parts can be added at once`,
+      });
+    }
+
+    const invalid = parts.findIndex(
+      (p) => !p || typeof p !== "object" || typeof p.partName !== "string" || !p.partName.trim()
+    );
+    if (invalid !== -1) {
+      return res.status(400).json({
+        success: false,
+        message: `Part ${invalid + 1} is missing a part name`,
+      });
+    }
+
+    let carIntake = null;
+    if (carIntakeId !== undefined && carIntakeId !== null && carIntakeId !== "") {
+      if (!mongoose.Types.ObjectId.isValid(carIntakeId)) {
+        return res.status(400).json({ success: false, message: "Invalid car intake id" });
+      }
+      carIntake = await CarIntake.findById(carIntakeId);
+      if (!carIntake) {
+        return res.status(404).json({ success: false, message: "Car intake not found" });
+      }
+      if (String(carIntake.vin || "").trim().toUpperCase() !== vin.trim().toUpperCase()) {
+        return res.status(400).json({ success: false, message: "VIN does not match the car intake" });
+      }
+    }
+
+    const existingNames = new Set(
+      (await Inventory.find({ vin }).select("partName").lean()).map((i) => i.partName)
+    );
+
+    const results = [];
+    // One part at a time: createInventory may create a missing Make/Model/
+    // Trim, and doing that concurrently could create duplicates.
+    for (const part of parts) {
+      const partName = part.partName;
+
+      if (existingNames.has(partName)) {
+        results.push({ partName, status: "skipped", message: "Already in inventory" });
+        continue;
+      }
+
+      const { statusCode, payload } = await createInventoryInternal({
+        partName,
+        unit: part.unit,
+        cleaned: part.cleaned,
+        quality: part.quality,
+        location: part.location,
+        weight: part.weight,
+        dimensions: part.dimensions,
+        image: part.image,
+        price: part.price,
+        make,
+        model,
+        trim,
+        year,
+        vin,
+        color,
+      });
+
+      if (statusCode !== 201 || !payload?.data?._id) {
+        results.push({
+          partName,
+          status: "failed",
+          message: payload?.message || "Could not add this part",
+        });
+        continue;
+      }
+
+      existingNames.add(partName);
+      const result = { partName, status: "created", inventoryId: payload.data._id };
+
+      // Same update as tag.controller.js#attachTagToPart
+      if (part.assetTagId) {
+        const tag = await Tag.findOneAndUpdate(
+          { barcodeString: part.assetTagId, inventoryId: null },
+          { inventoryId: payload.data._id, isUsed: true },
+          { new: true }
+        );
+        if (!tag) result.tagMessage = "Tag already assigned or does not exist";
+      }
+
+      results.push(result);
+    }
+
+    const count = (status) => results.filter((r) => r.status === status).length;
+
+    let carIntakeStatus = null;
+    let stillMissing = [];
+    if (carIntake) {
+      const intakeParts = carIntake.partDetails?.parts || {};
+      const selectedKeys = Object.keys(intakeParts).filter((k) => intakeParts[k]?.selected);
+      const nowInInventory = new Set(
+        (await Inventory.find({ vin: carIntake.vin }).select("partName").lean()).map((i) => i.partName)
+      );
+      stillMissing = selectedKeys.filter((k) => !nowInInventory.has(k));
+
+      if (stillMissing.length === 0 && carIntake.status !== "part-added-to-inventory") {
+        const updated = await CarIntake.findByIdAndUpdate(
+          carIntake._id,
+          { status: "part-added-to-inventory" },
+          { new: true }
+        );
+        carIntakeStatus = updated?.status || null;
+      } else {
+        carIntakeStatus = carIntake.status;
+      }
+    }
+
+    res.status(200).json({
+      success: count("failed") === 0,
+      created: count("created"),
+      skipped: count("skipped"),
+      failed: count("failed"),
+      results,
+      carIntakeStatus,
+      stillMissing,
+    });
+  } catch (error) {
+    console.error("Bulk create inventory error:", error);
+    res.status(500).json({ success: false, message: "Server error while adding parts to inventory" });
   }
 };
 
@@ -1136,6 +1312,7 @@ const deduplicateInventory = async (req, res) => {
 
 module.exports = {
   createInventory,
+  bulkCreateInventory,
   getInventoryByVIN,
   updateInventoryPrice,
   getPartsMasterList,

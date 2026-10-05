@@ -32,6 +32,11 @@ const junkCarSchema = new mongoose.Schema(
         condition: {
             type: String,
         },
+        // Pickup location captured by the junk car lead form (optional).
+        location: {
+            type: String,
+            default: "",
+        },
         message: {
             type: String,
             default: "",
