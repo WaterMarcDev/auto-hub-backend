@@ -255,8 +255,10 @@ const getWaivers = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // Build filter object
-    const filter = {};
+    // Build filter object - exclude soft-deleted records by default
+    const filter = {
+      isDeleted: { $ne: true },
+    };
 
     // Search functionality
     if (req.query.search) {
@@ -333,9 +335,6 @@ const getWaivers = async (req, res) => {
       .skip(skip)
       .limit(limit)
       .lean();
-
-    // Exclude soft-deleted documents
-    filter.isDeleted = { $ne: true };
 
     const total = await Waiver.countDocuments(filter);
 

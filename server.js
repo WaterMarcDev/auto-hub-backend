@@ -80,6 +80,46 @@ const io = new Server(server, {
   },
 });
 
+// Authenticate incoming Socket.io connections
+const jwt = require("jsonwebtoken");
+io.use((socket, next) => {
+  try {
+    let token = socket.handshake.auth?.token;
+
+    if (!token && socket.handshake.headers.cookie) {
+      const cookieHeader = socket.handshake.headers.cookie;
+      const match = cookieHeader.match(/(?:^|;\s*)token=([^;]+)/);
+      if (match) {
+        token = decodeURIComponent(match[1]);
+      }
+    }
+
+    if (!token && socket.handshake.headers.authorization) {
+      token = socket.handshake.headers.authorization.replace(/^Bearer\s+/i, "");
+    }
+
+    if (!token && process.env.NODE_ENV === "development") {
+      return next();
+    }
+
+    if (!token) {
+      return next(new Error("Authentication error: No authorization token provided"));
+    }
+
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "fallback_secret"
+    );
+    socket.user = decoded;
+    next();
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      return next();
+    }
+    return next(new Error("Authentication error: Invalid or expired token"));
+  }
+});
+
 //  make io available in controllers
 app.set("io", io);
 
@@ -407,7 +447,29 @@ app.use((req, res) => {
     }));
   }
 
-  res.status(404).json({ error: "Route not found" });
+  res.status(404).json({ success: false, error: "Route not found" });
+});
+
+// Centralized Express Error-Handling Middleware
+app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode || 500;
+  console.error(
+    `[EXPRESS ERROR] ${req.method} ${req.originalUrl}:`,
+    err.stack || err.message || err
+  );
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(status).json({
+    success: false,
+    error:
+      process.env.NODE_ENV === "production"
+        ? "Internal server error"
+        : err.message || "An unexpected error occurred",
+    ...(process.env.NODE_ENV !== "production" && { stack: err.stack }),
+  });
 });
 
 // Module-scope references to the eBay cron starters so graceful shutdown can

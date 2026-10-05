@@ -58,13 +58,23 @@ const checkInSchema = new mongoose.Schema({
 checkInSchema.index({ status: 1, checkInTime: -1 });
 checkInSchema.index({ customer: 1, checkInTime: -1 });
 
-checkInSchema.pre("save", function (next) {
+checkInSchema.pre("save", async function (next) {
   if (!this.checkInToken) {
-    // Generate a unique 6 character alphanumeric token
-    this.checkInToken = Math.random()
-      .toString(36)
-      .substring(2, 8)
-      .toUpperCase();
+    const crypto = require("crypto");
+    let unique = false;
+    let attempts = 0;
+    while (!unique && attempts < 10) {
+      attempts++;
+      const candidateToken = crypto.randomBytes(3).toString("hex").toUpperCase();
+      const existing = await mongoose.models.CheckIn.findOne({ checkInToken: candidateToken });
+      if (!existing) {
+        this.checkInToken = candidateToken;
+        unique = true;
+      }
+    }
+    if (!unique) {
+      this.checkInToken = `TK${Date.now().toString(36).slice(-4).toUpperCase()}`;
+    }
   }
   next();
 });
