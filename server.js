@@ -398,6 +398,9 @@ require("./services/adapters/tiktokAdapter");
 // Entry Fee routes
 app.use("/api/entry-fee", require("./routes/entryFee.routes"));
 
+// Mobile App Subsystem Routes (/api/v1/app/*)
+app.use("/api/v1/app/auth", require("./mobile/routes/mobileAuth.routes"));
+
 // Serve uploaded files statically
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
