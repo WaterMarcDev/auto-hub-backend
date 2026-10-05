@@ -479,6 +479,7 @@ app.use((err, req, res, next) => {
 // stop scheduling new eBay work. Assigned inside the listen callback below.
 let ebayCatalogSyncJobRef = null;
 let ebayListingReconcileJobRef = null;
+let ebayMessageSyncJobRef = null;
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
@@ -549,6 +550,19 @@ server.listen(PORT, () => {
       err.message || err
     );
   }
+
+  // Start the eBay MESSAGE sync (every 5 minutes by default) so buyer messages
+  // reach the Marketplace Inbox in near real time via `new_message` socket
+  // events. Incremental and bounded; uses its own lease lock (not the
+  // EbaySyncRun lock), so it never waits behind the catalog push.
+  // Disable with DISABLE_EBAY_MESSAGE_SYNC=true.
+  try {
+    const startEbayMessageSync = require("./jobs/ebayMessageSyncJob");
+    startEbayMessageSync({ io });
+    ebayMessageSyncJobRef = startEbayMessageSync;
+  } catch (err) {
+    console.error("Failed to start eBay message sync cron job:", err.message || err);
+  }
 });
 
 // ─── Graceful shutdown (Passenger/Plesk send SIGTERM; Ctrl-C sends SIGINT) ──
@@ -567,6 +581,7 @@ async function gracefulShutdown(signal) {
   // 1) Stop starting new eBay work.
   try { if (ebayCatalogSyncJobRef && ebayCatalogSyncJobRef.stop) ebayCatalogSyncJobRef.stop(); } catch (_) { /* best-effort */ }
   try { if (ebayListingReconcileJobRef && ebayListingReconcileJobRef.stop) ebayListingReconcileJobRef.stop(); } catch (_) { /* best-effort */ }
+  try { if (ebayMessageSyncJobRef && ebayMessageSyncJobRef.stop) ebayMessageSyncJobRef.stop(); } catch (_) { /* best-effort */ }
 
   // 2) Signal any in-flight protected eBay sync operation to cancel, wait
   //    (bounded by this same timeout) for it to actually finish, and only

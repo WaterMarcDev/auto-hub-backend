@@ -231,6 +231,11 @@ exports.saveJunkCarLead = async (req, res) => {
             windowStart: new Date(Date.now() - LEAD_CAPTURE_UPDATE_WINDOW_MS),
         });
 
+        if (!result.error) {
+            req.app.get("io")?.emit("cache:invalidate", { scope: "junkCars" });
+            req.app.get("io")?.emit("badge:update");
+        }
+
         return sendJunkCarUpdateResult(res, result);
     } catch (error) {
         return sendLeadError(res, error, "SAVE JUNK CAR LEAD ERROR");
