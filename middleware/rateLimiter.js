@@ -7,7 +7,7 @@ const jwt = require("jsonwebtoken");
 class SlidingWindowRateLimiter {
   constructor(options = {}) {
     this.windowMs = options.windowMs || parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 1000;
-    this.max = options.max || parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 5;
+    this.max = options.max || parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100;
     this.statusCode = options.statusCode || 429;
     this.message = options.message || {
       status: 429,

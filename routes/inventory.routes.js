@@ -14,6 +14,7 @@ const { auth } = require("../middleware/auth");
 const { automationBotAuth } = require("../middleware/automationBotAuth"); // added by shiva
 const {
   createInventory,
+  bulkCreateInventory,
   getInventoryByVIN,
   updateInventoryPrice,
   getPartsMasterList,
@@ -38,6 +39,62 @@ const {
  */
 //end here
 router.post("/", auth, createInventory);
+
+/**
+ * @swagger
+ * /api/inventory/bulk:
+ *   post:
+ *     summary: Add several parts of one car to inventory in a single request
+ *     description: >
+ *       Used by the Add To Inventory page instead of one request per part.
+ *       Only the parts sent are created; parts already in inventory for the VIN are skipped,
+ *       and each part succeeds or fails on its own. When carIntakeId is given and every
+ *       selected part of that car is now in inventory, the car moves to part-added-to-inventory.
+ *     tags: [Inventory]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [vin, parts]
+ *             properties:
+ *               carIntakeId: { type: string }
+ *               vin: { type: string }
+ *               make: { type: string }
+ *               model: { type: string }
+ *               trim: { type: string }
+ *               year: { type: number }
+ *               color: { type: string }
+ *               parts:
+ *                 type: array
+ *                 maxItems: 200
+ *                 items:
+ *                   type: object
+ *                   required: [partName]
+ *                   properties:
+ *                     partName: { type: string }
+ *                     unit: { type: number }
+ *                     cleaned: { type: boolean }
+ *                     quality: { type: string }
+ *                     location: { type: string }
+ *                     weight: { type: string }
+ *                     dimensions: { type: string }
+ *                     image: { type: string, nullable: true }
+ *                     assetTagId: { type: string, nullable: true, description: Asset tag barcode to attach }
+ *     responses:
+ *       200:
+ *         description: "Batch processed: counts of created / skipped / failed, per-part results, carIntakeStatus, stillMissing"
+ *       400:
+ *         description: Missing VIN or parts, too many parts, invalid car intake id, or VIN mismatch
+ *       401:
+ *         description: Missing or invalid token
+ *       404:
+ *         description: Car intake not found
+ */
+router.post("/bulk", auth, bulkCreateInventory);
 
 // by shiva
 /**
