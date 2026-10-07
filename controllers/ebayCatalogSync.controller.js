@@ -10,6 +10,8 @@
 const { syncCatalog, syncSingleProduct } = require("../services/ebay/ebayCatalogSync.service");
 const EbaySyncRun = require("../models/EbaySyncRun.model");
 const Inventory = require("../models/Inventory.model");
+const MarketplaceListing = require("../models/MarketplaceListing.model");
+const { WIX_EXCLUDED_PART_NAMES } = require("../utils/wixExportExclusions");
 const ebayConfig = require("../config/ebayCatalogConfig");
 
 /**
@@ -142,6 +144,66 @@ exports.retryFailed = async (req, res) => {
   }
 };
 
+// Same rule as utils/ebayExportExclusions.js (trimmed, case-insensitive
+// exact part name), expressed as a regex so it can run inside MongoDB.
+const EXCLUDED_PART_NAME_REGEX = `^(${[...WIX_EXCLUDED_PART_NAMES].map(escapeRegex).join("|")})$`;
+
+/**
+ * Current catalog totals, computed from the Inventory collection with the
+ * same rules the catalog sync uses — NOT from the last run's counters,
+ * which only describe what that single run did (a run that finds nothing
+ * new reports Published 0 even when thousands of products are live).
+ *
+ *   discovered = parts the sync looks at (every non-deleted Inventory item)
+ *   excluded   = discovered parts never sent to eBay (A1 / A2 / Windshield)
+ *   created    = live listings created by the CRM   (ebaySyncStatus PUBLISHED)
+ *   updated    = live listings revised by the CRM   (ebaySyncStatus UPDATED)
+ *   published  = created + updated (every product live on eBay from the CRM)
+ *   failed     = products whose last sync attempt failed (FAILED)
+ *   notSynced  = everything else (not attempted yet)
+ *   liveOnEbay = eBay listings found by the eBay → CRM listing import
+ *                (Marketplace Listing), which can also contain listings
+ *                created outside the CRM
+ */
+async function getCatalogTotals() {
+  const isExcluded = {
+    $regexMatch: {
+      input: { $trim: { input: { $toString: { $ifNull: ["$partName", ""] } } } },
+      regex: EXCLUDED_PART_NAME_REGEX,
+      options: "i",
+    },
+  };
+
+  const [row] = await Inventory.aggregate([
+    { $match: { isDeleted: { $ne: true } } },
+    {
+      $group: {
+        _id: null,
+        discovered: { $sum: 1 },
+        excluded: { $sum: { $cond: [isExcluded, 1, 0] } },
+        created: { $sum: { $cond: [{ $and: [{ $not: [isExcluded] }, { $eq: ["$ebaySyncStatus", "PUBLISHED"] }] }, 1, 0] } },
+        updated: { $sum: { $cond: [{ $and: [{ $not: [isExcluded] }, { $eq: ["$ebaySyncStatus", "UPDATED"] }] }, 1, 0] } },
+        failed: { $sum: { $cond: [{ $and: [{ $not: [isExcluded] }, { $eq: ["$ebaySyncStatus", "FAILED"] }] }, 1, 0] } },
+      },
+    },
+  ]);
+
+  const totals = row || { discovered: 0, excluded: 0, created: 0, updated: 0, failed: 0 };
+  const published = totals.created + totals.updated;
+  const liveOnEbay = await MarketplaceListing.countDocuments({ marketplace: "ebay" });
+
+  return {
+    discovered: totals.discovered,
+    excluded: totals.excluded,
+    published,
+    created: totals.created,
+    updated: totals.updated,
+    failed: totals.failed,
+    notSynced: totals.discovered - totals.excluded - published - totals.failed,
+    liveOnEbay,
+  };
+}
+
 /**
  * GET /api/ebay/catalog-sync/status
  * Get the current and last sync status.
@@ -150,9 +212,10 @@ exports.getSyncStatus = async (req, res) => {
   try {
     // The catalog push and the eBay → CRM listing reconciliation share the
     // EbaySyncRun collection; lastRun must only ever be a catalog push run.
-    const [latestRun, latestReconcileRun] = await Promise.all([
+    const [latestRun, latestReconcileRun, catalogTotals] = await Promise.all([
       EbaySyncRun.getLatestRun("catalog_push"),
       EbaySyncRun.getLatestRun("listing_reconcile"),
+      getCatalogTotals(),
     ]);
 
     const scheduleEnabled = ebayConfig.EBAY_CATALOG_CRON_ENABLED;
@@ -161,6 +224,7 @@ exports.getSyncStatus = async (req, res) => {
       configured: ebayConfig.isCatalogConfigured(),
       missingConfiguration: ebayConfig.getMissingConfiguration(),
       environment: ebayConfig.EBAY_ENVIRONMENT,
+      catalogTotals,
       lastRun: latestRun || null,
       scheduleEnabled,
       nextScheduledAt: scheduleEnabled ? getNextScheduledTime() : null,
