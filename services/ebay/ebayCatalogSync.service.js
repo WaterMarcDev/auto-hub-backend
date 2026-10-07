@@ -379,13 +379,23 @@ async function syncCatalog(options = {}) {
         // ebaySyncStatus/ebaySyncError completely untouched — silently
         // stale, visible only in server logs.
         if (!err.alreadyPersisted) {
+          // A product that was already live (PUBLISHED/UPDATED with a
+          // listing ID) whose UPDATE failed — e.g. eBay's API usage limit
+          // (518) — is still live on eBay with its previous data, so it keeps
+          // its live status and only records the error; the sync hash is not
+          // advanced, so the next run retries the update. An ended listing
+          // (eBay 291) is genuinely no longer live and is marked FAILED.
+          const wasLive =
+            Boolean(inventoryItem.ebayListingId) &&
+            ["PUBLISHED", "UPDATED"].includes(inventoryItem.ebaySyncStatus);
+          const listingEnded = /\b291\b|ended listing/i.test(err.message || "");
+          const failureUpdate =
+            wasLive && !listingEnded
+              ? { ebaySyncError: `[${category}] ${err.message}`, ebayLastSyncedAt: new Date() }
+              : { ebaySyncStatus: "FAILED", ebaySyncError: `[${category}] ${err.message}`, ebayLastSyncedAt: new Date() };
           try {
             await Inventory.findByIdAndUpdate(inventoryItem._id, {
-              $set: {
-                ebaySyncStatus: "FAILED",
-                ebaySyncError: `[${category}] ${err.message}`,
-                ebayLastSyncedAt: new Date(),
-              },
+              $set: failureUpdate,
             });
           } catch (persistErr) {
             console.error(`[EBAY_SYNC] CRITICAL: failed to persist failure state for SKU=${mapped.sku}: ${persistErr.message}`);
@@ -713,6 +723,11 @@ function xmlTextValue(node) {
   return node;
 }
 
+/** Title as eBay stores it: trimmed, with whitespace runs collapsed to one space. */
+function normalizeListingTitle(title) {
+  return String(title ?? "").replace(/\s+/g, " ").trim();
+}
+
 /**
  * Post-publish/post-revise verification for the Motors Trading API path —
  * the REST path has had this since an earlier audit pass; the Motors path
@@ -763,7 +778,11 @@ async function verifyMotorsListing(accessToken, itemId, mapped) {
   if (remoteSku !== undefined && String(remoteSku) !== String(expectedSku)) {
     return { ok: false, error: `SKU mismatch (expected ${expectedSku}, eBay reports ${remoteSku})` };
   }
-  if (remoteTitle !== undefined && String(remoteTitle) !== String(expectedTitle)) {
+  // eBay stores titles trimmed and with runs of spaces collapsed (our
+  // 80-character cut can leave a trailing space, and some trims contain
+  // double spaces), so compare in that same normalized form — otherwise a
+  // listing eBay accepted unchanged is reported as a mismatch.
+  if (remoteTitle !== undefined && normalizeListingTitle(remoteTitle) !== normalizeListingTitle(expectedTitle)) {
     return { ok: false, error: `Title mismatch (expected "${expectedTitle}", eBay reports "${remoteTitle}")` };
   }
   if (remotePrice !== undefined && Number(remotePrice) !== Number(expectedPrice)) {
@@ -967,9 +986,11 @@ async function syncMotorsProduct(inventoryItem, mapped, accessToken, summary) {
   if (!verification.ok) {
     summary.totalApiErrors++;
     console.error(`[EBAY_MOTORS_SYNC] SKU=${sku} VERIFICATION FAILED: ${verification.error}`);
-    // IDs preserved, hash NOT advanced — mirrors the REST path's
-    // verification-failure handling so the next run retries/re-verifies
-    // instead of silently reporting success.
+    // IDs preserved, hash NOT advanced, so the next run re-verifies instead
+    // of silently reporting success. The listing itself IS live on eBay
+    // (AddFixedPriceItem / ReviseFixedPriceItem succeeded and returned this
+    // ItemID), so it keeps a live status with the problem recorded as a
+    // warning — marking it FAILED made a live listing look unpublished.
     try {
       await Inventory.findByIdAndUpdate(inventoryItem._id, {
         $set: {
@@ -977,8 +998,8 @@ async function syncMotorsProduct(inventoryItem, mapped, accessToken, summary) {
           ebayListingId: String(listingId),
           ebayMarketplaceId: "EBAY_MOTORS_US",
           ebayCategoryId: mapped.ebayCategoryId,
-          ebaySyncStatus: "FAILED",
-          ebaySyncError: `VERIFICATION_ERROR: ${verification.error}`,
+          ebaySyncStatus: isNewListing ? "PUBLISHED" : "UPDATED",
+          ebaySyncError: `VERIFICATION_WARNING: ${verification.error}`,
           ebayLastSyncedAt: new Date(),
         },
       });
