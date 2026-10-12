@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 const path = require("path");
-const { auth } = require("../middleware/auth");
+const { auth, permit } = require("../middleware/auth");
 const {
   createCarIntake,
   getCarIntakes,
@@ -12,6 +12,8 @@ const {
   updateCarIntakeStatus,
   moveToReadyToScrap,        //added by shiva
   moveToScrapped,           //added by shiva
+  addScrapElements,
+  getScrapDetails,
   getCarIntakeStats,
   bulkUploadCarIntakes,
   bulkUploadScraped,
@@ -166,11 +168,18 @@ router.put("/:id", auth, updateCarIntake);
 // @access  Private
 router.patch("/:id/status", auth, updateCarIntakeStatus);
 
-// ReadyToScrap route by shiva
-router.patch("/:id/ready-to-scrap", auth, moveToReadyToScrap);
+// ─── Scrap workflow ──────────────────────────────────────────────────────
+// Car Inventory for Scrap → Ready To Scrap (admin/manager)
+router.patch("/:id/ready-to-scrap", auth, permit("admin", "manager"), moveToReadyToScrap);
 
-// Move to Scrapped route by shiva
-router.patch("/:id/move-to-scrapped", auth, moveToScrapped);
+// Ready To Scrap → Scrapped with extracted elements (scraper/admin)
+router.patch("/:id/move-to-scrapped", auth, permit("scraper", "admin"), moveToScrapped);
+
+// Backfill elements for a car scrapped without any (scraper/admin)
+router.post("/:id/scrap-elements", auth, permit("scraper", "admin"), addScrapElements);
+
+// Extracted elements + kept/removed parts for a car
+router.get("/:id/scrap-details", auth, getScrapDetails);
 
 // @route   DELETE /api/car-intake/:id
 // @desc    Delete car intake

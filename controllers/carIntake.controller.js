@@ -6,6 +6,10 @@ const fs = require("fs");
 const path = require("path");
 const EntryFee = require("../models/EntryFee.model");
 const { applyIntakePartExclusions } = require("../utils/intakePartExclusions");
+const carScrap = require("../services/carScrap.service");
+
+// Statuses owned by the scrap workflow endpoints — never set via PATCH /:id/status.
+const SCRAP_FLOW_STATUSES = ["ready-to-scrap", "elements-scraped", "scraped"];
 
 // Helper to normalize image values: accept string or object, return string (prefer url then filename)
 const normalizeImageValue = (val) => {
@@ -1025,12 +1029,16 @@ const updateCarIntakeStatus = async (req, res) => {
       return res.status(400).json({ error: "Invalid status" });
     }
 
-    // If status is 'scraped', also set scrapedBy to current user
-    const update = { status };
-    if (status === "scraped") {
-      update.scrapedBy = req.user?._id;
-      update.scrapDate = new Date();
+    // Scrap statuses only change through the scrap workflow endpoints
+    // (ready-to-scrap / move-to-scrapped), which enforce order, roles and
+    // element extraction. This generic endpoint must not bypass them.
+    if (SCRAP_FLOW_STATUSES.includes(status)) {
+      return res.status(400).json({
+        error: "Use Car Inventory for Scrap → Ready To Scrap → Move To Scrapped to change scrap statuses.",
+      });
     }
+
+    const update = { status };
 
     const carIntake = await CarIntake.findByIdAndUpdate(req.params.id, update, {
       new: true,
@@ -1056,79 +1064,70 @@ const updateCarIntakeStatus = async (req, res) => {
 };
 
 
-// “Move to Ready-to-Scrap” API by shiva
+// ─── Scrap workflow (see services/carScrap.service.js) ──────────────────────
+
+const sendScrapError = (res, error, label) => {
+  if (error instanceof carScrap.ScrapFlowError) {
+    return res.status(error.statusCode).json({ success: false, message: error.message });
+  }
+  console.error(`${label} error:`, error);
+  return res.status(500).json({ success: false, message: "Server error" });
+};
+
+// @desc    Car Inventory for Scrap → Ready To Scrap
+// @route   PATCH /api/car-intake/:id/ready-to-scrap
+// @access  Admin, Manager
 const moveToReadyToScrap = async (req, res) => {
   try {
-    const updated = await CarIntake.findByIdAndUpdate(
-      req.params.id,
-      {
-        $set: {
-          status: "ready-to-scrap",
-        },
-      },
-      { new: true }
-    );
-
-    if (!updated) {
-      return res.status(404).json({
-        success: false,
-        message: "Car not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      message: "Car moved to Ready to Scrap",
-      data: updated,
-    })
+    const updated = await carScrap.sendToReadyToScrap(req.params.id);
+    res.json({ success: true, message: "Car moved to Ready To Scrap", data: updated });
   } catch (error) {
-    console.error("Ready-to-Scrap Error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    sendScrapError(res, error, "Ready-to-Scrap");
   }
 };
 
-// moveToScrapped function by shiva
+// @desc    Ready To Scrap → Scrapped, saving the extracted elements
+// @route   PATCH /api/car-intake/:id/move-to-scrapped
+// @body    { elements: [{ elementName, unit, weight, quality, dimensions }], scrapRemarks, removePartIds }
+// @access  Scraper, Admin
 const moveToScrapped = async (req, res) => {
-
   try {
-    const { id } = req.params;
-    const { scrapRemarks } = req.body;     // scrapremarks added by shiva
-
-    const updated = await CarIntake.findByIdAndUpdate(
-      id,
-      {
-        status: "scraped",
-
-        // Save logged-in scrapper
-        scrapedBy: req.user.id,
-
-        // save scrap date
-        scrapDate: new Date(),
-
-        // save scrap remarks from request body
-        scrapRemarks,
-      },
-      { new: true }
-    );
-
+    const result = await carScrap.moveToScrapped(req.params.id, req.body || {}, req.user?._id);
     res.json({
       success: true,
-      data: updated,
+      message: "Car moved to Scrapped",
+      data: result.car,
+      elements: result.elements,
+      removedParts: result.removedParts,
     });
   } catch (error) {
-    console.error("Move To Scrapped Error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    sendScrapError(res, error, "Move To Scrapped");
   }
 };
-// end here
+
+// @desc    Add elements to a car that was scrapped without any (backfill)
+// @route   POST /api/car-intake/:id/scrap-elements
+// @body    { elements: [...], removePartIds }
+// @access  Scraper, Admin
+const addScrapElements = async (req, res) => {
+  try {
+    const result = await carScrap.addElementsToScrappedCar(req.params.id, req.body || {}, req.user?._id);
+    res.status(201).json({ success: true, message: "Elements added", elements: result.elements, removedParts: result.removedParts });
+  } catch (error) {
+    sendScrapError(res, error, "Add scrap elements");
+  }
+};
+
+// @desc    Extracted elements + parts kept in / removed from inventory
+// @route   GET /api/car-intake/:id/scrap-details
+// @access  Private
+const getScrapDetails = async (req, res) => {
+  try {
+    res.json({ success: true, data: await carScrap.getScrapDetails(req.params.id) });
+  } catch (error) {
+    sendScrapError(res, error, "Scrap details");
+  }
+};
 
 
 // @desc    Get car intake statistics
@@ -2112,4 +2111,6 @@ module.exports = {
   printAllDocuments,
   moveToReadyToScrap,     // added by shiva
   moveToScrapped,        // added by shiva
+  addScrapElements,
+  getScrapDetails,
 };
