@@ -45,28 +45,49 @@ router.get("/health", async (req, res) => {
  *     tags: [System]
  *     responses:
  *       200:
- *         description: Unread email, active part, and active junk request counts
+ *         description: Unread emails, and part / junk car leads that are new for this user
  */
-router.get("/badge-counts", async (req, res) => {
+// Part / junk car badges count only leads created after this user last opened
+// that page (User.badgeSeenAt). Never opened yet → leads from the last 7 days.
+const NEW_LEAD_BADGES = ["partRequests", "junkCars"];
+const FIRST_VISIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const seenSince = (user, badge) => user?.badgeSeenAt?.[badge] || new Date(Date.now() - FIRST_VISIT_WINDOW_MS);
+
+router.get("/badge-counts", auth, async (req, res) => {
   try {
     const CRMEmail = require("../models/CRMEmail.model");
     const PartRequest = require("../models/PartRequest.model");
     const JunkCar = require("../models/JunkCar.model");
 
-    const [unreadEmails, activePartRequests, activeJunkRequests] = await Promise.all([
+    const [unreadEmails, newPartRequests, newJunkRequests] = await Promise.all([
       CRMEmail.countDocuments({ status: "unread" }).exec(),
-      PartRequest.countDocuments({ status: { $nin: ["completed", "Completed", "COMPLETED"] } }).exec(),
-      JunkCar.countDocuments({ status: { $nin: ["completed", "Completed", "COMPLETED"] } }).exec(),
+      PartRequest.countDocuments({ createdAt: { $gt: seenSince(req.user, "partRequests") } }).exec(),
+      JunkCar.countDocuments({ createdAt: { $gt: seenSince(req.user, "junkCars") } }).exec(),
     ]);
 
     return res.json({
       success: true,
       unreadCount: unreadEmails,
-      partRequestCount: activePartRequests,
-      junkRequestCount: activeJunkRequests,
+      partRequestCount: newPartRequests,
+      junkRequestCount: newJunkRequests,
     });
   } catch (error) {
     console.error("Badge counts error:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Mark a lead page as seen for this user → its badge goes back to 0.
+router.post("/badge-seen", auth, async (req, res) => {
+  try {
+    const { badge } = req.body || {};
+    if (!NEW_LEAD_BADGES.includes(badge)) {
+      return res.status(400).json({ success: false, error: `badge must be one of: ${NEW_LEAD_BADGES.join(", ")}` });
+    }
+    await User.updateOne({ _id: req.user._id }, { $set: { [`badgeSeenAt.${badge}`]: new Date() } });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("Badge seen error:", error);
     return res.status(500).json({ success: false, error: error.message });
   }
 });
