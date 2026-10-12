@@ -32,6 +32,12 @@ const userSchema = new mongoose.Schema(
       enum: ["admin", "manager", "staff", "front_desk", "scraper", "automation"],
       default: "staff",
     },
+    // When this user last opened each lead page — sidebar badges count only
+    // leads created after it (see GET /api/system/badge-counts).
+    badgeSeenAt: {
+      partRequests: { type: Date, default: null },
+      junkCars: { type: Date, default: null },
+    },
     isDeleted: {
       type: Boolean,
       default: false,
