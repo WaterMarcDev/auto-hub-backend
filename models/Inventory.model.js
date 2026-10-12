@@ -146,6 +146,17 @@ const inventorySchema = new mongoose.Schema(
     deletedAt: {
       type: Date,
     },
+    // Why the part left inventory, e.g. "car-scrapped" (went to the crusher
+    // with its car — see services/carScrap.service.js). Null for other deletes.
+    removedReason: {
+      type: String,
+      default: null,
+    },
+    removedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,
