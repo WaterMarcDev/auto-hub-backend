@@ -37,7 +37,8 @@ const createScrapElement = async (req, res) => {
         await elementHubController.addToHubInternal({
           elementName: savedElement.elementName,
           amount: savedElement.weight,
-          unit: savedElement.unit,
+          // No `unit` here: savedElement.unit is a quantity (1, 2…), while the
+          // hub's unit is the weight unit — leave it to default to "lb".
           sourceVin: savedElement.vin,
           createdBy: req.user ? req.user._id : undefined,
         });

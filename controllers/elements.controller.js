@@ -1,4 +1,27 @@
+const mongoose = require("mongoose");
 const Element = require("../models/Element.model");
+const ElementHub = require("../models/ElementHub.model");
+const ElementHubHistory = require("../models/ElementHubHistory.model");
+const ScrapElement = require("../models/ScrapElement.model");
+
+// Element Hub stock, its history and saved scrap elements reference elements
+// by NAME, so a rename must move them too — merging into an existing hub of
+// the new name — or stock would be split between the two names.
+const renameElementEverywhere = async (oldName, newName) => {
+  const oldHub = await ElementHub.findOne({ elementName: oldName });
+  if (oldHub) {
+    const newHub = await ElementHub.findOne({ elementName: newName });
+    if (newHub) {
+      await ElementHub.updateOne({ _id: newHub._id }, { $inc: { totalWeight: oldHub.totalWeight || 0 } });
+      await ElementHubHistory.updateMany({ elementHubId: oldHub._id }, { $set: { elementHubId: newHub._id } });
+      await ElementHub.deleteOne({ _id: oldHub._id });
+    } else {
+      await ElementHub.updateOne({ _id: oldHub._id }, { $set: { elementName: newName } });
+    }
+  }
+  await ElementHubHistory.updateMany({ elementName: oldName }, { $set: { elementName: newName } });
+  await ScrapElement.updateMany({ elementName: oldName }, { $set: { elementName: newName } });
+};
 
 // @desc    Create a new element
 // @route   POST /api/elements
@@ -98,10 +121,37 @@ const updateElement = async (req, res) => {
   try {
     const { name, shortName, weight, dimensions, description } = req.body;
 
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(404).json({ message: "Element not found" });
+    }
+    const existing = await Element.findOne({ _id: req.params.id, isDeleted: { $ne: true } });
+    if (!existing) {
+      return res.status(404).json({ message: "Element not found" });
+    }
+
+    const newName = typeof name === "string" ? name.trim() : existing.name;
+    if (!newName) {
+      return res.status(400).json({ message: "Element name is required" });
+    }
+
+    // Renaming: refuse a name another active element already uses, then move
+    // stock/history/saved elements to the new name so stock is never split.
+    if (newName !== existing.name) {
+      const duplicate = await Element.findOne({
+        _id: { $ne: existing._id },
+        isDeleted: { $ne: true },
+        name: { $regex: `^${newName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+      });
+      if (duplicate) {
+        return res.status(409).json({ message: `An element named "${duplicate.name}" already exists` });
+      }
+      await renameElementEverywhere(existing.name, newName);
+    }
+
     const element = await Element.findByIdAndUpdate(
-      req.params.id,
+      existing._id,
       {
-        name,
+        name: newName,
         shortName,
         weight,
         dimensions,
@@ -109,10 +159,6 @@ const updateElement = async (req, res) => {
       },
       { new: true }
     );
-
-    if (!element) {
-      return res.status(404).json({ message: "Element not found" });
-    }
 
     res.status(200).json({
       message: "Element updated successfully",
