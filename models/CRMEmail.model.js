@@ -42,4 +42,10 @@ const CRMEmailSchema = new mongoose.Schema(
   },
 );
 
+// Inbox list is paginated newest-first (optionally by status); threads load by
+// thread_id. These indexes let MongoDB read only the requested page.
+CRMEmailSchema.index({ created_at: -1, _id: -1 });
+CRMEmailSchema.index({ status: 1, created_at: -1, _id: -1 });
+CRMEmailSchema.index({ thread_id: 1, created_at: 1 });
+
 module.exports = mongoose.model("CRMEmail", CRMEmailSchema);

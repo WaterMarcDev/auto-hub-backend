@@ -76,6 +76,7 @@ exports.getAll = async (req, res) => {
       assignedUser,
       customerId,
       search,
+      unreadOnly,
       page = 1,
       limit = 50,
     } = req.query;
@@ -86,12 +87,15 @@ exports.getAll = async (req, res) => {
     if (status) query.status = status;
     if (assignedUser) query.assignedUser = assignedUser;
     if (customerId) query.customerId = customerId;
+    if (unreadOnly === "true") query.unreadCount = { $gt: 0 };
 
     if (search) {
+      // Escaped so characters like "(" or "+" are matched literally.
+      const term = String(search).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       query.$or = [
-        { customerName: { $regex: search, $options: "i" } },
-        { lastMessage: { $regex: search, $options: "i" } },
-        { tags: { $regex: search, $options: "i" } },
+        { customerName: { $regex: term, $options: "i" } },
+        { lastMessage: { $regex: term, $options: "i" } },
+        { tags: { $regex: term, $options: "i" } },
       ];
     }
 
