@@ -252,12 +252,63 @@ const testCreateEmail = async (req, res) => {
   }
 };
 
-// GET ALL - added by shiva
+// Plain-text one-line preview from an HTML/text body (list rows never carry
+// the full body — it is loaded per thread via /email/thread/:id).
+const PREVIEW_LENGTH = 160;
+const toPreview = (body) =>
+  String(body || "")
+    .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, PREVIEW_LENGTH);
+
+const EMAIL_STATUSES = ["unread", "read", "replied"];
+const LIST_FIELDS = "sender_email sender_name subject status thread_id created_at cc attachments body";
+
+// GET /api/email/all?page=1&limit=20&status=unread
+// One page of emails, newest first, plus totals for the pager and filters.
 const getEmails = async (req, res) => {
   try {
-    const emails = await CRMEmail.find().sort({ created_at: -1 }).lean();
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const requestedPage = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const status = EMAIL_STATUSES.includes(req.query.status) ? req.query.status : null;
+    const filter = status ? { status } : {};
 
-    res.json(emails);
+    const [total, statusCounts] = await Promise.all([
+      CRMEmail.countDocuments(filter),
+      CRMEmail.aggregate([{ $group: { _id: "$status", n: { $sum: 1 } } }]),
+    ]);
+    const totalPages = Math.max(Math.ceil(total / limit), 1);
+    const page = Math.min(requestedPage, totalPages);
+
+    const rows = await CRMEmail.find(filter)
+      .sort({ created_at: -1, _id: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .select(LIST_FIELDS)
+      .lean();
+
+    const counts = { all: 0, unread: 0, read: 0, replied: 0 };
+    for (const { _id, n } of statusCounts) {
+      counts.all += n;
+      if (_id in counts) counts[_id] = n;
+    }
+
+    res.json({
+      emails: rows.map(({ body, ...email }) => ({ ...email, preview: toPreview(body) })),
+      page,
+      limit,
+      total,
+      totalPages,
+      counts,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Failed to fetch emails" });
