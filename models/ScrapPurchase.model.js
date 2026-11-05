@@ -125,6 +125,30 @@ const ScrapPurchaseSchema = new Schema(
     // was printed. Print always reads current fields; this is for audit only.
     billSnapshot: { type: Schema.Types.Mixed, default: {} },
 
+    // ─── Element Hub stock posted by this purchase ─────────────────────────
+    // Exactly what this purchase currently contributes to Element Hub stock,
+    // one row per hub element. Edits/deletes apply only the difference, so
+    // stock is never double-counted. Left UNSET (not []) on purchases created
+    // before the Element Hub integration: those never added stock, so their
+    // edits/deletes must not touch the hub either.
+    // See services/scrapPurchaseElementHub.service.js.
+    elementHubPosted: {
+      type: [
+        new Schema(
+          {
+            elementHubId: { type: Schema.Types.ObjectId, ref: "ElementHub" },
+            elementName: { type: String, trim: true },
+            amount: { type: Number, default: 0 },
+          },
+          { _id: false }
+        ),
+      ],
+      default: undefined,
+    },
+    elementHubPostedAt: { type: Date },
+    // Last Element Hub posting error (stock not added), null when healthy.
+    elementHubError: { type: String, default: null },
+
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
     printedAt: { type: Date },
 

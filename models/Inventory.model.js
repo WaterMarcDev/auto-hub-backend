@@ -139,6 +139,77 @@ const inventorySchema = new mongoose.Schema(
       default: null,
     },
     // end eBay fields
+
+    // ─── Marketplace sale status (eBay / Wix → CRM) ────────────────────────
+    // Set by services/marketplaceSales.service.js when an eBay or Wix order
+    // for this part is found. A sold part stays in the collection (with all
+    // order details below) but leaves available stock: it is no longer
+    // counted or pushed by the eBay catalog sync or the Wix sync.
+    // Existing documents have no value and are treated as "available".
+    saleStatus: {
+      type: String,
+      enum: ["available", "sold"],
+      default: "available",
+    },
+    sale: {
+      type: new mongoose.Schema(
+        {
+          channel: { type: String, enum: ["ebay", "wix"] },
+          orderId: { type: String },        // eBay orderId / Wix order id
+          orderNumber: { type: String },    // number staff/buyers see
+          lineItemId: { type: String },
+          quantity: { type: Number },
+          price: { type: Number },          // this order line's total
+          currency: { type: String },
+          soldAt: { type: Date },           // order date on the marketplace
+          orderStatus: { type: String },
+          paymentStatus: { type: String },
+          shippingStatus: { type: String },
+          trackingNumber: { type: String },
+          carrier: { type: String },
+          buyerName: { type: String },
+          buyerUsername: { type: String },
+          buyerEmail: { type: String },
+          buyerPhone: { type: String },
+          shippingAddress: {
+            name: String,
+            line1: String,
+            line2: String,
+            city: String,
+            state: String,
+            postalCode: String,
+            country: String,
+          },
+          listingId: { type: String },      // eBay item id / Wix product id
+          listingTitle: { type: String },
+          orderRef: { type: mongoose.Schema.Types.ObjectId, ref: "Order" },
+          customerId: { type: mongoose.Schema.Types.ObjectId, ref: "Customer" },
+          recordedAt: { type: Date },       // when the CRM first saw the sale
+          lastSyncedAt: { type: Date },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
+    // Orders that sold this part AFTER it was already sold elsewhere
+    // (e.g. sold on eBay and again on Wix). Needs staff attention.
+    saleConflicts: {
+      type: [
+        new mongoose.Schema(
+          {
+            channel: String,
+            orderId: String,
+            orderNumber: String,
+            soldAt: Date,
+            buyerName: String,
+            detectedAt: Date,
+          },
+          { _id: false }
+        ),
+      ],
+      default: undefined,
+    },
+
     isDeleted: {
       type: Boolean,
       default: false,
@@ -177,6 +248,10 @@ inventorySchema.index(
 // Serves the eBay Catalog Sync products table (filter by ebaySyncStatus,
 // newest sync first) without a collection scan.
 inventorySchema.index({ ebaySyncStatus: 1, ebayLastSyncedAt: -1 });
+
+// Serves the Sold Products page (newest sale first) and order look-ups.
+inventorySchema.index({ saleStatus: 1, "sale.soldAt": -1 });
+inventorySchema.index({ "sale.channel": 1, "sale.orderId": 1 });
 
 const Inventory = mongoose.model("Inventory", inventorySchema);
 

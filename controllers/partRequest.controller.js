@@ -1,7 +1,12 @@
 const mongoose = require("mongoose");
 const PartRequest = require("../models/PartRequest.model");
 const auditLogService = require("../services/auditLog.service");
-const { normalizeRequestSource } = require("../utils/requestSources");
+const { ACTIVE_SOURCES, normalizeRequestSource } = require("../utils/requestSources");
+
+// Sources a request can be given: "Online" (website form) and "Offline"
+// (entered in the CRM) are set automatically at creation; staff can choose
+// between the sources in use. Old values stay valid on existing records only.
+const PART_REQUEST_SOURCES = ["Online", "Offline", ...ACTIVE_SOURCES];
 const {
     LEAD_CAPTURE_UPDATE_WINDOW_MS,
     EMAIL_PATTERN,
@@ -27,7 +32,7 @@ const PART_REQUEST_FIELD_RULES = {
     condition: normalizers.text(),
     message: normalizers.text(),
     remark: normalizers.text(),
-    source: normalizers.oneOf(PartRequest.schema.path("source").enumValues),
+    source: normalizers.oneOf(PART_REQUEST_SOURCES),
     status: normalizers.oneOf(PartRequest.schema.path("status").enumValues),
     fulfilledBy: normalizers.nullableText(),
 };
@@ -340,7 +345,16 @@ exports.updatePartRequestSource = async (req, res) => {
     try {
 
         const { id } = req.params;
-        const { source } = req.body;
+        const raw = req.body?.source?.toString().trim().toLowerCase();
+
+        // Staff can only pick a source that is in use.
+        const source = ACTIVE_SOURCES.find((s) => s.toLowerCase() === raw);
+        if (!source) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid source. Allowed values: ${ACTIVE_SOURCES.join(", ")}`,
+            });
+        }
 
         const updated = await PartRequest.findByIdAndUpdate(
             id,

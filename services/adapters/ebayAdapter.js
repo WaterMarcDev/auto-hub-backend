@@ -27,6 +27,7 @@ const Order = require("../../models/Order.model");
 const smartMatchService = require("../smartMatch.service");
 const { normalizeOrderStatuses } = require("../orderStatusMapper.service");
 const { logAction } = require("../auditLog.service");
+const marketplaceSales = require("../marketplaceSales.service");
 
 // ─── eBay OAuth Diagnostic Tracing (observability only, no behavior change) ─
 // Generates/logs a traceId that follows one OAuth attempt across every step:
@@ -981,7 +982,7 @@ class EbayAdapter extends BaseAdapter {
 
     // Filter is scoped by platform + orderId (not orderId alone) so an
     // Amazon order can never overwrite an eBay order sharing the same ID.
-    return await Order.findOneAndUpdate(
+    const savedOrder = await Order.findOneAndUpdate(
       { platform: "ebay", orderId: order.orderId },
       orderData,
       {
@@ -990,6 +991,26 @@ class EbayAdapter extends BaseAdapter {
         setDefaultsOnInsert: true,
       }
     );
+
+    // Mark the CRM Inventory parts in this order as sold (or back to
+    // available if the order was cancelled). Best-effort: never blocks the
+    // order sync. The result rides on $locals for the sold-status job.
+    try {
+      const saleResult = await marketplaceSales.applyEbayOrder(order, savedOrder);
+      if (savedOrder && savedOrder.$locals) savedOrder.$locals.saleResult = saleResult;
+    } catch (error) {
+      console.error("[EBAY] Order sold-status update failed (non-fatal):", error.message || error);
+      await logAction({
+        action: "system_error",
+        status: "failure",
+        platform: "ebay",
+        entityType: "order",
+        message: `Order ${order.orderId}: inventory sold-status update failed`,
+        errorMessage: error.message || String(error),
+      });
+    }
+
+    return savedOrder;
   }
   
   
