@@ -580,7 +580,7 @@ const getPartsMasterList = async (req, res) => {
       .populate("model", "name shortName")
       .populate("trim", "name shortName")
       .select(
-        "partName unit cleaned quality location weight dimensions sku year color saleStatus sale.channel sale.orderNumber sale.soldAt"
+        "partName unit cleaned quality location weight dimensions sku year color saleStatus sale.channel sale.orderNumber sale.soldAt quantityAvailable quantitySold returnInfo.status ebayListingId ebayQuantitySync.status ebayQuantitySync.lastError"
       )
       .skip(skip)
       .limit(limit)
@@ -602,6 +602,14 @@ const getPartsMasterList = async (req, res) => {
       saleStatus: it.saleStatus === "sold" ? "sold" : "available",
       sale: it.sale
         ? { channel: it.sale.channel, orderNumber: it.sale.orderNumber, soldAt: it.sale.soldAt }
+        : null,
+      // Stock ledger (missing = one physical part)
+      quantityAvailable: it.quantityAvailable ?? (it.saleStatus === "sold" ? 0 : 1),
+      quantitySold: it.quantitySold ?? 0,
+      returnStatus: it.returnInfo?.status || null,
+      onEbay: Boolean(it.ebayListingId),
+      ebayQuantitySync: it.ebayQuantitySync?.status
+        ? { status: it.ebayQuantitySync.status, lastError: it.ebayQuantitySync.lastError || null }
         : null,
       make: it.make ? { _id: it.make._id, name: it.make.name } : null,
       model: it.model ? { _id: it.model._id, name: it.model.name } : null,
