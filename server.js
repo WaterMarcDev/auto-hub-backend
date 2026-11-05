@@ -486,6 +486,15 @@ server.listen(PORT, () => {
 
   startBackInStockChecker();   // Added by shiva
 
+  // Keep car intake price.finalPrice (and transaction amount) equal to
+  // payment.paidAmount, including when paidAmount is edited directly in the DB.
+  try {
+    require("./services/paidAmountSync.service").startPaidAmountSync();
+    console.log("Paid amount -> final price sync job started");
+  } catch (err) {
+    console.error("Failed to start paid amount sync job:", err.message || err);
+  }
+
   // Start the eBay token auto-refresh cron job.
   // Prevents a connected eBay integration from silently showing as
   // "disconnected" once its ~2h access token expires with no auto-refresh.
