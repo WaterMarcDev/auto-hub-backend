@@ -19,6 +19,9 @@ const PartRequestSchema = new mongoose.Schema(
             default: "",
         },
 
+        // In use: Online (website form), Offline (added in CRM), Website,
+        // Instagram, Facebook — see utils/requestSources.js. The rest are
+        // legacy values kept only so existing records stay valid.
         source: {
             type: String,
             enum: [

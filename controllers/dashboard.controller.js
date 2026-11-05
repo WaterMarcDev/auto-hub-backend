@@ -353,9 +353,42 @@ const getEarningGoal = async (req, res) => {
   }
 };
 
+// "Active Business Records (Document Estimates)" — moved from the Analytics
+// page to the Dashboard. Same fast estimated counts the Analytics endpoint
+// (/api/system/analytics) used, without the admin-only system telemetry, so
+// managers can see it too. A failed count shows as 0 rather than failing all.
+const getBusinessRecordCounts = async (req, res) => {
+  try {
+    const User = require("../models/User.model");
+    const estimate = (Model) => Model.estimatedDocumentCount();
+    const results = await Promise.allSettled([
+      estimate(CheckIn),
+      estimate(Customer),
+      estimate(Waiver),
+      estimate(Inventory),
+      estimate(Transaction),
+      estimate(User),
+    ]);
+    const value = (i) => (results[i].status === "fulfilled" ? results[i].value : 0);
+
+    return res.json({
+      checkIns: value(0),
+      customers: value(1),
+      waivers: value(2),
+      inventory: value(3),
+      transactions: value(4),
+      users: value(5),
+    });
+  } catch (error) {
+    console.error("getBusinessRecordCounts error:", error);
+    return res.status(500).json({ error: "Server error" });
+  }
+};
+
 module.exports = {
   getDashboardSummary,
   getRevenueTrend,
   getSummaryCounts,
   getEarningGoal,
+  getBusinessRecordCounts,
 };

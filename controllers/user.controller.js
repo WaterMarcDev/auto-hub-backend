@@ -204,9 +204,29 @@ const resetPassword = async (req, res) => {
 const getStaffUsers = async (req, res) => {
   try {
 
-    const staffUsers = await User.find({
-      role: { $regex: /^staff$/i },
-    }).select("_id first_name last_name email role");
+    // Everyone with the "staff" role, plus Vijay Kumar — the default handler
+    // shown in Junk Car Requests' "Handled By" — who is always listed first
+    // even though his account is a manager, so he can be filtered/assigned.
+    // Only used by the Junk Car Requests page.
+    const [defaultHandlers, staff] = await Promise.all([
+      User.find({
+        first_name: { $regex: /^\s*vijay\s*$/i },
+        last_name: { $regex: /^\s*kumar\s*$/i },
+        isDeleted: { $ne: true },
+      }).select("_id first_name last_name email role"),
+      User.find({
+        role: { $regex: /^staff$/i },
+        isDeleted: { $ne: true },
+      }).select("_id first_name last_name email role"),
+    ]);
+
+    const seen = new Set();
+    const staffUsers = [...defaultHandlers, ...staff].filter((u) => {
+      const id = String(u._id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
 
     res.json({
       success: true,

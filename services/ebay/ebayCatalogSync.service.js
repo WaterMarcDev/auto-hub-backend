@@ -233,7 +233,9 @@ async function syncCatalog(options = {}) {
 
     // ── Phase 2: Fetch eligible Inventory ────────────────────────────
 
-    let query = { isDeleted: { $ne: true } };
+    // Sold parts (sold on eBay or Wix — see services/marketplaceSales.service.js)
+    // are out of stock: never re-publish them to eBay.
+    let query = { isDeleted: { $ne: true }, saleStatus: { $ne: "sold" } };
 
     if (singleProductId) {
       query._id = singleProductId;

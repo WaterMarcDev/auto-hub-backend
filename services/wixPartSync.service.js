@@ -293,6 +293,8 @@ const syncProductFieldsThroughVelo = async ({
 async function fetchEligibleInventory(filters = {}, limit = 0) {
   const query = {
     isDeleted: { $ne: true },
+    // Parts sold on eBay/Wix are out of stock — never (re)push them.
+    saleStatus: { $ne: "sold" },
     $or: [
       { wixSynced: { $ne: true } },
       {
@@ -459,7 +461,8 @@ async function fetchGroupLevelLookups(groupMap) {
     }));
 
     const counts = await Inventory.aggregate([
-      { $match: { isDeleted: { $ne: true }, $or: orClauses } },
+      // Sold parts are not on-hand stock, so they don't count toward quantity.
+      { $match: { isDeleted: { $ne: true }, saleStatus: { $ne: "sold" }, $or: orClauses } },
       {
         $group: {
           _id: { make: "$make", model: "$model", trim: "$trim", year: "$year", partName: "$partName", sku: "$sku", vin: "$vin", },
@@ -714,6 +717,7 @@ async function prepareWixSyncGroups({ filters = {}, limit = 0 } = {}) {
         sku: item.sku,
         vin: item.vin,
         isDeleted: { $ne: true },
+        saleStatus: { $ne: "sold" },
       });
     }
 
