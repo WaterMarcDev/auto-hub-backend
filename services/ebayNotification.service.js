@@ -26,6 +26,7 @@ const axios = require("axios");
 const MarketplaceEvent = require("../models/MarketplaceEvent.model");
 const IntegrationAccount = require("../models/IntegrationAccount.model");
 const realtime = require("../utils/realtime");
+const { isAllCronSyncDisabled } = require("../utils/cronSyncSwitch");
 
 const LOG_PREFIX = "[EBAY NOTIFICATION]";
 const MAX_ATTEMPTS = 8;
@@ -260,7 +261,9 @@ async function retryEvent(id) {
 
 let timer = null;
 function scheduleSoon() {
-  if (timer || process.env.EBAY_NOTIFICATION_AUTORUN === "false") return;
+  // DISABLE_ALL_CRON_SYNC=true: leave the events queued (they are kept in the
+  // database) and process them once jobs are switched back on.
+  if (timer || isAllCronSyncDisabled() || process.env.EBAY_NOTIFICATION_AUTORUN === "false") return;
   timer = setTimeout(() => {
     timer = null;
     processEvents().catch((err) => console.error(`${LOG_PREFIX} run failed:`, err.message));
