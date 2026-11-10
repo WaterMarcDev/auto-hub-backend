@@ -22,6 +22,7 @@ const { swaggerUi, specs } = require("./config/swagger");  // by shiva
 const http = require("http");                                // real time update by shiva
 const { Server } = require("socket.io");                     // by shiva
 const startBackInStockChecker = require("./services/checkBackInStock.service");    // by shiva
+const { isAllCronSyncDisabled } = require("./utils/cronSyncSwitch");
 const ebayRoutes = require("./routes/ebay.routes");   // by shiva
 const ebayCatalogSyncRoutes = require("./routes/ebayCatalogSync.routes");
 
@@ -492,6 +493,14 @@ let inventorySyncWorkerJobRef = null;
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+
+  // Master switch: DISABLE_ALL_CRON_SYNC=true starts none of the CRON / SYNC
+  // jobs below, whatever their own variables say. The API itself keeps
+  // running normally. See utils/cronSyncSwitch.js.
+  if (isAllCronSyncDisabled()) {
+    console.log("[JOBS] DISABLE_ALL_CRON_SYNC=true — all CRON and SYNC jobs are switched off");
+    return;
+  }
 
   startBackInStockChecker();   // Added by shiva
 

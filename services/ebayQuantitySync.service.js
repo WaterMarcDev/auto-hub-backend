@@ -22,6 +22,7 @@
 const Inventory = require("../models/Inventory.model");
 const IntegrationAccount = require("../models/IntegrationAccount.model");
 const realtime = require("../utils/realtime");
+const { isAllCronSyncDisabled } = require("../utils/cronSyncSwitch");
 
 const LOG_PREFIX = "[EBAY QUANTITY SYNC]";
 const MAX_ATTEMPTS = 8;
@@ -53,7 +54,9 @@ const isOnEbay = (part) => Boolean(part.ebayOfferId || part.ebayListingId);
 
 let timer = null;
 function scheduleSoon() {
-  if (timer || process.env.EBAY_QUANTITY_SYNC_AUTORUN === "false") return;
+  // DISABLE_ALL_CRON_SYNC=true: leave the work queued (it is kept in the
+  // database) and process it once jobs are switched back on.
+  if (timer || isAllCronSyncDisabled() || process.env.EBAY_QUANTITY_SYNC_AUTORUN === "false") return;
   timer = setTimeout(() => {
     timer = null;
     processQueue().catch((err) => console.error(`${LOG_PREFIX} run failed:`, err.message));
