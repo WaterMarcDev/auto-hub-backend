@@ -15,6 +15,7 @@ const loggerConfig = require("./config/logger");
 const addUserContext = require("./middleware/logging");
 const morgan = require("morgan");
 const path = require("path");
+const { UPLOAD_DIR } = require("./config/uploads");
 const partRequestRoutes = require("./routes/partRequest.routes");
 const junkCarRoutes = require("./routes/junkCar.routes");
 const { swaggerUi, specs } = require("./config/swagger");  // by shiva
@@ -203,7 +204,7 @@ app.use(express.json({
 // Uploads path by shiva
 app.use(
   "/uploads",
-  express.static(path.join(__dirname, "uploads"))
+  express.static(UPLOAD_DIR)
 );
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -408,7 +409,7 @@ app.use("/api/entry-fee", require("./routes/entryFee.routes"));
 app.use("/api/v1/app/auth", require("./mobile/routes/mobileAuth.routes"));
 
 // Serve uploaded files statically
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(UPLOAD_DIR));
 
 
 app.use("/assets", express.static(path.join(__dirname, "assets")));
