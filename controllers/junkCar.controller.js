@@ -15,19 +15,14 @@ const {
 } = require("../utils/leadCapture");
 // const { normalizeRequestSource } = require("../utils/requestSources");
 
-// Same mapping as updateJunkCarSource, but an unknown value is rejected
-// rather than downgraded to "other".
+// Sources in use (see utils/requestSources.js): website form, Instagram,
+// Facebook. Staff edits reject anything else; the Automation Bot falls back
+// to "other". Old values stay valid on existing records only.
 const JUNK_CAR_SOURCE_MAP = {
     website: "website",
     online: "website",
     instagram: "instagram",
     facebook: "facebook",
-    tiktok: "tiktok",
-    ebay: "ebay",
-    "google business": "google business",
-    whatsapp: "whatsApp",
-    sms: "sms",
-    other: "other",
 };
 
 const JUNK_CAR_STATUSES = ["pending", "in progress", "completed"];
@@ -213,7 +208,13 @@ exports.saveJunkCarLead = async (req, res) => {
                 condition: values.condition || "none",
                 message: values.message || "",
                 location: values.location || "",
-                source: "website",
+                // The CRM's own "Add Request" form sends source "offline"
+                // (same as Part Request's "Offline"); every other caller —
+                // the website form — stays "website".
+                source:
+                    req.body?.source?.toString().trim().toLowerCase() === "offline"
+                        ? "offline"
+                        : "website",
             });
 
             req.app.get("io")?.emit("cache:invalidate", { scope: "junkCars" });
@@ -539,30 +540,15 @@ exports.updateJunkCarSource = async (req, res) => {
 
         const rawSource = source?.toString().trim().toLowerCase();
 
-        const sourceMap = {
-            // manual: "manual",
-            website: "website",
-            online: "website",
-            instagram: "instagram",
-            facebook: "facebook",
-            tiktok: "tiktok",
-            ebay: "ebay",
-            "google business": "google business",
-            whatsapp: "whatsApp",
-            // "whatsapp": "whatsApp",
-            sms: "sms",
-            other: "other",
-        };
-
-        const normalizedSource = sourceMap[rawSource] || "other";
-
-        // if (rawSource === "instagram") {
-        //     normalizedSource = "instagram";
-        // } else if (rawSource === "facebook") {
-        //     normalizedSource = "facebook";
-        // } else if (rawSource === "website" || rawSource === "online") {
-        //     normalizedSource = "website";
-        // }
+        // Staff can only pick a source that is in use (was: anything unknown
+        // silently became "other").
+        const normalizedSource = JUNK_CAR_SOURCE_MAP[rawSource];
+        if (!normalizedSource) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid source. Allowed values: website, instagram, facebook",
+            });
+        }
 
         const updated = await JunkCar.findByIdAndUpdate(
             { _id: id },

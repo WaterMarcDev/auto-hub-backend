@@ -114,6 +114,7 @@ const syncWithWix = async (req, res) => {
     // would never match a strict `wixSynced: false` equality query).
     const unsyncedInventories = await Inventory.find({
       isDeleted: { $ne: true },
+      saleStatus: { $ne: "sold" }, // sold on eBay/Wix — never re-export
       wixSynced: { $ne: true },
     })
       .populate("make", "name")
@@ -403,6 +404,7 @@ const exportAndSyncAllParts = async (req, res) => {
     // endpoints below.
     const fetchedItems = await Inventory.find({
       isDeleted: { $ne: true },
+      saleStatus: { $ne: "sold" }, // sold on eBay/Wix — never re-export
       wixSynced: { $ne: true },
     })
       .populate("make", "name")
@@ -447,6 +449,7 @@ const exportAndSyncByMake = async (req, res) => {
     // with no wixSynced field at all).
     const fetchedItems = await Inventory.find({
       isDeleted: { $ne: true },
+      saleStatus: { $ne: "sold" }, // sold on eBay/Wix — never re-export
       wixSynced: { $ne: true },
     })
       .populate("make", "name")
@@ -495,6 +498,7 @@ const exportAndSyncByYear = async (req, res) => {
     // with no wixSynced field at all).
     const fetchedItems = await Inventory.find({
       isDeleted: { $ne: true },
+      saleStatus: { $ne: "sold" }, // sold on eBay/Wix — never re-export
       wixSynced: { $ne: true },
     })
       .populate("make", "name")
@@ -543,6 +547,7 @@ const exportAndSyncByModel = async (req, res) => {
     // with no wixSynced field at all).
     const fetchedItems = await Inventory.find({
       isDeleted: { $ne: true },
+      saleStatus: { $ne: "sold" }, // sold on eBay/Wix — never re-export
       wixSynced: { $ne: true },
     })
       .populate("make", "name")

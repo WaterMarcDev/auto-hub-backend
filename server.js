@@ -123,6 +123,8 @@ io.use((socket, next) => {
 
 //  make io available in controllers
 app.set("io", io);
+// Services (no req) emit live CRM refreshes through this.
+require("./utils/realtime").setIO(io);
 
 // debug connection
 io.on("connection", (socket) => {
@@ -383,6 +385,10 @@ app.use("/api/social-leads", require("./routes/socialLead.routes"));
 app.use("/api/marketplace-leads", require("./routes/marketplaceListing.routes"));
 app.use("/api/conversations", require("./routes/conversation.routes"));
 app.use("/api/orders", require("./routes/order.routes"));
+// Parts sold on eBay / Wix (sold status + full order details)
+app.use("/api/sold-products", require("./routes/soldProducts.routes"));
+// Stock ledger, in-store sales, returns, eBay quantity sync, eBay webhook events, reconciliation
+app.use("/api/inventory-sync", require("./routes/inventorySync.routes"));
 app.use("/api/integrations", require("./routes/integration.routes"));
 app.use("/api/integrations/ebay", ebayRoutes);
 app.use("/api/ebay", ebayCatalogSyncRoutes);
@@ -481,6 +487,8 @@ app.use((err, req, res, next) => {
 let ebayCatalogSyncJobRef = null;
 let ebayListingReconcileJobRef = null;
 let ebayMessageSyncJobRef = null;
+let marketplaceSalesSyncJobRef = null;
+let inventorySyncWorkerJobRef = null;
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
@@ -573,6 +581,29 @@ server.listen(PORT, () => {
   } catch (err) {
     console.error("Failed to start eBay message sync cron job:", err.message || err);
   }
+
+  // Start the marketplace SOLD-STATUS sync (every 15 minutes by default):
+  // reads eBay + Wix orders and marks the matching CRM parts sold
+  // (services/marketplaceSales.service.js). Read-only towards eBay/Wix; own
+  // lease lock. Disable with DISABLE_MARKETPLACE_SALES_SYNC=true.
+  try {
+    const startMarketplaceSalesSync = require("./jobs/marketplaceSalesSyncJob");
+    startMarketplaceSalesSync();
+    marketplaceSalesSyncJobRef = startMarketplaceSalesSync;
+  } catch (err) {
+    console.error("Failed to start marketplace sales sync cron job:", err.message || err);
+  }
+
+  // Inventory sync worker (every minute): eBay webhook events, CRM → eBay
+  // quantity pushes (with retry/backoff) and the hourly reconciliation report.
+  // Disable with DISABLE_INVENTORY_SYNC_WORKER=true.
+  try {
+    const startInventorySyncWorker = require("./jobs/inventorySyncWorkerJob");
+    startInventorySyncWorker();
+    inventorySyncWorkerJobRef = startInventorySyncWorker;
+  } catch (err) {
+    console.error("Failed to start inventory sync worker:", err.message || err);
+  }
 });
 
 // ─── Graceful shutdown (Passenger/Plesk send SIGTERM; Ctrl-C sends SIGINT) ──
@@ -592,6 +623,8 @@ async function gracefulShutdown(signal) {
   try { if (ebayCatalogSyncJobRef && ebayCatalogSyncJobRef.stop) ebayCatalogSyncJobRef.stop(); } catch (_) { /* best-effort */ }
   try { if (ebayListingReconcileJobRef && ebayListingReconcileJobRef.stop) ebayListingReconcileJobRef.stop(); } catch (_) { /* best-effort */ }
   try { if (ebayMessageSyncJobRef && ebayMessageSyncJobRef.stop) ebayMessageSyncJobRef.stop(); } catch (_) { /* best-effort */ }
+  try { if (marketplaceSalesSyncJobRef && marketplaceSalesSyncJobRef.stop) marketplaceSalesSyncJobRef.stop(); } catch (_) { /* best-effort */ }
+  try { if (inventorySyncWorkerJobRef && inventorySyncWorkerJobRef.stop) inventorySyncWorkerJobRef.stop(); } catch (_) { /* best-effort */ }
 
   // 2) Signal any in-flight protected eBay sync operation to cancel, wait
   //    (bounded by this same timeout) for it to actually finish, and only

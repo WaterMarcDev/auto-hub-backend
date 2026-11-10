@@ -49,11 +49,16 @@ const junkCarSchema = new mongoose.Schema(
             type: String,
             default: "pending",
         },
+        // In use: website (website form), offline (added in the CRM),
+        // instagram, facebook — see utils/requestSources.js. The rest are
+        // legacy values kept only so existing records stay valid ("other" is
+        // also the Automation Bot's fallback).
         source: {
             type: String,
             enum: [
                 // "manual",
                 "website",
+                "offline",
                 "instagram",
                 "facebook",
                 "tiktok",

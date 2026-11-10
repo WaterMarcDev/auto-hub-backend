@@ -559,7 +559,11 @@ const getPartsMasterList = async (req, res) => {
       else if (val === "false" || val === "0") filter.cleaned = false;
     }
     if (req.query.quality) filter.quality = req.query.quality;
-    if (req.query.search?.trim()) { 
+    // Optional stock filter: "available" (in stock) or "sold" (sold on eBay/Wix).
+    // Omitted = all parts, exactly as before.
+    if (req.query.saleStatus === "available") filter.saleStatus = { $ne: "sold" };
+    else if (req.query.saleStatus === "sold") filter.saleStatus = "sold";
+    if (req.query.search?.trim()) {
       
       console.log("Search Query:", req.query.search);
 
@@ -576,7 +580,7 @@ const getPartsMasterList = async (req, res) => {
       .populate("model", "name shortName")
       .populate("trim", "name shortName")
       .select(
-        "partName unit cleaned quality location weight dimensions sku year color"
+        "partName unit cleaned quality location weight dimensions sku year color saleStatus sale.channel sale.orderNumber sale.soldAt quantityAvailable quantitySold returnInfo.status ebayListingId ebayQuantitySync.status ebayQuantitySync.lastError"
       )
       .skip(skip)
       .limit(limit)
@@ -595,6 +599,18 @@ const getPartsMasterList = async (req, res) => {
       sku: it.sku,
       year: it.year,
       color: it.color,
+      saleStatus: it.saleStatus === "sold" ? "sold" : "available",
+      sale: it.sale
+        ? { channel: it.sale.channel, orderNumber: it.sale.orderNumber, soldAt: it.sale.soldAt }
+        : null,
+      // Stock ledger (missing = one physical part)
+      quantityAvailable: it.quantityAvailable ?? (it.saleStatus === "sold" ? 0 : 1),
+      quantitySold: it.quantitySold ?? 0,
+      returnStatus: it.returnInfo?.status || null,
+      onEbay: Boolean(it.ebayListingId),
+      ebayQuantitySync: it.ebayQuantitySync?.status
+        ? { status: it.ebayQuantitySync.status, lastError: it.ebayQuantitySync.lastError || null }
+        : null,
       make: it.make ? { _id: it.make._id, name: it.make.name } : null,
       model: it.model ? { _id: it.model._id, name: it.model.name } : null,
       trim: it.trim ? { _id: it.trim._id, name: it.trim.name } : null,
@@ -1022,7 +1038,8 @@ const syncInventoriesV3 = async (req, res) => {
     const inventories = await Inventory.aggregate([
       // Active Inventory is the source of truth: exclude soft-deleted records
       // before any join/formatting happens.
-      { $match: { isDeleted: { $ne: true } } },
+      // Sold parts (eBay/Wix) are out of stock and are not pushed either.
+      { $match: { isDeleted: { $ne: true }, saleStatus: { $ne: "sold" } } },
 
       // Join with Make
       {

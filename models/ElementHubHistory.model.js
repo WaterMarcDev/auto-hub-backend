@@ -16,8 +16,20 @@ const elementHubHistorySchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["add", "sell"],
+      // "adjust" = a signed correction written when a Scrap Purchase that
+      // already added stock is edited down or deleted (amount is negative).
+      enum: ["add", "sell", "adjust"],
       required: true,
+    },
+    // Where stock came from: "scrap-purchase" (bought as scrap material).
+    // Car-extraction rows have no value here and are identified by sourceVin.
+    source: {
+      type: String,
+      trim: true,
+    },
+    scrapPurchaseId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ScrapPurchase",
     },
     amount: {
       type: Number,
@@ -33,7 +45,8 @@ const elementHubHistorySchema = new mongoose.Schema(
       uppercase: true,
       required: function () {
         // sourceVin is required for 'add' transactions (extractions) but optional for sells
-        return this.type === "add";
+        // Scrap Purchase stock has no car; it is identified by scrapPurchaseId.
+        return this.type === "add" && !this.scrapPurchaseId;
       },
     },
     customerId: {
