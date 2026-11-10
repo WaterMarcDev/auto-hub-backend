@@ -3,19 +3,16 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const { auth } = require("../middleware/auth");
+const { UPLOAD_DIR } = require("../config/uploads");
 const router = express.Router();
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// Upload folder (created on startup by config/uploads.js; set UPLOAD_DIR to move it)
+const uploadsDir = UPLOAD_DIR;
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, "../uploads");
-    cb(null, uploadPath);
+    cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
     // Create unique filename with timestamp
@@ -122,7 +119,7 @@ router.post("/multiple", auth, upload.array("images", 10), (req, res) => {
 router.delete("/:filename", auth, (req, res) => {
   try {
     const filename = req.params.filename;
-    const filePath = path.join(__dirname, "../uploads", filename);
+    const filePath = path.join(uploadsDir, filename);
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {
@@ -148,7 +145,7 @@ router.delete("/:filename", auth, (req, res) => {
 router.get("/:filename", (req, res) => {
   try {
     const filename = req.params.filename;
-    const filePath = path.join(__dirname, "../uploads", filename);
+    const filePath = path.join(uploadsDir, filename);
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {

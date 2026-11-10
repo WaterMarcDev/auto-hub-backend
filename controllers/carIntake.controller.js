@@ -7,6 +7,7 @@ const path = require("path");
 const EntryFee = require("../models/EntryFee.model");
 const { applyIntakePartExclusions } = require("../utils/intakePartExclusions");
 const carScrap = require("../services/carScrap.service");
+const { UPLOAD_DIR } = require("../config/uploads");
 const {
   syncPaidAmounts,
   applyPaidAmountsToDocs,
@@ -1498,7 +1499,7 @@ const printAllDocuments = async (req, res) => {
             filename = path.basename(filename);
           }
 
-          const filePath = path.join(__dirname, "..", "uploads", filename);
+          const filePath = path.join(UPLOAD_DIR, filename);
 
           // Check if file exists before attempting to read
           if (fs.existsSync(filePath)) {
@@ -1600,7 +1601,7 @@ const bulkUploadCarIntakes = async (req, res) => {
     const filename = fileUrl.replace(/^\/uploads\//, "");
 
     // Construct file path
-    const filePath = path.join(__dirname, "../uploads", filename);
+    const filePath = path.join(UPLOAD_DIR, filename);
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {
@@ -1888,7 +1889,7 @@ const bulkUploadScraped = async (req, res) => {
     }
 
     const filename = fileUrl.replace(/^\/uploads\//, "");
-    const filePath = path.join(__dirname, "../uploads", filename);
+    const filePath = path.join(UPLOAD_DIR, filename);
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: "File not found" });
