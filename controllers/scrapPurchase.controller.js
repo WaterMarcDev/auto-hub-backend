@@ -9,6 +9,9 @@ const fs = require("fs");
 const mongoose = require("mongoose");
 const ScrapPurchase = require("../models/ScrapPurchase.model");
 const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller.model");
+// Purchased scrap material is added to Element Hub stock (see that service).
+const scrapPurchaseElementHub = require("../services/scrapPurchaseElementHub.service");
+const { ElementHubStockError } = scrapPurchaseElementHub;
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -165,7 +168,14 @@ const createScrapPurchase = async (req, res) => {
     };
 
     const created = await ScrapPurchase.create(payload);
-    return res.status(201).json(created);
+
+    // Add the purchased materials to Element Hub stock. Never blocks the
+    // purchase: a hub failure is returned as elementHubError instead.
+    const hub = await scrapPurchaseElementHub.postCreatedPurchase(
+      created,
+      req.user ? req.user._id : undefined
+    );
+    return res.status(201).json({ ...created.toObject(), ...hub });
   } catch (error) {
     if (error instanceof ScrapItemValidationError) {
       return res.status(400).json({ message: error.message });
@@ -307,14 +317,35 @@ const updateScrapPurchase = async (req, res) => {
       }
     }
 
+    // Move Element Hub stock to match the edited lines (only the difference).
+    // Null for purchases created before the Element Hub integration.
+    const hubChange = await scrapPurchaseElementHub.prepareEdit(
+      record,
+      req.user ? req.user._id : undefined
+    );
+
     // Pre-save hook recomputes totals from the (possibly overridden) values so
     // prints always reflect the latest edit.
-    await record.save();
+    try {
+      await record.save();
+    } catch (saveErr) {
+      if (hubChange) await hubChange.rollback();
+      throw saveErr;
+    }
+    if (hubChange) await hubChange.commitHistory();
 
     return res.json(record);
   } catch (error) {
     if (error instanceof ScrapItemValidationError) {
       return res.status(400).json({ message: error.message });
+    }
+    if (error instanceof ElementHubStockError) {
+      return res.status(409).json({ message: error.message });
+    }
+    if (error instanceof mongoose.Error.VersionError) {
+      return res.status(409).json({
+        message: "This purchase was changed by someone else. Reload it and try again.",
+      });
     }
     console.error("Error updating scrap purchase:", error);
     return res.status(500).json({ message: "Server error" });
@@ -332,6 +363,45 @@ const deleteScrapPurchase = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid id" });
     }
+
+    // A purchase that added Element Hub stock takes it back out first. If
+    // that stock was already sold, the delete is refused (409).
+    const existing = await ScrapPurchase.findById(id);
+    const hubChange = existing
+      ? await scrapPurchaseElementHub.prepareDelete(existing, req.user ? req.user._id : undefined)
+      : null;
+    if (hubChange) {
+      const now = new Date();
+      let deleted = null;
+      try {
+        deleted = await ScrapPurchase.findOneAndUpdate(
+          { _id: id, isDeleted: { $ne: true }, __v: existing.__v },
+          {
+            $set: {
+              isDeleted: true,
+              isActive: false,
+              deletedAt: now,
+              elementHubPosted: [],
+              elementHubPostedAt: now,
+            },
+            $inc: { __v: 1 },
+          },
+          { new: true }
+        );
+      } catch (deleteErr) {
+        await hubChange.rollback();
+        throw deleteErr;
+      }
+      if (!deleted) {
+        await hubChange.rollback();
+        return res.status(409).json({
+          message: "This purchase was changed by someone else. Reload it and try again.",
+        });
+      }
+      await hubChange.commitHistory();
+      return res.json({ message: "Scrap purchase deleted", id });
+    }
+
     const updated = await ScrapPurchase.findByIdAndUpdate(
       id,
       { isDeleted: true, isActive: false, deletedAt: new Date() },
@@ -340,6 +410,9 @@ const deleteScrapPurchase = async (req, res) => {
     if (!updated) return res.status(404).json({ message: "Scrap purchase not found" });
     return res.json({ message: "Scrap purchase deleted", id });
   } catch (error) {
+    if (error instanceof ElementHubStockError) {
+      return res.status(409).json({ message: error.message });
+    }
     console.error("Error deleting scrap purchase:", error);
     return res.status(500).json({ message: "Server error" });
   }
