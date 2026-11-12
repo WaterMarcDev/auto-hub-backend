@@ -17,7 +17,7 @@ const User = require("../models/User.model");
 
 async function seedAutomationBot() {
   try {
-    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    const mongoUri = process.env.MONGODB_URI;
     const email = process.env.AUTOMATION_BOT_EMAIL;
 
     if (!email) {
