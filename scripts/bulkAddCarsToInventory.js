@@ -115,7 +115,7 @@ async function run() {
   };
 
   try {
-    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    const mongoUri = process.env.MONGODB_URI;
     await mongoose.connect(mongoUri);
     console.log("Connected to MongoDB\n");
     console.log(APPLY ? "MODE: APPLY (writes will be made)\n" : "MODE: DRY RUN (no writes)\n");
