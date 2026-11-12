@@ -36,7 +36,7 @@ async function pickAVin() {
 
 async function run() {
   try {
-    const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+    const mongoUri = process.env.MONGODB_URI;
     await mongoose.connect(mongoUri);
     console.log("Connected to MongoDB:", mongoUri.replace(/:\/\/([^:@/]+):([^@/]+)@/, "://$1:<redacted>@"));
 

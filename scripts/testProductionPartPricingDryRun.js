@@ -61,7 +61,7 @@ async function main() {
   //    a DB-level permission — no write query is ever issued below) ───────
   let connectionStatus = "FAILED";
   try {
-    await mongoose.connect(process.env.MONGO_URI || process.env.MONGODB_URI, {
+    await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 8000,
     });
     connectionStatus = "CONNECTED";
@@ -106,7 +106,7 @@ async function main() {
   console.log("\n============================================================");
   console.log("PRODUCTION PART PRICING DRY RUN");
   console.log("============================================================\n");
-  console.log("Environment:\nLIVE (MongoDB reachable via this environment's existing MONGO_URI configuration)");
+  console.log("Environment:\nLIVE (MongoDB reachable via this environment's existing MONGODB_URI configuration)");
   console.log("\nWIX SYNC:\nNOT EXECUTED");
   console.log("\nDATABASE WRITE:\nNOT EXECUTED");
   console.log("\nGIT:\nNOT MODIFIED");
