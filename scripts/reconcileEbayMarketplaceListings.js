@@ -90,9 +90,9 @@ eBay ↔ CRM Marketplace Listing reconciliation
 }
 
 async function connect() {
-  const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  const mongoUri = process.env.MONGODB_URI;
   if (!mongoUri) {
-    throw new Error("MONGODB_URI (or MONGO_URI) is not set — check auto-hub-backend/.env");
+    throw new Error("MONGODB_URI is not set — check auto-hub-backend/.env");
   }
 
   await mongoose.connect(mongoUri);

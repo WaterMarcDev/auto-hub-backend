@@ -1,12 +1,13 @@
+require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
 
-const MONGO_URI = "mongodb://localhost:27018";
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27018";
 // const DB_NAME = "NeonCloud_autohub";
 // const COLLECTION = "carintakes";
 
 async function renameFields() {
     try {
-        await mongoose.connect(MONGO_URI);
+        await mongoose.connect(MONGODB_URI);
         console.log("MongoDB connected");
 
         const db = mongoose.connection.useDb("autohub");
