@@ -131,8 +131,6 @@ const resolveUploadPath = (rawFilename) => {
 // @access  Private
 router.delete("/:filename", auth, (req, res) => {
   try {
-    const filename = req.params.filename;
-    const filePath = path.join(uploadsDir, filename);
     const resolved = resolveUploadPath(req.params.filename);
     if (!resolved) {
       return res.status(404).json({ error: "File not found" });
@@ -162,8 +160,6 @@ router.delete("/:filename", auth, (req, res) => {
 // @access  Public
 router.get("/:filename", (req, res) => {
   try {
-    const filename = req.params.filename;
-    const filePath = path.join(uploadsDir, filename);
     const resolved = resolveUploadPath(req.params.filename);
     if (!resolved) {
       return res.status(404).json({ error: "File not found" });
