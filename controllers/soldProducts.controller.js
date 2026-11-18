@@ -52,12 +52,16 @@ function toRow(part) {
     sale: part.sale || null,
     saleConflicts: part.saleConflicts || [],
     alsoListedOn: otherChannelListing(part),
+    quantityAvailable: part.quantityAvailable ?? (part.saleStatus === "sold" ? 0 : 1),
+    quantitySold: part.quantitySold ?? 0,
+    returnInfo: part.returnInfo || null,
+    ebayQuantitySync: part.ebayQuantitySync || null,
   };
 }
 
 function buildFilter(query) {
   const filter = { saleStatus: "sold" };
-  if (query.channel === "ebay" || query.channel === "wix") filter["sale.channel"] = query.channel;
+  if (["ebay", "wix", "crm"].includes(query.channel)) filter["sale.channel"] = query.channel;
   if (query.conflicts === "true") filter["saleConflicts.0"] = { $exists: true };
 
   const range = {};
@@ -151,13 +155,15 @@ exports.summary = async (req, res) => {
     };
 
     const ebay = channel("ebay");
+    const crm = channel("crm"); // sold in store
     const wix = channel("wix");
     res.json({
       success: true,
       data: {
-        total: ebay.count + wix.count,
+        total: ebay.count + wix.count + crm.count,
         ebay,
         wix,
+        crm,
         last30Days: last30,
         conflicts,
         sync: { ebay: sync("ebay"), wix: sync("wix") },

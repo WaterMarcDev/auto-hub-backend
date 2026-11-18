@@ -3,19 +3,16 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const { auth } = require("../middleware/auth");
+const { UPLOAD_DIR } = require("../config/uploads");
 const router = express.Router();
 
-// Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// Upload folder (created on startup by config/uploads.js; set UPLOAD_DIR to move it)
+const uploadsDir = UPLOAD_DIR;
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, "../uploads");
-    cb(null, uploadPath);
+    cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
     // Create unique filename with timestamp
@@ -116,13 +113,31 @@ router.post("/multiple", auth, upload.array("images", 10), (req, res) => {
   }
 });
 
+// Path traversal guard for the /:filename routes.
+// Express decodes "%2F", so a request like "..%2F.env" arrives as "../.env",
+// and path.join() would then point outside uploads/. path.basename() keeps
+// only the last path segment ("../.env" -> ".env"), so the resolved path
+// always stays inside uploads/. "." and ".." are rejected because they would
+// resolve to uploads/ itself or its parent folder.
+// Returns null when the name is not a usable file name.
+const resolveUploadPath = (rawFilename) => {
+  const filename = path.basename(String(rawFilename || ""));
+  if (!filename || filename === "." || filename === "..") return null;
+  return { filename, filePath: path.join(uploadsDir, filename) };
+};
+
 // @route   DELETE /api/upload/:filename
 // @desc    Delete an uploaded image
 // @access  Private
 router.delete("/:filename", auth, (req, res) => {
   try {
     const filename = req.params.filename;
-    const filePath = path.join(__dirname, "../uploads", filename);
+    const filePath = path.join(uploadsDir, filename);
+    const resolved = resolveUploadPath(req.params.filename);
+    if (!resolved) {
+      return res.status(404).json({ error: "File not found" });
+    }
+    const { filename, filePath } = resolved;
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {
@@ -148,7 +163,12 @@ router.delete("/:filename", auth, (req, res) => {
 router.get("/:filename", (req, res) => {
   try {
     const filename = req.params.filename;
-    const filePath = path.join(__dirname, "../uploads", filename);
+    const filePath = path.join(uploadsDir, filename);
+    const resolved = resolveUploadPath(req.params.filename);
+    if (!resolved) {
+      return res.status(404).json({ error: "File not found" });
+    }
+    const { filename, filePath } = resolved;
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {

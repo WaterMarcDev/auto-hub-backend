@@ -15,12 +15,14 @@ const loggerConfig = require("./config/logger");
 const addUserContext = require("./middleware/logging");
 const morgan = require("morgan");
 const path = require("path");
+const { UPLOAD_DIR } = require("./config/uploads");
 const partRequestRoutes = require("./routes/partRequest.routes");
 const junkCarRoutes = require("./routes/junkCar.routes");
 const { swaggerUi, specs } = require("./config/swagger");  // by shiva
 const http = require("http");                                // real time update by shiva
 const { Server } = require("socket.io");                     // by shiva
 const startBackInStockChecker = require("./services/checkBackInStock.service");    // by shiva
+const { isAllCronSyncDisabled } = require("./utils/cronSyncSwitch");
 const ebayRoutes = require("./routes/ebay.routes");   // by shiva
 const ebayCatalogSyncRoutes = require("./routes/ebayCatalogSync.routes");
 
@@ -122,6 +124,8 @@ io.use((socket, next) => {
 
 //  make io available in controllers
 app.set("io", io);
+// Services (no req) emit live CRM refreshes through this.
+require("./utils/realtime").setIO(io);
 
 // debug connection
 io.on("connection", (socket) => {
@@ -201,7 +205,7 @@ app.use(express.json({
 // Uploads path by shiva
 app.use(
   "/uploads",
-  express.static(path.join(__dirname, "uploads"))
+  express.static(UPLOAD_DIR)
 );
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -384,6 +388,8 @@ app.use("/api/conversations", require("./routes/conversation.routes"));
 app.use("/api/orders", require("./routes/order.routes"));
 // Parts sold on eBay / Wix (sold status + full order details)
 app.use("/api/sold-products", require("./routes/soldProducts.routes"));
+// Stock ledger, in-store sales, returns, eBay quantity sync, eBay webhook events, reconciliation
+app.use("/api/inventory-sync", require("./routes/inventorySync.routes"));
 app.use("/api/integrations", require("./routes/integration.routes"));
 app.use("/api/integrations/ebay", ebayRoutes);
 app.use("/api/ebay", ebayCatalogSyncRoutes);
@@ -404,7 +410,7 @@ app.use("/api/entry-fee", require("./routes/entryFee.routes"));
 app.use("/api/v1/app/auth", require("./mobile/routes/mobileAuth.routes"));
 
 // Serve uploaded files statically
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(UPLOAD_DIR));
 
 
 app.use("/assets", express.static(path.join(__dirname, "assets")));
@@ -483,11 +489,29 @@ let ebayCatalogSyncJobRef = null;
 let ebayListingReconcileJobRef = null;
 let ebayMessageSyncJobRef = null;
 let marketplaceSalesSyncJobRef = null;
+let inventorySyncWorkerJobRef = null;
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 
+  // Master switch: DISABLE_ALL_CRON_SYNC=true starts none of the CRON / SYNC
+  // jobs below, whatever their own variables say. The API itself keeps
+  // running normally. See utils/cronSyncSwitch.js.
+  if (isAllCronSyncDisabled()) {
+    console.log("[JOBS] DISABLE_ALL_CRON_SYNC=true — all CRON and SYNC jobs are switched off");
+    return;
+  }
+
   startBackInStockChecker();   // Added by shiva
+
+  // Keep car intake price.finalPrice (and transaction amount) equal to
+  // payment.paidAmount, including when paidAmount is edited directly in the DB.
+  try {
+    require("./services/paidAmountSync.service").startPaidAmountSync();
+    console.log("Paid amount -> final price sync job started");
+  } catch (err) {
+    console.error("Failed to start paid amount sync job:", err.message || err);
+  }
 
   // Start the eBay token auto-refresh cron job.
   // Prevents a connected eBay integration from silently showing as
@@ -578,6 +602,17 @@ server.listen(PORT, () => {
   } catch (err) {
     console.error("Failed to start marketplace sales sync cron job:", err.message || err);
   }
+
+  // Inventory sync worker (every minute): eBay webhook events, CRM → eBay
+  // quantity pushes (with retry/backoff) and the hourly reconciliation report.
+  // Disable with DISABLE_INVENTORY_SYNC_WORKER=true.
+  try {
+    const startInventorySyncWorker = require("./jobs/inventorySyncWorkerJob");
+    startInventorySyncWorker();
+    inventorySyncWorkerJobRef = startInventorySyncWorker;
+  } catch (err) {
+    console.error("Failed to start inventory sync worker:", err.message || err);
+  }
 });
 
 // ─── Graceful shutdown (Passenger/Plesk send SIGTERM; Ctrl-C sends SIGINT) ──
@@ -598,6 +633,7 @@ async function gracefulShutdown(signal) {
   try { if (ebayListingReconcileJobRef && ebayListingReconcileJobRef.stop) ebayListingReconcileJobRef.stop(); } catch (_) { /* best-effort */ }
   try { if (ebayMessageSyncJobRef && ebayMessageSyncJobRef.stop) ebayMessageSyncJobRef.stop(); } catch (_) { /* best-effort */ }
   try { if (marketplaceSalesSyncJobRef && marketplaceSalesSyncJobRef.stop) marketplaceSalesSyncJobRef.stop(); } catch (_) { /* best-effort */ }
+  try { if (inventorySyncWorkerJobRef && inventorySyncWorkerJobRef.stop) inventorySyncWorkerJobRef.stop(); } catch (_) { /* best-effort */ }
 
   // 2) Signal any in-flight protected eBay sync operation to cancel, wait
   //    (bounded by this same timeout) for it to actually finish, and only

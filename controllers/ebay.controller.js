@@ -68,3 +68,30 @@ exports.accountDeletion = async (req, res) => {
     });
   }
 };
+// ─── eBay Notification API (order webhooks) ─────────────────────────────────
+// See services/ebayNotification.service.js. Public routes (eBay calls them);
+// security comes from eBay's signature, not a login.
+const ebayNotification = require("../services/ebayNotification.service");
+
+// GET /api/integrations/ebay/notifications?challenge_code=… — destination check
+exports.notificationChallenge = (req, res) => {
+  const code = req.query.challenge_code;
+  if (!code) return res.status(400).json({ success: false, message: "Missing challenge_code" });
+  const hash = ebayNotification.challengeResponse(String(code));
+  if (!hash) {
+    console.error("[EBAY NOTIFICATION] challenge received but EBAY_NOTIFICATION_ENDPOINT_URL / EBAY_NOTIFICATION_VERIFICATION_TOKEN are not set");
+    return res.status(500).json({ success: false, message: "Notification endpoint not configured" });
+  }
+  return res.status(200).json({ challengeResponse: hash });
+};
+
+// POST /api/integrations/ebay/notifications — verify, store, acknowledge
+exports.notification = async (req, res) => {
+  const out = await ebayNotification.receive({
+    signature: req.get("x-ebay-signature"),
+    rawBody: req.rawBody,
+    body: req.body,
+  });
+  if (out.status === 204) return res.status(204).end();
+  return res.status(out.status).json({ success: false, message: out.error });
+};

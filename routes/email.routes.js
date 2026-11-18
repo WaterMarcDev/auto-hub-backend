@@ -5,6 +5,7 @@ const router = express.Router();
 // added by shiva
 const multer = require("multer");
 const path = require("path");   // added by shiva
+const { UPLOAD_DIR } = require("../config/uploads");
 
 // To store the Attachments so that we can preview it.
 const storage = multer.diskStorage({
@@ -13,7 +14,7 @@ const storage = multer.diskStorage({
 
         cb(
             null,
-            "uploads/"
+            UPLOAD_DIR
         );
     },
 

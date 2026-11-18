@@ -59,9 +59,9 @@ function classify(doc) {
 }
 
 async function main() {
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  const uri = process.env.MONGODB_URI;
   if (!uri) {
-    console.error(LOG_PREFIX + " No MONGODB_URI / MONGO_URI configured. Aborting.");
+    console.error(LOG_PREFIX + " No MONGODB_URI configured. Aborting.");
     process.exit(1);
   }
 

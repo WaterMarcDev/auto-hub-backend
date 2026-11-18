@@ -5,6 +5,7 @@ const CRMEmail = require("../models/CRMEmail.model");
 const sgMail = require("@sendgrid/mail");
 const fs = require("fs");
 const path = require("path");
+const { UPLOAD_DIR } = require("../config/uploads");
 const emailSignature = require("../utils/emailSignature");
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
@@ -80,7 +81,7 @@ function mimeFromFilename(filename) {
     return EXT_TO_MIME[path.extname(filename).toLowerCase()] || "application/octet-stream";
 }
 
-const UPLOADS_DIR = path.join(__dirname, "..", "uploads");
+const UPLOADS_DIR = UPLOAD_DIR; // set UPLOAD_DIR to move it (see config/uploads.js)
 
 // Re-attach the ORIGINAL email's already-stored attachments during forward.
 // originalEmail (parsed from the frontend's payload) already carries the

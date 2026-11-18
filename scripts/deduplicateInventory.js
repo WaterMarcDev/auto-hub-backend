@@ -17,9 +17,7 @@ async function deduplicate() {
 
     const DRY_RUN = process.env.DRY_RUN === "true";
 
-    const mongoUri =
-        process.env.MONGODB_URI ||
-        process.env.MONGO_URI;
+    const mongoUri = process.env.MONGODB_URI;
     // const mongoUri = "mongodb://127.0.0.1:27017/test";
 
         await mongoose.connect(mongoUri);

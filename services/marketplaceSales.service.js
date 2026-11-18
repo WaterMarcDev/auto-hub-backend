@@ -43,6 +43,7 @@ const IntegrationAccount = require("../models/IntegrationAccount.model");
 const MarketplaceSaleSync = require("../models/MarketplaceSaleSync.model");
 const { normalizeOrderStatuses } = require("./orderStatusMapper.service");
 const { logAction } = require("./auditLog.service");
+const ledger = require("./inventoryLedger.service");
 
 const LOG_PREFIX = "[MARKETPLACE SALES]";
 
@@ -109,46 +110,19 @@ function flattenForSet(prefix, obj, out = {}) {
   return out;
 }
 
-// ─── core: mark sold / release ──────────────────────────────────────────────
+// ─── core: mark sold / release (through the central ledger) ─────────────────
 
-/**
- * Mark one Inventory part sold by a marketplace order line.
- * @param {string|ObjectId} inventoryId
- * @param {Object} sale - fields of Inventory.sale (channel, orderId, lineItemId required)
- * @returns {Promise<"sold"|"refreshed"|"conflict"|"missing">}
- */
-async function markPartSold(inventoryId, sale) {
+const SALE_SOURCE = { ebay: "EBAY_SALE", wix: "WIX_SALE" };
+const CANCEL_SOURCE = { ebay: "EBAY_CANCELLATION", wix: "WIX_CANCELLATION" };
+
+const saleKey = (sale, unit) =>
+  `${sale.channel}-sale:${sale.orderId}:${sale.lineItemId}${unit ? `:${unit}` : ""}`;
+
+async function recordConflict(inventoryId, sale) {
   const now = new Date();
-  const details = compact({ ...sale, lastSyncedAt: now });
-
-  // 1) Available → sold.
-  const claimed = await Inventory.findOneAndUpdate(
-    { _id: inventoryId, saleStatus: { $ne: "sold" } },
-    { $set: { saleStatus: "sold", sale: { ...details, recordedAt: now } } },
-    { new: true, projection: { _id: 1 } }
-  );
-  if (claimed) return "sold";
-
-  // 2) Already sold by this same order line → refresh its details only
-  //    (order/payment/shipping status, tracking), keeping recordedAt.
-  const refreshed = await Inventory.findOneAndUpdate(
-    {
-      _id: inventoryId,
-      saleStatus: "sold",
-      "sale.channel": sale.channel,
-      "sale.orderId": sale.orderId,
-      "sale.lineItemId": sale.lineItemId,
-    },
-    { $set: flattenForSet("sale", details) },
-    { new: true, projection: { _id: 1 } }
-  );
-  if (refreshed) return "refreshed";
-
-  // 3) Sold by a DIFFERENT order → the part was sold twice. Record it once.
   const conflict = await Inventory.findOneAndUpdate(
     {
       _id: inventoryId,
-      saleStatus: "sold",
       "sale.orderId": { $ne: sale.orderId },
       $nor: [{ saleConflicts: { $elemMatch: { channel: sale.channel, orderId: sale.orderId } } }],
     },
@@ -164,44 +138,127 @@ async function markPartSold(inventoryId, sale) {
         }),
       },
     },
-    { new: true, projection: { _id: 1, partName: 1, vin: 1, sale: 1 } }
+    { new: true, projection: { _id: 1, partName: 1, vin: 1, sale: 1, isDeleted: 1 } }
   );
-  if (conflict) {
-    console.warn(
-      `${LOG_PREFIX} SOLD TWICE: part ${inventoryId} (${conflict.partName || ""} ${conflict.vin || ""}) ` +
-        `already sold on ${conflict.sale?.channel} order ${conflict.sale?.orderNumber || conflict.sale?.orderId}, ` +
-        `now also on ${sale.channel} order ${sale.orderNumber || sale.orderId}`
-    );
-    await logAction({
-      action: "marketplace_sale_conflict",
-      status: "failure",
-      platform: sale.channel,
-      entityType: "inventory",
-      entityId: String(inventoryId),
-      message: `Part sold twice: already sold on ${conflict.sale?.channel} order ${conflict.sale?.orderNumber || conflict.sale?.orderId}, also sold on ${sale.channel} order ${sale.orderNumber || sale.orderId}`,
-    }).catch(() => {});
-    return "conflict";
-  }
-
-  const exists = await Inventory.exists({ _id: inventoryId });
-  return exists ? "conflict" : "missing";
+  if (!conflict) return false;
+  const before = conflict.sale
+    ? `already sold on ${conflict.sale.channel} order ${conflict.sale.orderNumber || conflict.sale.orderId}`
+    : conflict.isDeleted
+      ? "already removed from inventory"
+      : "out of stock";
+  console.warn(
+    `${LOG_PREFIX} SOLD TWICE: part ${inventoryId} (${conflict.partName || ""} ${conflict.vin || ""}) ${before}, ` +
+      `now also on ${sale.channel} order ${sale.orderNumber || sale.orderId}`
+  );
+  await logAction({
+    action: "marketplace_sale_conflict",
+    status: "failure",
+    platform: sale.channel,
+    entityType: "inventory",
+    entityId: String(inventoryId),
+    message: `Part sold twice: ${before}, also sold on ${sale.channel} order ${sale.orderNumber || sale.orderId}`,
+  }).catch(() => {});
+  return true;
 }
 
 /**
- * A cancelled order puts the parts it sold back into available stock.
- * @returns {Promise<number>} parts released
+ * Deduct stock for one marketplace order line (or one unit of it for Wix).
+ * Exactly once per (order, line[, unit]) — see services/inventoryLedger.service.js.
+ * @param {Object} sale - fields of Inventory.sale (channel, orderId, lineItemId required)
+ * @param {Object} [opts] - { unit } for per-unit Wix keys, { quantity } to deduct
+ * @returns {Promise<"sold"|"refreshed"|"conflict"|"missing">}
+ */
+async function markPartSold(inventoryId, sale, opts = {}) {
+  const now = new Date();
+  const details = compact({ ...sale, lastSyncedAt: now });
+  const result = await ledger.deduct({
+    inventoryId,
+    quantity: opts.quantity || sale.quantity || 1,
+    key: saleKey(sale, opts.unit),
+    source: SALE_SOURCE[sale.channel] || "EBAY_SALE",
+    channel: sale.channel,
+    orderId: sale.orderId,
+    orderLineItemId: sale.lineItemId,
+    listingId: sale.listingId,
+    countAsSale: true,
+    sale: details,
+    details: { orderNumber: sale.orderNumber, price: sale.price, currency: sale.currency, buyerName: sale.buyerName },
+  });
+
+  if (result.outcome === "applied") return "sold";
+  if (result.outcome === "missing") return "missing";
+
+  if (result.outcome === "duplicate") {
+    // Same order line seen again → refresh its details (status, tracking) only.
+    await Inventory.updateOne(
+      { _id: inventoryId, "sale.channel": sale.channel, "sale.orderId": sale.orderId, "sale.lineItemId": sale.lineItemId },
+      { $set: flattenForSet("sale", details) }
+    );
+    return "refreshed";
+  }
+
+  // insufficient / removed: stock wasn't there — the part was sold twice.
+  await recordConflict(inventoryId, sale);
+  return "conflict";
+}
+
+/**
+ * A completed cancellation puts back exactly what that order deducted, once.
+ * Nothing is restored if the order never deducted stock.
+ * @returns {Promise<number>} parts restored
  */
 async function releaseOrder(channel, orderId, reason) {
-  const parts = await Inventory.find({ saleStatus: "sold", "sale.channel": channel, "sale.orderId": orderId })
-    .select("_id partName vin")
-    .lean();
-  if (!parts.length) return 0;
+  const InventoryTransaction = require("../models/InventoryTransaction.model");
+  const sales = await InventoryTransaction.find({
+    source: SALE_SOURCE[channel],
+    orderId: String(orderId),
+    status: "applied",
+  }).lean();
 
-  const result = await Inventory.updateMany(
-    { _id: { $in: parts.map((p) => p._id) }, saleStatus: "sold", "sale.channel": channel, "sale.orderId": orderId },
-    { $set: { saleStatus: "available", sale: null } }
-  );
-  const released = result.modifiedCount || 0;
+  let released = 0;
+  for (const tx of sales) {
+    const r = await ledger.restore({
+      inventoryId: tx.inventoryId,
+      quantity: tx.quantity,
+      key: `${channel}-cancel:${tx.key}`,
+      source: CANCEL_SOURCE[channel],
+      channel,
+      orderId: tx.orderId,
+      orderLineItemId: tx.orderLineItemId,
+      listingId: tx.listingId,
+      uncountSale: true,
+      clearSaleOfOrder: orderId,
+      reason: `order ${reason}`,
+    });
+    if (r.outcome === "applied") released += 1;
+  }
+
+  // Parts marked sold before the ledger existed (no sale transaction).
+  const legacy = await Inventory.find({
+    saleStatus: "sold",
+    "sale.channel": channel,
+    "sale.orderId": String(orderId),
+  })
+    .select("_id sale")
+    .lean();
+  for (const part of legacy) {
+    const hasTx = sales.some((tx) => String(tx.inventoryId) === String(part._id));
+    if (hasTx) continue;
+    const r = await ledger.restore({
+      inventoryId: part._id,
+      quantity: 1,
+      key: `${channel}-cancel:legacy:${orderId}:${part._id}`,
+      source: CANCEL_SOURCE[channel],
+      channel,
+      orderId: String(orderId),
+      orderLineItemId: part.sale?.lineItemId,
+      uncountSale: true,
+      clearSaleOfOrder: orderId,
+      reason: `order ${reason} (sold before ledger)`,
+    });
+    if (r.outcome === "applied") released += 1;
+  }
+
   if (released) {
     console.log(`${LOG_PREFIX} ${channel} order ${orderId} ${reason} → ${released} part(s) back to available`);
     await logAction({
@@ -210,32 +267,44 @@ async function releaseOrder(channel, orderId, reason) {
       platform: channel,
       entityType: "inventory",
       message: `${channel} order ${orderId} ${reason}: ${released} part(s) returned to available stock`,
-      metadata: { orderId, parts: parts.map((p) => String(p._id)) },
+      metadata: { orderId },
     }).catch(() => {});
   }
   return released;
 }
 
+
 const emptyResult = () => ({ sold: 0, refreshed: 0, released: 0, conflicts: 0, unmatched: [] });
 
 // ─── eBay ───────────────────────────────────────────────────────────────────
 
+/**
+ * Map an eBay order line to exactly one CRM part. Never guesses: if a SKU or
+ * eBay item id points at more than one part, the line is left unmatched
+ * (reason "ambiguous") and NO stock is deducted.
+ * @returns {Promise<{id: *|null, reason?: string}>}
+ */
 async function findInventoryForEbayLine(line) {
   const sku = clean(line.sku);
   if (sku && isObjectIdString(sku)) {
     const byId = await Inventory.findById(sku).select("_id").lean();
-    if (byId) return byId._id;
+    if (byId) return { id: byId._id };
   }
+  const unique = async (filter, label) => {
+    const hits = await Inventory.find(filter).select("_id").limit(2).lean();
+    if (hits.length > 1) return { id: null, reason: `ambiguous: several CRM parts share this ${label}` };
+    return hits.length ? { id: hits[0]._id } : null;
+  };
   if (sku) {
-    const bySku = await Inventory.findOne({ ebaySku: sku }).select("_id").lean();
-    if (bySku) return bySku._id;
+    const r = await unique({ ebaySku: sku }, "eBay SKU");
+    if (r) return r;
   }
   const itemId = clean(line.legacyItemId);
   if (itemId) {
-    const byListing = await Inventory.findOne({ ebayListingId: itemId }).select("_id").lean();
-    if (byListing) return byListing._id;
+    const r = await unique({ ebayListingId: itemId }, "eBay item id");
+    if (r) return r;
   }
-  return null;
+  return { id: null, reason: "no CRM part with this SKU or eBay item id" };
 }
 
 /**
@@ -283,10 +352,15 @@ async function applyEbayOrder(order, orderDoc) {
     customerId: orderDoc?.customerId || undefined,
   };
 
+  const { refundStatus } = normalizeOrderStatuses(order);
+  const refunded = /refund/i.test(String(refundStatus || "")) && !/not refunded/i.test(String(refundStatus));
+
   for (const line of order.lineItems || []) {
-    const inventoryId = await findInventoryForEbayLine(line);
+    const match = await findInventoryForEbayLine(line);
+    const inventoryId = match.id;
     if (!inventoryId) {
       result.unmatched.push({
+        reason: match.reason,
         channel: "ebay",
         orderId: order.orderId,
         orderNumber: orderLevel.orderNumber,
@@ -310,6 +384,20 @@ async function applyEbayOrder(order, orderDoc) {
     if (outcome === "sold") result.sold += 1;
     else if (outcome === "refreshed") result.refreshed += 1;
     else if (outcome === "conflict") result.conflicts += 1;
+
+    // A refund (full or partial) NEVER restocks — the part comes back only
+    // when staff receive and approve a return. Recorded once for the audit trail.
+    if (refunded) {
+      await ledger.recordInfo({
+        key: `ebay-refund:${order.orderId}:${line.lineItemId}:${refundStatus}`,
+        inventoryId,
+        source: "EBAY_RETURN",
+        channel: "ebay",
+        orderId: order.orderId,
+        orderLineItemId: String(line.lineItemId || ""),
+        reason: `${refundStatus} — stock unchanged until the part is returned and passes inspection`,
+      });
+    }
   }
   return result;
 }
@@ -405,7 +493,7 @@ async function applyWixOrder(order) {
     };
 
     const group = await Inventory.find({ wixProductId: productId })
-      .select("_id saleStatus sale isDeleted createdAt")
+      .select("_id saleStatus quantityAvailable isDeleted createdAt")
       .sort({ createdAt: 1, _id: 1 })
       .lean();
     if (!group.length) {
@@ -413,39 +501,55 @@ async function applyWixOrder(order) {
       continue;
     }
 
-    const isThisLine = (p) =>
-      p.saleStatus === "sold" &&
-      p.sale?.channel === "wix" &&
-      p.sale?.orderId === order.id &&
-      p.sale?.lineItemId === lineSale.lineItemId;
+    // One ledger key per unit of the line ("…:1", "…:2"), so a re-read of the
+    // same order never deducts twice, whichever part each unit landed on.
+    const InventoryTransaction = require("../models/InventoryTransaction.model");
+    let short = 0;
+    for (let unit = 1; unit <= quantity; unit += 1) {
+      const key = saleKey(lineSale, unit);
+      const done = await InventoryTransaction.findOne({ key, status: "applied" }).select("inventoryId").lean();
+      if (done) {
+        const outcome = await markPartSold(done.inventoryId, lineSale, { unit, quantity: 1 });
+        if (outcome === "refreshed") result.refreshed += 1;
+        continue;
+      }
 
-    // Parts already marked by this line: refresh their details.
-    const already = group.filter(isThisLine).slice(0, quantity);
-    for (const p of already) {
-      const outcome = await markPartSold(p._id, lineSale);
-      if (outcome === "refreshed") result.refreshed += 1;
+      let placed = false;
+      for (const p of group) {
+        if (p.isDeleted || (p.quantityAvailable ?? 1) <= 0) continue;
+        const r = await ledger.deduct({
+          inventoryId: p._id,
+          quantity: 1,
+          key,
+          source: "WIX_SALE",
+          channel: "wix",
+          orderId: lineSale.orderId,
+          orderLineItemId: lineSale.lineItemId,
+          listingId: lineSale.listingId,
+          countAsSale: true,
+          sale: compact({ ...lineSale, lastSyncedAt: new Date() }),
+          details: { orderNumber: lineSale.orderNumber, price: lineSale.price, unit },
+        });
+        if (r.outcome === "applied") {
+          result.sold += 1;
+          placed = true;
+          p.quantityAvailable = r.newQuantity;
+          break;
+        }
+        if (r.outcome === "duplicate") {
+          result.refreshed += 1;
+          placed = true;
+          break;
+        }
+        p.quantityAvailable = 0; // insufficient/removed → try the next part
+      }
+      if (!placed) short += 1;
     }
 
-    // Mark more available parts until the line's quantity is covered.
-    let needed = quantity - already.length;
-    const candidates = group.filter((p) => p.saleStatus !== "sold" && !p.isDeleted);
-    for (const p of candidates) {
-      if (needed <= 0) break;
-      const outcome = await markPartSold(p._id, lineSale);
-      if (outcome === "sold") {
-        result.sold += 1;
-        needed -= 1;
-      }
-    }
-
-    if (needed > 0) {
-      // Wix sold more units than the CRM has available for this product.
-      result.unmatched.push({ ...unmatchedBase, quantity: needed, reason: "not enough available CRM parts for this Wix product" });
-      if (!already.length && !candidates.length) {
-        // Every part of the group is already sold elsewhere → sold twice.
-        const outcome = await markPartSold(group[0]._id, lineSale);
-        if (outcome === "conflict") result.conflicts += 1;
-      }
+    if (short > 0) {
+      // Wix sold more units than the CRM has in stock for this product.
+      result.unmatched.push({ ...unmatchedBase, quantity: short, reason: "not enough CRM stock for this Wix product" });
+      if (await recordConflict(group[0]._id, lineSale)) result.conflicts += 1;
     }
   }
   return result;
@@ -609,10 +713,143 @@ async function syncWixSales() {
 }
 
 /** Run both channels; one failing never stops the other. */
+// ─── eBay returns (Post-Order API) ──────────────────────────────────────────
+
+const RETURN_LOOKBACK_DAYS = 90;
+const STAFF_RETURN_STATES = ["received", "inspection_passed", "inspection_failed"];
+
+/** eBay return state → CRM return status (staff decide received/inspection). */
+function mapReturnState(state) {
+  const s = String(state || "").toUpperCase();
+  if (s.includes("CLOSED")) return "closed";
+  if (s.includes("DELIVERED")) return "delivered";
+  if (s.includes("SHIP") || s.includes("TRANSIT")) return "in_transit";
+  return "requested";
+}
+
+/**
+ * Read eBay returns from the last 90 days and record their state on the sold
+ * part (Inventory.returnInfo). NEVER changes stock: a part goes back into
+ * stock only when staff mark it received and it passes inspection.
+ * Auth header prefix defaults to "IAF" (Post-Order API reference); set
+ * EBAY_POST_ORDER_AUTH_PREFIX=Bearer if your account needs it.
+ */
+async function syncEbayReturns() {
+  const startedAt = new Date();
+  const ebayAdapter = require("./adapters/ebayAdapter");
+  const InventoryTransaction = require("../models/InventoryTransaction.model");
+  const summary = { returns: 0, updated: 0, unmatched: 0 };
+  const unmatched = [];
+  try {
+    const account = await IntegrationAccount.findOne({ platform: "ebay", isActive: true }).sort({ createdAt: -1 });
+    if (!account || !account.accessToken) {
+      await recordRun("ebay-returns", startedAt, { status: "skipped", error: "eBay is not connected", advance: false });
+      return { channel: "ebay-returns", skipped: "eBay is not connected" };
+    }
+    if (account.isTokenExpired) {
+      if (!account.refreshToken) {
+        await recordRun("ebay-returns", startedAt, { status: "skipped", error: "eBay token expired — reconnect eBay", advance: false });
+        return { channel: "ebay-returns", skipped: "eBay token expired" };
+      }
+      await ebayAdapter.refreshToken(account);
+    }
+
+    const from = new Date(Date.now() - RETURN_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const prefix = process.env.EBAY_POST_ORDER_AUTH_PREFIX || "IAF";
+    const baseUrl = ebayAdapter.client.getBaseUrl();
+    const limit = 200;
+
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const res = await axios.get(`${baseUrl}/post-order/v2/return/search`, {
+        // Post-Order search pages by page number in `offset` (1-based).
+        params: { creation_date_range_from: from, limit, offset: page + 1 },
+        headers: {
+          Authorization: `${prefix} ${account.accessToken}`,
+          "Content-Type": "application/json",
+          "X-EBAY-C-MARKETPLACE-ID": process.env.EBAY_MARKETPLACE_ID || "EBAY_US",
+        },
+        timeout: 30000,
+      });
+      const members = res.data?.members || [];
+      for (const m of members) {
+        summary.returns += 1;
+        const returnId = clean(m.returnId);
+        const orderId = clean(m.orderId);
+        const itemId = clean(m.creationInfo?.item?.itemId);
+        const state = clean(m.state) || clean(m.status);
+        if (!returnId) continue;
+
+        let inventoryId = null;
+        if (orderId) {
+          const tx = await InventoryTransaction.findOne({ source: "EBAY_SALE", orderId, status: "applied" }).select("inventoryId").lean();
+          inventoryId = tx?.inventoryId || null;
+        }
+        if (!inventoryId && itemId) {
+          const hits = await Inventory.find({ ebayListingId: itemId }).select("_id").limit(2).lean();
+          if (hits.length === 1) inventoryId = hits[0]._id;
+        }
+        if (!inventoryId) {
+          summary.unmatched += 1;
+          unmatched.push({ channel: "ebay", returnId, orderId, listingId: itemId, state, reason: "return not matched to a CRM part" });
+          continue;
+        }
+
+        const part = await Inventory.findById(inventoryId).select("returnInfo").lean();
+        const now = new Date();
+        const staffOwned = part?.returnInfo?.returnId === returnId && STAFF_RETURN_STATES.includes(part.returnInfo.status);
+        const refundStatus = clean(m.sellerTotalRefund?.estimatedRefundAmount?.value)
+          ? `refund ${m.sellerTotalRefund.estimatedRefundAmount.value}`
+          : clean(m.refundInfo?.refundStatus) || clean(m.currentType);
+        const $set = staffOwned
+          ? { "returnInfo.ebayState": state, "returnInfo.refundStatus": refundStatus, "returnInfo.updatedAt": now }
+          : {
+              returnInfo: compact({
+                channel: "ebay",
+                returnId,
+                orderId,
+                status: mapReturnState(state),
+                ebayState: state,
+                refundStatus,
+                requestedAt: toDate(m.creationInfo?.creationDate?.value || m.creationInfo?.creationDate) || now,
+                updatedAt: now,
+              }),
+            };
+        await Inventory.updateOne({ _id: inventoryId }, { $set });
+        summary.updated += 1;
+        await ledger.recordInfo({
+          key: `ebay-return:${returnId}:${state}`,
+          inventoryId,
+          source: "EBAY_RETURN",
+          channel: "ebay",
+          orderId,
+          returnId,
+          reason: `eBay return ${state} — stock unchanged until received and approved for resale`,
+        });
+      }
+      const total = Number(res.data?.total ?? res.data?.paginationOutput?.totalEntries ?? 0);
+      if (!members.length || (page + 1) * limit >= total) break;
+    }
+
+    await recordRun("ebay-returns", startedAt, { status: "success", summary, unmatched, advance: true });
+    if (summary.updated) require("../utils/realtime").invalidate("inventorySync", "soldProducts");
+    return { channel: "ebay-returns", ...summary };
+  } catch (err) {
+    const status = err?.response?.status;
+    const message =
+      status === 401 || status === 403
+        ? `eBay refused access to returns (${status}). Check the Post-Order API auth prefix (EBAY_POST_ORDER_AUTH_PREFIX) and the token's scopes.`
+        : err?.response?.data?.error?.[0]?.message || err.message || String(err);
+    console.error(`${LOG_PREFIX} eBay returns sync failed:`, message);
+    await recordRun("ebay-returns", startedAt, { status: "failed", error: message, advance: false }).catch(() => {});
+    return { channel: "ebay-returns", error: message };
+  }
+}
+
 async function syncAllMarketplaceSales() {
   const ebay = await syncEbaySales();
   const wix = await syncWixSales();
-  return { ebay, wix };
+  const ebayReturns = await syncEbayReturns();
+  return { ebay, wix, ebayReturns };
 }
 
 module.exports = {
@@ -623,5 +860,6 @@ module.exports = {
   applyWixOrder,
   syncEbaySales,
   syncWixSales,
+  syncEbayReturns,
   syncAllMarketplaceSales,
 };

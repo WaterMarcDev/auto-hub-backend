@@ -55,9 +55,9 @@ const pickSnapshotPhone = (snapshot) => {
 };
 
 async function run() {
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  const uri = process.env.MONGODB_URI;
   if (!uri) {
-    console.error("No MONGODB_URI / MONGO_URI configured. Aborting.");
+    console.error("No MONGODB_URI configured. Aborting.");
     process.exit(1);
   }
 

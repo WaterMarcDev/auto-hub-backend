@@ -7,6 +7,12 @@ const path = require("path");
 const EntryFee = require("../models/EntryFee.model");
 const { applyIntakePartExclusions } = require("../utils/intakePartExclusions");
 const carScrap = require("../services/carScrap.service");
+const { UPLOAD_DIR } = require("../config/uploads");
+const {
+  syncPaidAmounts,
+  applyPaidAmountsToDocs,
+  toFiniteAmount,
+} = require("../services/paidAmountSync.service");
 
 // Statuses owned by the scrap workflow endpoints — never set via PATCH /:id/status.
 const SCRAP_FLOW_STATUSES = ["ready-to-scrap", "elements-scraped", "scraped"];
@@ -558,6 +564,12 @@ const getCarIntakes = async (req, res) => {
       .skip(skip)
       .limit(limit);
 
+    // paidAmount is the source of truth for finalPrice: if it was changed
+    // outside the app (e.g. directly in the database), sync finalPrice and the
+    // transaction amount now and show the corrected value in this response.
+    const syncedPaid = await syncPaidAmounts(carIntakes.map((c) => c._id));
+    applyPaidAmountsToDocs(carIntakes, syncedPaid);
+
     const total = await CarIntake.countDocuments(filter);
 
     res.json({
@@ -580,6 +592,9 @@ const getCarIntakes = async (req, res) => {
 // @access  Private
 const getCarIntake = async (req, res) => {
   try {
+    // Sync finalPrice + transaction amount from paidAmount before reading.
+    await syncPaidAmounts([req.params.id]);
+
     const carIntake = await CarIntake.findOne({
       _id: req.params.id,
       isDeleted: { $ne: true },
@@ -836,6 +851,23 @@ const updateCarIntake = async (req, res) => {
     if (anyPay) {
       carIntake.payment = carIntake.payment || {};
       carIntake.payment.paymentBy = req.user._id;
+    }
+
+    // Final price and paid amount must always be the same amount, with
+    // paidAmount as the source of truth:
+    //  - a paid amount in this update also becomes the final price;
+    //  - a final price change on an intake that already has a payment also
+    //    updates the paid amount.
+    const incomingPaidNum = toFiniteAmount(carIntakeData.paidAmount);
+    const incomingFinalNum = toFiniteAmount(carIntakeData.finalPrice);
+    if (incomingPaidNum !== undefined) {
+      carIntake.price = carIntake.price || {};
+      carIntake.price.finalPrice = incomingPaidNum;
+    } else if (
+      incomingFinalNum !== undefined &&
+      toFiniteAmount(carIntake.payment?.paidAmount) !== undefined
+    ) {
+      carIntake.payment.paidAmount = incomingFinalNum;
     }
 
     // Merge any remaining allowed top-level
@@ -1181,6 +1213,8 @@ const getCarIntakeStats = async (req, res) => {
 const printPaymentSlip = async (req, res) => {
   try {
     const id = req.params.id;
+    // Sync finalPrice + transaction amount from paidAmount before printing.
+    await syncPaidAmounts([id]);
     const carIntake = await CarIntake.findOne({
       _id: id,
       isDeleted: { $ne: true },
@@ -1333,6 +1367,8 @@ const printPaymentSlip = async (req, res) => {
 const printAllDocuments = async (req, res) => {
   try {
     const id = req.params.id;
+    // Sync finalPrice + transaction amount from paidAmount before printing.
+    await syncPaidAmounts([id]);
     const carIntake = await CarIntake.findOne({
       _id: id,
       isDeleted: { $ne: true },
@@ -1463,7 +1499,7 @@ const printAllDocuments = async (req, res) => {
             filename = path.basename(filename);
           }
 
-          const filePath = path.join(__dirname, "..", "uploads", filename);
+          const filePath = path.join(UPLOAD_DIR, filename);
 
           // Check if file exists before attempting to read
           if (fs.existsSync(filePath)) {
@@ -1565,7 +1601,7 @@ const bulkUploadCarIntakes = async (req, res) => {
     const filename = fileUrl.replace(/^\/uploads\//, "");
 
     // Construct file path
-    const filePath = path.join(__dirname, "../uploads", filename);
+    const filePath = path.join(UPLOAD_DIR, filename);
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {
@@ -1853,7 +1889,7 @@ const bulkUploadScraped = async (req, res) => {
     }
 
     const filename = fileUrl.replace(/^\/uploads\//, "");
-    const filePath = path.join(__dirname, "../uploads", filename);
+    const filePath = path.join(UPLOAD_DIR, filename);
 
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: "File not found" });
