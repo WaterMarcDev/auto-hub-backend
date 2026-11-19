@@ -13,6 +13,11 @@ const Inventory = require("../models/Inventory.model");
 const MarketplaceListing = require("../models/MarketplaceListing.model");
 const { WIX_EXCLUDED_PART_NAMES } = require("../utils/wixExportExclusions");
 const ebayConfig = require("../config/ebayCatalogConfig");
+const { isEbaySyncPaused, EBAY_SYNC_PAUSED_CODE, EBAY_SYNC_PAUSED_MESSAGE } = require("../utils/ebaySyncPause");
+
+// 423 Locked: the request is valid but eBay writes are switched off.
+const sendPaused = (res) =>
+  res.status(423).json({ success: false, code: EBAY_SYNC_PAUSED_CODE, error: EBAY_SYNC_PAUSED_MESSAGE, message: EBAY_SYNC_PAUSED_MESSAGE });
 
 /**
  * POST /api/ebay/catalog-sync/run
@@ -21,6 +26,7 @@ const ebayConfig = require("../config/ebayCatalogConfig");
 exports.runFullSync = async (req, res) => {
   try {
     const dryRun = req.query.dryRun === "true";
+    if (!dryRun && isEbaySyncPaused()) return sendPaused(res);
     const maxProducts = req.query.max ? parseInt(req.query.max, 10) || 0 : ebayConfig.EBAY_SYNC_MAX_PRODUCTS || 0;
 
     const runSync = (signal) =>
@@ -84,6 +90,7 @@ exports.runSingleSync = async (req, res) => {
   try {
     const { id } = req.params;
     const dryRun = req.query.dryRun === "true";
+    if (!dryRun && isEbaySyncPaused()) return sendPaused(res);
 
     const result = await syncSingleProduct(id, dryRun);
 
@@ -105,6 +112,7 @@ exports.runSingleSync = async (req, res) => {
  */
 exports.retryFailed = async (req, res) => {
   try {
+    if (isEbaySyncPaused()) return sendPaused(res);
     const { productIds } = req.body;
     if (!Array.isArray(productIds) || productIds.length === 0) {
       return res.status(400).json({ success: false, error: "productIds array is required" });

@@ -502,6 +502,10 @@ server.listen(PORT, () => {
     return;
   }
 
+  if (require("./utils/ebaySyncPause").isEbaySyncPaused()) {
+    console.log("[JOBS] eBay syncing is PAUSED (EBAY_SYNC_PAUSED is not \"false\") — no catalog push, no quantity push, no scheduled listing reconcile");
+  }
+
   startBackInStockChecker();   // Added by shiva
 
   // Keep car intake price.finalPrice (and transaction amount) equal to

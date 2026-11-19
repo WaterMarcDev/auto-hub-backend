@@ -36,6 +36,7 @@ const { EbayApiClient, EbayAuthError, EbayRateLimitError } = require("../clients
 const EbayTradingClient = require("../clients/ebayTradingClient");
 const { mapProduct } = require("./ebayProductMapper.service");
 const ebayConfig = require("../../config/ebayCatalogConfig");
+const { isEbaySyncPaused, ebaySyncPausedError } = require("../../utils/ebaySyncPause");
 const { runWithConcurrency } = require("../wixPartSync.service");
 
 const client = new EbayApiClient();
@@ -195,6 +196,14 @@ async function syncCatalog(options = {}) {
     // lock (dry runs, single-product sync) simply omit it.
     signal = null,
   } = options;
+
+  // Pause switch (utils/ebaySyncPause.js): refuse every run that could write
+  // to eBay — the 6-hour cron, "Sync Now", single-product sync and "Retry"
+  // all come through here. Dry runs never write to eBay, so they still run.
+  if (!dryRun && isEbaySyncPaused()) {
+    console.warn(`[EBAY_SYNC] Catalog push refused (trigger=${trigger}) — eBay syncing is paused (EBAY_SYNC_PAUSED)`);
+    throw ebaySyncPausedError();
+  }
 
   const summary = {
     totalDiscovered: 0,
