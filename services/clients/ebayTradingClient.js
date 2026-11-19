@@ -25,7 +25,18 @@ class EbayTradingClient {
             : "https://api.ebay.com/ws/api.dll";
     }
 
-    async call(accessToken, callName, xml) {
+    /**
+     * @param {string} accessToken
+     * @param {string} callName - X-EBAY-API-CALL-NAME
+     * @param {string} xml - request body
+     * @param {Object} [options]
+     * @param {number} [options.timeout=30000] - request timeout in ms
+     */
+    async call(accessToken, callName, xml, options = {}) {
+        const timeout =
+            Number.isFinite(options.timeout) && options.timeout > 0
+                ? options.timeout
+                : 30000;
         try {
             const response = await axios.post(
                 this._getEndpoint(),
@@ -39,7 +50,7 @@ class EbayTradingClient {
                             process.env.EBAY_TRADING_SITE_ID || "0",
                         "X-EBAY-API-IAF-TOKEN": accessToken,
                     },
-                    timeout: 30000,
+                    timeout,
                 }
             );
 
@@ -98,9 +109,11 @@ class EbayTradingClient {
      * @param {string} accessToken - valid eBay user access token
      * @param {number} [page=1] - 1-based page number
      * @param {number} [entriesPerPage=200] - items per page (eBay caps at 200)
-     * @returns {Promise<{items: Array<Object>, totalEntries: number, totalPages: number, ack: string|null, errors: Array<Object>}>}
+     * @param {Object} [options]
+     * @param {number} [options.timeout] - request timeout in ms
+     * @returns {Promise<{items: Array<Object>, totalEntries: number, totalPages: number, reportedTotalEntries: number|null, activeListPresent: boolean, ack: string|null, errors: Array<Object>}>}
      */
-    async getActiveListingsPage(accessToken, page = 1, entriesPerPage = 200) {
+    async getActiveListingsPage(accessToken, page = 1, entriesPerPage = 200, options = {}) {
         const safeEntries = Math.min(Math.max(parseInt(entriesPerPage, 10) || 200, 1), 200);
         const safePage = Math.max(parseInt(page, 10) || 1, 1);
 
@@ -117,7 +130,9 @@ class EbayTradingClient {
     <Version>1231</Version>
 </GetMyeBaySellingRequest>`;
 
-        const parsed = await this.call(accessToken, "GetMyeBaySelling", xml);
+        const parsed = await this.call(accessToken, "GetMyeBaySelling", xml, {
+            timeout: options.timeout,
+        });
 
         const response = parsed?.GetMyeBaySellingResponse;
         const activeList = response?.ActiveList;
@@ -131,10 +146,25 @@ class EbayTradingClient {
         const totalEntries = Number(pagination.TotalNumberOfEntries) || items.length;
         const totalPages = Number(pagination.TotalNumberOfPages) || 1;
 
+        // The count exactly as eBay reported it (null when eBay sent none).
+        // Unlike totalEntries this keeps a real 0 distinct from "missing",
+        // which the reconciler needs to tell "seller has no active
+        // listings" apart from "we could not read the count".
+        const rawTotal = pagination.TotalNumberOfEntries;
+        const reportedTotalEntries =
+            rawTotal !== undefined && rawTotal !== null && rawTotal !== "" &&
+            Number.isFinite(Number(rawTotal))
+                ? Number(rawTotal)
+                : null;
+
         return {
             items,
             totalEntries,
             totalPages,
+            reportedTotalEntries,
+            // eBay leaves the ActiveList container out of a successful
+            // response when the seller has no active listings.
+            activeListPresent: activeList != null,
             ack: response?.Ack != null ? String(response.Ack) : null,
             errors: EbayTradingClient.extractErrors(response),
         };

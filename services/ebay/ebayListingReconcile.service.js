@@ -28,9 +28,20 @@
  *   1. Every page of the active-listing fetch completed without error;
  *   2. eBay reported an Ack of Success/Warning for every page;
  *   3. The fetch did not hit the internal page safety cap; and
- *   4. The fetched active set is non-empty.
+ *   4. The fetched active set is non-empty, OR eBay itself confirmed that the
+ *      seller has zero active listings (see isConfirmedEmptyStore below).
  * If any of those fail, the fetch is marked incomplete and NO record is
  * removed — a partial fetch must never be interpreted as "the rest ended".
+ *
+ * Rule 4 used to require a non-empty set unconditionally. That meant a seller
+ * who ended EVERY listing on eBay could never have the CRM rows cleaned up.
+ * An empty result is now trusted only when eBay answered Ack=Success on a
+ * single, error-free page and either reported TotalNumberOfEntries=0 or left
+ * out the ActiveList container. A failed or partial call never meets that.
+ *
+ * Transient page failures (timeouts, network resets, HTTP 429/5xx) are
+ * retried before the fetch is declared incomplete. Without retries, a single
+ * slow GetMyeBaySelling page skipped stale removal for the whole run.
  *
  * This module is eBay-only. Nothing here touches Amazon, Wix, Clover, TikTok,
  * Meta, Google Ads, inventory, or the CRM → eBay catalog push pipeline
@@ -55,6 +66,24 @@ const DEFAULT_PAGE_SIZE = 200;
  */
 const MAX_SAFETY_PAGES = 500;
 
+function positiveIntFromEnv(name, fallback) {
+  const n = parseInt(process.env[name], 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/**
+ * Timeout for one GetMyeBaySelling page. A 200-item ActiveList page is a
+ * large response and regularly took longer than the client's 30s default,
+ * which made every run "incomplete".
+ */
+const PAGE_TIMEOUT_MS = positiveIntFromEnv("EBAY_RECONCILE_PAGE_TIMEOUT_MS", 90000);
+
+/** Total attempts per page (first try + retries) for transient failures. */
+const PAGE_MAX_ATTEMPTS = positiveIntFromEnv("EBAY_RECONCILE_PAGE_ATTEMPTS", 3);
+
+/** Base back-off between attempts; grows linearly (5s, 10s, ...). */
+const PAGE_RETRY_BASE_DELAY_MS = 5000;
+
 const LOG_PREFIX = "[EBAY SYNC]";
 
 function log(...args) {
@@ -63,6 +92,51 @@ function log(...args) {
 
 function warn(...args) {
   console.warn(LOG_PREFIX, ...args);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * True for failures worth retrying: timeouts, dropped connections, eBay
+ * rate limiting (429) and eBay server errors (5xx). Auth failures and other
+ * 4xx responses are not retried, because the same request would fail again.
+ */
+function isTransientEbayError(err) {
+  const status = err?.response?.status;
+  if (status === 429 || (Number.isFinite(status) && status >= 500)) return true;
+  if (status) return false;
+  const code = String(err?.code || "");
+  if (["ECONNABORTED", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EAI_AGAIN", "ENOTFOUND", "EPIPE", "ERR_NETWORK"].includes(code)) {
+    return true;
+  }
+  return /timeout|socket hang up|network/i.test(String(err?.message || ""));
+}
+
+/**
+ * Fetch one ActiveList page, retrying transient failures with back-off.
+ * Rethrows the last error when every attempt fails or the error is not
+ * transient, so the caller still marks the fetch incomplete.
+ */
+async function fetchActiveListingsPageWithRetry(accessToken, page, pageSize) {
+  let lastErr;
+  for (let attempt = 1; attempt <= PAGE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await tradingClient.getActiveListingsPage(accessToken, page, pageSize, {
+        timeout: PAGE_TIMEOUT_MS,
+      });
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= PAGE_MAX_ATTEMPTS || !isTransientEbayError(err)) break;
+      const delay = PAGE_RETRY_BASE_DELAY_MS * attempt;
+      warn(
+        `GetMyeBaySelling page ${page} attempt ${attempt}/${PAGE_MAX_ATTEMPTS} failed (${err.message || err}) — retrying in ${delay}ms`
+      );
+      await sleep(delay);
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -261,6 +335,8 @@ async function fetchAllActiveEbayListings(accessToken, options = {}) {
   let complete = true;
   let error = null;
   let pagesFetched = 0;
+  // What eBay said on page 1; used only to recognise a genuinely empty store.
+  let firstPage = null;
 
   log("Starting active listing reconciliation");
 
@@ -269,7 +345,7 @@ async function fetchAllActiveEbayListings(accessToken, options = {}) {
 
     let pageResult;
     try {
-      pageResult = await tradingClient.getActiveListingsPage(accessToken, page, pageSize);
+      pageResult = await fetchActiveListingsPageWithRetry(accessToken, page, pageSize);
     } catch (err) {
       complete = false;
       error = `GetMyeBaySelling page ${page} failed: ${err.message || err}`;
@@ -278,6 +354,16 @@ async function fetchAllActiveEbayListings(accessToken, options = {}) {
     }
 
     pagesFetched += 1;
+    if (page === 1) {
+      firstPage = {
+        ack: pageResult.ack,
+        errorCount: Array.isArray(pageResult.errors) ? pageResult.errors.length : 0,
+        itemCount: Array.isArray(pageResult.items) ? pageResult.items.length : 0,
+        reportedTotalEntries:
+          pageResult.reportedTotalEntries === undefined ? null : pageResult.reportedTotalEntries,
+        activeListPresent: pageResult.activeListPresent !== false,
+      };
+    }
 
     // eBay reported a protocol-level failure on this page.
     if (pageResult.ack && !/^(success|warning)$/i.test(pageResult.ack)) {
@@ -320,7 +406,38 @@ async function fetchAllActiveEbayListings(accessToken, options = {}) {
     warn(`Active listing fetch INCOMPLETE after ${pagesFetched} page(s): ${error}`);
   }
 
-  return { items, totalEntries, totalPages, complete, error, pagesFetched };
+  const confirmedEmpty = isConfirmedEmptyStore({ complete, pagesFetched, items, firstPage });
+  if (confirmedEmpty) {
+    log("eBay confirmed the seller has ZERO active listings (Ack=Success, no ActiveList entries)");
+  }
+
+  return { items, totalEntries, totalPages, complete, error, pagesFetched, confirmedEmpty };
+}
+
+/**
+ * Did eBay itself confirm that the seller has no active listings?
+ *
+ * Deliberately strict, because a "yes" lets the reconciler remove every eBay
+ * row for this account. All of these must hold:
+ *   - the fetch completed (no thrown error, no failure Ack, no page cap);
+ *   - exactly one page was read and it held no items at all (raw items, so
+ *     items eBay returned without an ItemID still count as "not empty");
+ *   - page 1 answered Ack=Success with no error entries (a Warning is not
+ *     trusted for this case);
+ *   - eBay either reported TotalNumberOfEntries=0 or left out ActiveList,
+ *     which is how GetMyeBaySelling answers when nothing is active.
+ *
+ * @returns {boolean}
+ */
+function isConfirmedEmptyStore({ complete, pagesFetched, items, firstPage }) {
+  if (!complete || pagesFetched !== 1 || !firstPage) return false;
+  if (Array.isArray(items) && items.length > 0) return false;
+  if (firstPage.itemCount !== 0) return false;
+  if (!/^success$/i.test(String(firstPage.ack || ""))) return false;
+  if (firstPage.errorCount > 0) return false;
+  if (firstPage.reportedTotalEntries === 0) return true;
+  if (!firstPage.activeListPresent && firstPage.reportedTotalEntries === null) return true;
+  return false;
 }
 
 /**
@@ -524,7 +641,11 @@ async function reconcileEbayListings(options = {}) {
 
   // ── Stale detection (ONLY when the fetch is provably complete) ─────────
   const fetchIsComplete = fetchResult.complete;
-  const hasUsableActiveSet = activeListings.length > 0;
+  // eBay confirmed zero active listings: an empty active set is then the
+  // truth, not a symptom of a failed call, so every eBay row for this
+  // account is stale.
+  const ebayConfirmedEmpty = Boolean(fetchResult.confirmedEmpty);
+  const hasUsableActiveSet = activeListings.length > 0 || ebayConfirmedEmpty;
   const mayRemoveStale = !dryRun && fetchIsComplete && hasUsableActiveSet;
 
   let removalsPlanned = 0;
@@ -538,9 +659,12 @@ async function reconcileEbayListings(options = {}) {
     );
   } else if (!hasUsableActiveSet) {
     warn(
-      "Active listing fetch returned ZERO listings — refusing stale-record removal to avoid wiping the CRM listing set."
+      "Active listing fetch returned ZERO listings but eBay did not confirm an empty store — refusing stale-record removal to avoid wiping the CRM listing set."
     );
   } else {
+    if (ebayConfirmedEmpty) {
+      warn("eBay confirmed zero active listings — every CRM eBay listing row for this account will be treated as stale.");
+    }
     // Scope: this account's eBay listing rows PLUS legacy eBay listing rows
     // that were written before account scoping existed (no account id).
     // Order-shaped records are excluded by requiring a non-null listing id.
@@ -589,6 +713,7 @@ async function reconcileEbayListings(options = {}) {
     pagesFetched: fetchResult.pagesFetched,
     fetchComplete: fetchIsComplete,
     fetchError: fetchResult.error,
+    ebayConfirmedEmpty,
     created,
     updated,
     unchanged,
