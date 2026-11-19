@@ -1,6 +1,7 @@
 // eBay ↔ CRM inventory sync — automated tests on an in-memory MongoDB.
 // Real backend code; eBay HTTP calls are mocked. Usage: node ebaySync.test.js <backend dir>
 process.env.EBAY_QUANTITY_SYNC_AUTORUN = "false";
+process.env.EBAY_SYNC_PAUSED = "false"; // mocked eBay client — exercise the real push path
 process.env.EBAY_NOTIFICATION_AUTORUN = "false";
 process.env.EBAY_ENVIRONMENT = process.env.EBAY_ENVIRONMENT || "sandbox";
 

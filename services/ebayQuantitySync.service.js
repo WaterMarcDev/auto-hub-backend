@@ -23,6 +23,7 @@ const Inventory = require("../models/Inventory.model");
 const IntegrationAccount = require("../models/IntegrationAccount.model");
 const realtime = require("../utils/realtime");
 const { isAllCronSyncDisabled } = require("../utils/cronSyncSwitch");
+const { isEbaySyncPaused } = require("../utils/ebaySyncPause");
 
 const LOG_PREFIX = "[EBAY QUANTITY SYNC]";
 const MAX_ATTEMPTS = 8;
@@ -56,7 +57,7 @@ let timer = null;
 function scheduleSoon() {
   // DISABLE_ALL_CRON_SYNC=true: leave the work queued (it is kept in the
   // database) and process it once jobs are switched back on.
-  if (timer || isAllCronSyncDisabled() || process.env.EBAY_QUANTITY_SYNC_AUTORUN === "false") return;
+  if (timer || isAllCronSyncDisabled() || isEbaySyncPaused() || process.env.EBAY_QUANTITY_SYNC_AUTORUN === "false") return;
   timer = setTimeout(() => {
     timer = null;
     processQueue().catch((err) => console.error(`${LOG_PREFIX} run failed:`, err.message));
@@ -160,6 +161,9 @@ async function finish(partId, $set) {
 async function processQueue({ limit = 25 } = {}) {
   const summary = { processed: 0, synced: 0, failed: 0, dead: 0, skipped: 0, waiting: 0 };
   if (!enabled()) return { ...summary, disabled: true };
+  // Paused (utils/ebaySyncPause.js): send nothing to eBay. Queued parts keep
+  // their "pending" state and are pushed once syncing is resumed.
+  if (isEbaySyncPaused()) return { ...summary, paused: true };
 
   let account = null;
   let accountChecked = false;

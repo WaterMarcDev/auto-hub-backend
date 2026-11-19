@@ -32,6 +32,7 @@ const {
   reconcileEbayListings,
 } = require("../services/ebay/ebayListingReconcile.service");
 const EbaySyncRun = require("../models/EbaySyncRun.model");
+const { isEbaySyncPaused } = require("../utils/ebaySyncPause");
 
 const LOG_PREFIX = "[EBAY_LISTING_RECONCILE_JOB]";
 
@@ -52,6 +53,12 @@ function startEbayListingReconcileJob() {
   console.log(`${LOG_PREFIX} Scheduling eBay → CRM active listing reconciliation (every 30 minutes)...`);
 
   scheduledTask = cron.schedule("*/30 * * * *", async () => {
+    // Pause switch (utils/ebaySyncPause.js), checked on every tick. The
+    // manual "Sync eBay Listings" button does not come through here.
+    if (isEbaySyncPaused()) {
+      console.log(`${LOG_PREFIX} Skipped — eBay syncing is paused (EBAY_SYNC_PAUSED)`);
+      return;
+    }
     console.log(`${LOG_PREFIX} Triggered (30-minute schedule)`);
 
     let outcome;
