@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 const PartRequest = require("../models/PartRequest.model");
 const auditLogService = require("../services/auditLog.service");
 const { ACTIVE_SOURCES, normalizeRequestSource } = require("../utils/requestSources");
+const {
+    PART_REQUEST_STATUSES,
+    PART_REQUEST_VISIBLE_FILTER,
+    toPartRequestStatus,
+} = require("../utils/partRequestLeads");
 
 // Sources a request can be given: "Online" (website form) and "Offline"
 // (entered in the CRM) are set automatically at creation; staff can choose
@@ -33,7 +38,8 @@ const PART_REQUEST_FIELD_RULES = {
     message: normalizers.text(),
     remark: normalizers.text(),
     source: normalizers.oneOf(PART_REQUEST_SOURCES),
-    status: normalizers.oneOf(PartRequest.schema.path("status").enumValues),
+    // Only the settable statuses (utils/partRequestLeads.js).
+    status: normalizers.oneOf(PART_REQUEST_STATUSES),
     fulfilledBy: normalizers.nullableText(),
 };
 
@@ -320,7 +326,9 @@ exports.saveAutomationBotRequest = async (req, res) => {
 
 exports.getAllRequests = async (req, res) => {
     try {
-        const requests = await PartRequest.find()
+        // Completed / Rejected requests are not wanted and are never listed
+        // (utils/partRequestLeads.js).
+        const requests = await PartRequest.find(PART_REQUEST_VISIBLE_FILTER)
             .sort({ createdAt: -1 })
             .populate("createdBy", "first_name last_name email role")
             .lean();
@@ -413,7 +421,14 @@ exports.updatePartRequestRemark = async (req, res) => {
 exports.updateStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status  } = req.body;
+        const status = toPartRequestStatus(req.body?.status);
+
+        if (!status) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid status. Allowed values: ${PART_REQUEST_STATUSES.join(", ")}`,
+            });
+        }
 
         const update = { status };
 

@@ -80,7 +80,7 @@ router.get("/test", (req, res) => {
  *               condition: { type: string }
  *               message: { type: string }
  *               source: { type: string, example: Website }
- *               status: { type: string, enum: [Pending, In Progress, Completed, Rejected] }
+ *               status: { type: string, enum: [Pending, Lead Converted, Lead Lost, Lead Closed] }
  *     responses:
  *       201:
  *         description: Lead created (operation "created", leadId)
@@ -192,7 +192,7 @@ router.delete("/:id", deleteRequest);
  *               message: { type: string }
  *               remark: { type: string }
  *               source: { type: string, example: Instagram }
- *               status: { type: string, enum: [Pending, In Progress, Completed, Rejected] }
+ *               status: { type: string, enum: [Pending, Lead Converted, Lead Lost, Lead Closed] }
  *               fulfilledBy: { type: string }
  *     responses:
  *       200:

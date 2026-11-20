@@ -86,10 +86,22 @@ const junkCarSchema = new mongoose.Schema(
             ref: "User", 
             default: null,
         },
-        // Assigned to or Handled by
+        // Staff member the lead is assigned to.
         assignedTo: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
+            default: null,
+        },
+        // "Lead Assigned By": the user who made the current assignment,
+        // tracked separately from assignedTo. Null on leads assigned before
+        // this was recorded.
+        assignedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null,
+        },
+        assignedAt: {
+            type: Date,
             default: null,
         },
         // end here

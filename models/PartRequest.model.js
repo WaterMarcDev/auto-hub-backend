@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { PART_REQUEST_ALL_STATUSES } = require("../utils/partRequestLeads");
 
 const PartRequestSchema = new mongoose.Schema(
     {
@@ -40,9 +41,12 @@ const PartRequestSchema = new mongoose.Schema(
             default: "Online"
         },
 
+        // Settable: Pending, Lead Converted, Lead Lost, Lead Closed. The old
+        // values stay in the enum so existing records keep validating — see
+        // utils/partRequestLeads.js.
         status: {
             type: String,
-            enum: ["Pending", "In Progress", "Completed", "Rejected"],
+            enum: PART_REQUEST_ALL_STATUSES,
             default: "Pending"
         },
 
