@@ -20,6 +20,18 @@ const clean = (v) => (v === undefined || v === null ? undefined : String(v).trim
 const page = (q) => Math.max(1, parseInt(q.page, 10) || 1);
 const limitOf = (q, d = 25) => Math.min(200, Math.max(1, parseInt(q.limit, 10) || d));
 
+// Optional US phone → "(XXX) XXX-XXXX". Returns undefined when blank and
+// null when it is not a 10-digit US number (a leading country code 1 is
+// allowed).
+function formatUsPhone(v) {
+  const s = clean(v);
+  if (!s) return undefined;
+  let digits = s.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+  if (digits.length !== 10) return null;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
 function badId(res) {
   return res.status(400).json({ success: false, message: "Invalid part id" });
 }
@@ -47,6 +59,13 @@ exports.sellInStore = async (req, res) => {
     if (amount !== undefined && (!Number.isFinite(amount) || amount < 0)) {
       return res.status(400).json({ success: false, message: "price must be a positive number" });
     }
+    const phone = formatUsPhone(buyerPhone);
+    if (phone === null) {
+      return res.status(400).json({
+        success: false,
+        message: "buyerPhone must be a 10-digit US phone number, e.g. (555) 123-4567",
+      });
+    }
 
     const now = new Date();
     const r = await ledger.deduct({
@@ -73,7 +92,7 @@ exports.sellInStore = async (req, res) => {
         paymentStatus: "Paid",
         shippingStatus: "Picked up",
         buyerName: clean(buyerName),
-        buyerPhone: clean(buyerPhone),
+        buyerPhone: phone,
       },
       details: { price: amount, note: clean(note) },
     });
