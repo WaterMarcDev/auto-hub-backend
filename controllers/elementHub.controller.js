@@ -98,16 +98,12 @@ const sellElement = async (req, res) => {
     // Accept monetary sale value and payment details in the request body
     const saleValue =
       req.body.saleValue != null ? Number(req.body.saleValue) : 0;
-    const taxRate =
-      req.body.taxRate != null ? Number(req.body.taxRate) : 0.06625;
-    const taxAmount =
-      req.body.taxAmount != null
-        ? Number(req.body.taxAmount)
-        : Number((saleValue * taxRate).toFixed(2));
-    const totalAmount =
-      req.body.totalAmount != null
-        ? Number(req.body.totalAmount)
-        : Number((saleValue + taxAmount).toFixed(2));
+    // Element Hub sales: NO sales tax. Any taxRate / taxAmount / totalAmount
+    // sent by a client is ignored, so the total is always the sale value.
+    // (Previously 6.625% was added on top of the sale value.)
+    const taxRate = 0;
+    const taxAmount = 0;
+    const totalAmount = Number(saleValue.toFixed(2));
     const paymentMethod = req.body.paymentMethod || undefined;
 
     let transactionDoc = null;
@@ -267,6 +263,7 @@ const printInvoice = async (req, res) => {
           transactionDoc = await new Transaction({
             type: "credit",
             amount: 0, // Default if no sale value was recorded
+            taxRate: 0, // Element Hub sales carry no sales tax
             paymentMethod: "cash",
             description: `Sale of ${history.amount} ${history.unit || "lb"} ${
               history.elementName
