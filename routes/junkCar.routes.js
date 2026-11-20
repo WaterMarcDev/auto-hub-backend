@@ -186,8 +186,8 @@ router.get("/", getAllJunkCars);
  *     summary: Partially update a junk car request
  *     description: >
  *       Updates only the fields sent in the body. Unknown or system-managed fields are rejected with 400.
- *       Sending assignedTo records the caller as assignedBy ("Lead Assigned By"). Changing status or
- *       paymentStatus on an unassigned request assigns it to the caller; an existing assignment is kept.
+ *       assignedTo changes only when it is sent. Changing assignedTo, status or paymentStatus records
+ *       the caller as assignedBy ("Lead Assigned By") with the time, every time.
  *       A completed + paid request is moved to Car Intake once.
  *     tags: [Junk Car]
  *     security:
