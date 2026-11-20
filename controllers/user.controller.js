@@ -1,5 +1,8 @@
 const User = require("../models/User.model");
 const bcrypt = require("bcryptjs");
+const { JUNK_CAR_NAMED_STAFF } = require("../utils/junkCarLeads");
+
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // @desc    Get all users (Admin only)
 // @route   GET /api/users
@@ -204,24 +207,31 @@ const resetPassword = async (req, res) => {
 const getStaffUsers = async (req, res) => {
   try {
 
-    // Everyone with the "staff" role, plus Vijay Kumar — the default handler
-    // shown in Junk Car Requests' "Handled By" — who is always listed first
-    // even though his account is a manager, so he can be filtered/assigned.
-    // Only used by the Junk Car Requests page.
-    const [defaultHandlers, staff] = await Promise.all([
-      User.find({
-        first_name: { $regex: /^\s*vijay\s*$/i },
-        last_name: { $regex: /^\s*kumar\s*$/i },
-        isDeleted: { $ne: true },
-      }).select("_id first_name last_name email role"),
+    // The named Junk Car staff (utils/junkCarLeads.js: Ankit Dewan, Jaspreet
+    // Singh, Vijay Kumar) listed first in that order, whatever their account
+    // role, followed by everyone else with the "staff" role. Only used by the
+    // Junk Car Requests page (Staff filter + assignment dropdown).
+    const fields = "_id first_name last_name email role";
+    const [namedStaff, staff] = await Promise.all([
+      Promise.all(
+        JUNK_CAR_NAMED_STAFF.map(({ first_name, last_name }) =>
+          User.find({
+            first_name: { $regex: new RegExp(`^\\s*${escapeRegex(first_name)}\\s*$`, "i") },
+            last_name: { $regex: new RegExp(`^\\s*${escapeRegex(last_name)}\\s*$`, "i") },
+            isDeleted: { $ne: true },
+          }).select(fields)
+        )
+      ).then((groups) => groups.flat()),
       User.find({
         role: { $regex: /^staff$/i },
         isDeleted: { $ne: true },
-      }).select("_id first_name last_name email role"),
+      })
+        .select(fields)
+        .sort({ first_name: 1, last_name: 1 }),
     ]);
 
     const seen = new Set();
-    const staffUsers = [...defaultHandlers, ...staff].filter((u) => {
+    const staffUsers = [...namedStaff, ...staff].filter((u) => {
       const id = String(u._id);
       if (seen.has(id)) return false;
       seen.add(id);

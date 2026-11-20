@@ -59,10 +59,20 @@ router.get("/badge-counts", auth, async (req, res) => {
     const PartRequest = require("../models/PartRequest.model");
     const JunkCar = require("../models/JunkCar.model");
 
+    // Leads left out of the lists (Completed / Rejected) aren't counted.
+    const { PART_REQUEST_VISIBLE_FILTER } = require("../utils/partRequestLeads");
+    const { JUNK_CAR_VISIBLE_FILTER } = require("../utils/junkCarLeads");
+
     const [unreadEmails, newPartRequests, newJunkRequests] = await Promise.all([
       CRMEmail.countDocuments({ status: "unread" }).exec(),
-      PartRequest.countDocuments({ createdAt: { $gt: seenSince(req.user, "partRequests") } }).exec(),
-      JunkCar.countDocuments({ createdAt: { $gt: seenSince(req.user, "junkCars") } }).exec(),
+      PartRequest.countDocuments({
+        ...PART_REQUEST_VISIBLE_FILTER,
+        createdAt: { $gt: seenSince(req.user, "partRequests") },
+      }).exec(),
+      JunkCar.countDocuments({
+        ...JUNK_CAR_VISIBLE_FILTER,
+        createdAt: { $gt: seenSince(req.user, "junkCars") },
+      }).exec(),
     ]);
 
     return res.json({

@@ -186,8 +186,9 @@ router.get("/", getAllJunkCars);
  *     summary: Partially update a junk car request
  *     description: >
  *       Updates only the fields sent in the body. Unknown or system-managed fields are rejected with 400.
- *       Changing status or paymentStatus records the caller as assignedTo (unless assignedTo is sent),
- *       and a completed + paid request is moved to Car Intake once.
+ *       Sending assignedTo records the caller as assignedBy ("Lead Assigned By"). Changing status or
+ *       paymentStatus on an unassigned request assigns it to the caller; an existing assignment is kept.
+ *       A completed + paid request is moved to Car Intake once.
  *     tags: [Junk Car]
  *     security:
  *       - bearerAuth: []
@@ -216,7 +217,7 @@ router.get("/", getAllJunkCars);
  *               message: { type: string }
  *               location: { type: string }
  *               remark: { type: string }
- *               status: { type: string, enum: [pending, in progress, completed] }
+ *               status: { type: string, enum: [pending, lead converted, lead lost, lead closed] }
  *               source: { type: string, example: instagram }
  *               paymentStatus: { type: string, enum: [Not Paid, Cash, Online] }
  *               assignedTo: { type: string, nullable: true, description: User id, or null to unassign }
@@ -241,7 +242,8 @@ router.patch("/:id/status", auth, updateJunkCarStatus);
 router.patch("/:id/source", updateJunkCarSource);
 
 // AssignJunkCarStaff route by shiva
-router.patch("/:id/assign", assignJunkCarStaff);
+// auth: the logged-in user is recorded as "Lead Assigned By".
+router.patch("/:id/assign", auth, assignJunkCarStaff);
 
 // Junkcar paymentStatus by shiva route
 router.patch("/:id/payment-status", auth, updateJunkCarPaymentStatus);

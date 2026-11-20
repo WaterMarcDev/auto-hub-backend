@@ -25,7 +25,12 @@ const JUNK_CAR_SOURCE_MAP = {
     facebook: "facebook",
 };
 
-const JUNK_CAR_STATUSES = ["pending", "in progress", "completed"];
+const {
+    JUNK_CAR_STATUSES,
+    JUNK_CAR_STATUS_ORDER,
+    JUNK_CAR_VISIBLE_FILTER,
+    normalizeJunkCarStatus,
+} = require("../utils/junkCarLeads");
 
 // Field rules shared by the lead-capture route (POST /) and the staff PATCH
 // route, so both validate a value the same way.
@@ -79,8 +84,28 @@ const JUNK_CAR_CONTACT_FIELDS = ["name", "phone", "email"];
 
 const JUNK_CAR_POPULATE = [
     { path: "assignedTo", select: "first_name last_name email role" },
+    { path: "assignedBy", select: "first_name last_name email role" },
     { path: "createdBy", select: "first_name last_name email role" },
 ];
+
+// Fields that record an assignment: the staff member the lead goes to, who
+// assigned it (Lead Assigned By) and when. Unassigning clears all three.
+const assignmentFields = (assignedTo, assignedBy) =>
+    assignedTo
+        ? { assignedTo, assignedBy: assignedBy || null, assignedAt: new Date() }
+        : { assignedTo: null, assignedBy: null, assignedAt: null };
+
+// Working an unassigned lead (status / payment change) assigns it to the user
+// who did it, as before. A lead that is already assigned keeps its assignee —
+// a status change no longer overwrites an assignment someone made.
+const claimIfUnassigned = async (id, user) => {
+    if (!user?._id) return;
+
+    await JunkCar.updateOne(
+        { _id: id, assignedTo: null },
+        { $set: assignmentFields(user._id, user._id) }
+    );
+};
 
 // Lead forms may call the VIN field "vin"; it is stored in engineOrVin.
 const applyVinAlias = (body) => {
@@ -376,7 +401,9 @@ exports.saveAutomationBotJunkCarRequest = async (req, res) => {
 // Integrate Junk Car into your existing Requests page
 exports.getAllJunkCars = async (req, res) => {
     try {
-        let filter = {};
+        // Completed leads are not wanted and are never listed
+        // (utils/junkCarLeads.js).
+        let filter = { ...JUNK_CAR_VISIBLE_FILTER };
 
         if (req.user?.role === "staff") {
 
@@ -384,25 +411,17 @@ exports.getAllJunkCars = async (req, res) => {
         }
 
         const data = await JunkCar.find(filter)
-            .populate("assignedTo","first_name last_name email role")  // get data first
-            .populate("createdBy", "first_name last_name email role")
+            .populate(JUNK_CAR_POPULATE)  // get data first
             .lean();
-
-        // added by shiva for status order
-        const statusOrder = {
-            pending: 1,
-            "in progress": 2,
-            completed: 3,
-        };
-        // end here
 
         // Safe sort
         data.sort((a, b) => {
-            
-            // added by shiva
+
+            // added by shiva — status order (utils/junkCarLeads.js): Lead
+            // Converted / Lead Closed go to the bottom.
             const statusDiff =
-                (statusOrder[a.status?.toLowerCase()] || 99) -
-                (statusOrder[b.status?.toLowerCase()] || 99);
+                (JUNK_CAR_STATUS_ORDER[normalizeJunkCarStatus(a.status)] || 99) -
+                (JUNK_CAR_STATUS_ORDER[normalizeJunkCarStatus(b.status)] || 99);
 
             // First sort by status order
             if (statusDiff !== 0) {
@@ -458,16 +477,22 @@ exports.updateJunkCarRemark = async (req, res) => {
 exports.updateJunkCarStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
+        const status = JUNK_CAR_STATUSES.find(
+            (s) => s === normalizeJunkCarStatus(req.body?.status)
+        );
+
+        if (!status) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid status. Allowed values: ${JUNK_CAR_STATUSES.join(", ")}`,
+            });
+        }
+
+        await claimIfUnassigned(id, req.user);
 
         const updated = await JunkCar.findByIdAndUpdate(
             { _id: id },
-            { 
-                $set: {
-                    status,
-                    assignedTo: req.user._id,
-                },
-            },
+            { $set: { status } },
             { new: true }
         );
 
@@ -578,14 +603,11 @@ exports.updateJunkCarPaymentStatus = async (req, res) => {
         const { id } = req.params;
         const { paymentStatus } = req.body;
 
+        await claimIfUnassigned(id, req.user);
+
         const updated = await JunkCar.findByIdAndUpdate(
             { _id: id },
-            { 
-                $set: { 
-                    paymentStatus,
-                assignedTo: req.user._id,
-                },
-            },
+            { $set: { paymentStatus } },
             { new: true }
         );
 
@@ -656,13 +678,38 @@ exports.assignJunkCarStaff = async (req, res) => {
     try {
 
         const { id } = req.params;
-        const { assignedTo } = req.body;
+        const rawAssignedTo = req.body?.assignedTo;
+        const assignedTo =
+            rawAssignedTo === null || rawAssignedTo === undefined || rawAssignedTo === ""
+                ? null
+                : String(rawAssignedTo).trim();
 
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: "Invalid junk car request id" });
+        }
+
+        if (assignedTo) {
+            if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
+                return res.status(400).json({ success: false, message: "assignedTo must be a valid user id" });
+            }
+            if (!(await User.exists({ _id: assignedTo }))) {
+                return res.status(400).json({ success: false, message: "Assigned user not found" });
+            }
+        }
+
+        // assignedBy = the logged-in user making the assignment ("Lead
+        // Assigned By"), kept separately from the assignee.
         const updated = await JunkCar.findByIdAndUpdate(
             id,
-            { assignedTo },
+            { $set: assignmentFields(assignedTo, req.user?._id) },
             { new: true }
-        ).populate("assignedTo", "first_name last_name email role");
+        ).populate(JUNK_CAR_POPULATE);
+
+        if (!updated) {
+            return res.status(404).json({ success: false, message: "Junk car request not found" });
+        }
+
+        req.app.get("io")?.emit("cache:invalidate", { scope: "junkCars" });
 
         res.json({
             success: true,
@@ -753,7 +800,7 @@ exports.patchJunkCar = async (req, res) => {
             });
         }
 
-        const updates = pickLeadFields(applyVinAlias(body), {
+        let updates = pickLeadFields(applyVinAlias(body), {
             rules: JUNK_CAR_FIELD_RULES,
             fields: JUNK_CAR_PATCHABLE_FIELDS,
             rejectUnknown: true,
@@ -768,13 +815,6 @@ exports.patchJunkCar = async (req, res) => {
                     message: "Assigned user not found",
                 });
             }
-        }
-
-        // Status / payment changes record who handled the request, same as
-        // updateJunkCarStatus and updateJunkCarPaymentStatus — unless the
-        // caller is explicitly setting assignedTo in the same request.
-        if (("status" in updates || "paymentStatus" in updates) && !("assignedTo" in updates)) {
-            updates.assignedTo = req.user._id;
         }
 
         const junkCar = await JunkCar.findById(id);
@@ -798,6 +838,23 @@ exports.patchJunkCar = async (req, res) => {
                 success: false,
                 message: "Name, phone or email is required",
             });
+        }
+
+        // Assignment, same rules as the assign / status / payment routes:
+        //  - assignedTo sent: record the caller as Lead Assigned By;
+        //  - status / payment change on an unassigned lead: assign it to the
+        //    caller; an existing assignment is left alone.
+        if ("assignedTo" in updates) {
+            const unchanged =
+                String(updates.assignedTo || "") === String(junkCar.assignedTo || "");
+            const { assignedTo, ...rest } = updates;
+            updates = unchanged ? rest : { ...rest, ...assignmentFields(assignedTo, req.user?._id) };
+        } else if (
+            ("status" in updates || "paymentStatus" in updates) &&
+            !junkCar.assignedTo &&
+            req.user?._id
+        ) {
+            Object.assign(updates, assignmentFields(req.user._id, req.user._id));
         }
 
         junkCar.set(updates);
