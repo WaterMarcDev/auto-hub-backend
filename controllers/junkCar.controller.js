@@ -88,24 +88,19 @@ const JUNK_CAR_POPULATE = [
     { path: "createdBy", select: "first_name last_name email role" },
 ];
 
-// Fields that record an assignment: the staff member the lead goes to, who
-// assigned it (Lead Assigned By) and when. Unassigning clears all three.
-const assignmentFields = (assignedTo, assignedBy) =>
-    assignedTo
-        ? { assignedTo, assignedBy: assignedBy || null, assignedAt: new Date() }
-        : { assignedTo: null, assignedBy: null, assignedAt: null };
+// "Lead Assigned By" (assignedBy / assignedAt): the logged-in user who last
+// worked the lead — changed its status or payment, or picked / cleared its
+// assignee — and when. Updated every time, so it always shows the latest
+// user. Nothing is recorded when there is no logged-in user.
+const actorFields = (user) =>
+    user?._id ? { assignedBy: user._id, assignedAt: new Date() } : {};
 
-// Working an unassigned lead (status / payment change) assigns it to the user
-// who did it, as before. A lead that is already assigned keeps its assignee —
-// a status change no longer overwrites an assignment someone made.
-const claimIfUnassigned = async (id, user) => {
-    if (!user?._id) return;
-
-    await JunkCar.updateOne(
-        { _id: id, assignedTo: null },
-        { $set: assignmentFields(user._id, user._id) }
-    );
-};
+// "Assigned To" (assignedTo) only changes when someone picks or clears the
+// assignee; status / payment changes never touch it.
+const assignmentFields = (assignedTo, user) => ({
+    assignedTo: assignedTo || null,
+    ...actorFields(user),
+});
 
 // Lead forms may call the VIN field "vin"; it is stored in engineOrVin.
 const applyVinAlias = (body) => {
@@ -488,11 +483,10 @@ exports.updateJunkCarStatus = async (req, res) => {
             });
         }
 
-        await claimIfUnassigned(id, req.user);
-
+        // Lead Assigned By = whoever changed the status (Assigned To untouched).
         const updated = await JunkCar.findByIdAndUpdate(
             { _id: id },
-            { $set: { status } },
+            { $set: { status, ...actorFields(req.user) } },
             { new: true }
         );
 
@@ -603,11 +597,10 @@ exports.updateJunkCarPaymentStatus = async (req, res) => {
         const { id } = req.params;
         const { paymentStatus } = req.body;
 
-        await claimIfUnassigned(id, req.user);
-
+        // Lead Assigned By = whoever changed the payment (Assigned To untouched).
         const updated = await JunkCar.findByIdAndUpdate(
             { _id: id },
-            { $set: { paymentStatus } },
+            { $set: { paymentStatus, ...actorFields(req.user) } },
             { new: true }
         );
 
@@ -697,11 +690,11 @@ exports.assignJunkCarStaff = async (req, res) => {
             }
         }
 
-        // assignedBy = the logged-in user making the assignment ("Lead
-        // Assigned By"), kept separately from the assignee.
+        // Lead Assigned By = the logged-in user picking / clearing the
+        // assignee, kept separately from the assignee.
         const updated = await JunkCar.findByIdAndUpdate(
             id,
-            { $set: assignmentFields(assignedTo, req.user?._id) },
+            { $set: assignmentFields(assignedTo, req.user) },
             { new: true }
         ).populate(JUNK_CAR_POPULATE);
 
@@ -840,21 +833,22 @@ exports.patchJunkCar = async (req, res) => {
             });
         }
 
-        // Assignment, same rules as the assign / status / payment routes:
-        //  - assignedTo sent: record the caller as Lead Assigned By;
-        //  - status / payment change on an unassigned lead: assign it to the
-        //    caller; an existing assignment is left alone.
+        // Same rules as the assign / status / payment routes:
+        //  - Assigned To changes only when assignedTo is sent with a new value;
+        //  - Lead Assigned By records the caller whenever the assignee,
+        //    status or payment is changed.
+        let assigneeChanged = false;
         if ("assignedTo" in updates) {
-            const unchanged =
-                String(updates.assignedTo || "") === String(junkCar.assignedTo || "");
-            const { assignedTo, ...rest } = updates;
-            updates = unchanged ? rest : { ...rest, ...assignmentFields(assignedTo, req.user?._id) };
-        } else if (
-            ("status" in updates || "paymentStatus" in updates) &&
-            !junkCar.assignedTo &&
-            req.user?._id
-        ) {
-            Object.assign(updates, assignmentFields(req.user._id, req.user._id));
+            assigneeChanged =
+                String(updates.assignedTo || "") !== String(junkCar.assignedTo || "");
+            if (!assigneeChanged) {
+                const { assignedTo, ...rest } = updates;
+                updates = rest;
+            }
+        }
+
+        if (assigneeChanged || "status" in updates || "paymentStatus" in updates) {
+            Object.assign(updates, actorFields(req.user));
         }
 
         junkCar.set(updates);
