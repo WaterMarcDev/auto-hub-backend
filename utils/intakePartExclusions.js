@@ -9,13 +9,20 @@
  * the "part-added-to-inventory" completion check) then leaves them out.
  *
  * Keys are the Step 3 part keys ("a1", "a2"), matched case-insensitively.
- * This is intentionally separate from utils/wixExportExclusions.js, which
- * also lists Windshield — a real inventory part that stays selectable here.
+ *
+ * Windshield and Heated Windshield are also deselected: together with A1 and
+ * A2 they are removed from the CRM (utils/removedParts.js), so an older
+ * intake that still has them ticked no longer sends them to inventory.
  */
+const { isRemovedPart } = require("./removedParts");
+
 const INTAKE_DESELECTED_PARTS = new Set(["a1", "a2"]);
 
 function isIntakeDeselectedPart(key) {
-  return INTAKE_DESELECTED_PARTS.has(String(key || "").trim().toLowerCase());
+  return (
+    INTAKE_DESELECTED_PARTS.has(String(key || "").trim().toLowerCase()) ||
+    isRemovedPart(key)
+  );
 }
 
 /**

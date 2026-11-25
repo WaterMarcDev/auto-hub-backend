@@ -1,6 +1,7 @@
 const axios = require("axios");
 const cron = require("node-cron");
 const CarIntake = require("../models/CarIntake.model");
+const { parseGVWR } = require("../utils/vehicleWeight");
 
 // Config - can be overridden via env
 const SCHEDULE = process.env.VIN_CRON_SCHEDULE || "*/5 * * * *"; // every 5minutes by default to prevent warnings , updated by shiva  
@@ -54,7 +55,9 @@ function mapVinToCarDetails(vinNumber, vinDetails) {
     engineVariant:
       vinDetails?.EngineModel || vinDetails?.engine_code || undefined,
     chassisNo: vinNumber,
-    weight: vinDetails?.GVWR || "",
+    // weight is NOT pre-filled: GVWR is the class's maximum loaded weight
+    // (e.g. "Class 1C: 4,001 - 5,000 lb"), not the car's weight. Staff enter
+    // the real weight; the GVWR limits are saved in vinDetails below.
     engine: vinDetails?.DisplacementL || undefined,
   };
 }
@@ -127,6 +130,15 @@ async function processBatch() {
     });
 
     // Prepare update
+    // Same GVWR limits the VIN decode screen saves (vin.controller.js), so
+    // the weight check and "Allowed range" hint work for these intakes too.
+    const gvwrRange = parseGVWR(vinDetails?.GVWR);
+    if (gvwrRange) {
+      vinDetails.gvwrRange = vinDetails.GVWR;
+      vinDetails.weightMin = gvwrRange.min;
+      vinDetails.weightMax = gvwrRange.max;
+    }
+
     const update = {
       vinDetails: vinDetails,
       carDetails: merged,

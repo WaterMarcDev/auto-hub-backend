@@ -16,9 +16,20 @@ const checkInSchema = new mongoose.Schema({
     enum: ["seller", "buyer", "both"],
     required: [true, "Check-in type is required"],
   },
+  // People entering the yard WITH the customer (the customer is not counted).
   numberOfPersons: {
     type: Number,
+    min: 0,
   },
+  // Details of each of those people, given in the Check-In popup.
+  persons: [
+    {
+      _id: false,
+      fullName: { type: String, trim: true, maxlength: 100 },
+      mobileNo: { type: String, trim: true },
+      signature: { type: String, trim: true },
+    },
+  ],
   transaction: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Transaction",
@@ -27,6 +38,18 @@ const checkInSchema = new mongoose.Schema({
   employeeSignature: {
     type: String,
     trim: true,
+  },
+  // U-Pull form, "For Administrative Purposes only".
+  // Payment is mandatory and taken at check-in, so new check-ins are always
+  // true (there is no "Payment done before entering the yard?" question).
+  paidBeforeEntry: {
+    type: Boolean,
+  },
+  // Name of Employee who checked the customer in.
+  employeeName: {
+    type: String,
+    trim: true,
+    maxlength: 100,
   },
   checkInTime: {
     type: Date,

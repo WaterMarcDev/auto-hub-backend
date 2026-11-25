@@ -6,6 +6,108 @@ const fs = require("fs");
 const path = require("path");
 const EntryFee = require("../models/EntryFee.model");
 const { applyIntakePartExclusions } = require("../utils/intakePartExclusions");
+const { assertVehicleWeight } = require("../utils/vehicleWeight");
+
+// Car dimensions (inches): optional, blank → not set, otherwise a number ≥ 0.
+const DIMENSION_FIELDS = ["height", "width", "length"];
+const toDimension = (v) => {
+  if (v === undefined || v === null || v === "") return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) throw new Error("Height, Width and Length must be positive numbers.");
+  return n;
+};
+// Car Details text fields: trimmed, max length, and (for the required ones)
+// never blank. Keep in sync with CAR_TEXT_LIMITS in the frontend
+// (src/components/CarIntake/intakeConstants.js).
+const CAR_TEXT_LIMITS = {
+  make: 50,
+  model: 50,
+  trim: 50,
+  color: 30,
+  bodyClass: 100,
+  chassisNo: 50,
+  engine: 30,
+  engineVariant: 100,
+  scrapYardName: 100,
+  scrapYardLocation: 100,
+  fuelType: 50,
+};
+const CAR_TEXT_LABELS = {
+  make: "Make",
+  model: "Model",
+  trim: "Trim",
+  color: "Color",
+  bodyClass: "Body Class",
+  chassisNo: "Chassis No.",
+  engine: "Engine Size",
+  engineVariant: "Engine Variant",
+  scrapYardName: "Where",
+  scrapYardLocation: "Location",
+  fuelType: "Fuel Type",
+};
+// Required in both the normal and the manual-VIN flow.
+const CAR_TEXT_REQUIRED = ["make", "model", "trim", "color", "bodyClass", "fuelType"];
+// Free-text descriptions on every step (same limit as the frontend's
+// MAX_DESCRIPTION_LENGTH in src/utils/descriptionLimit.js).
+const MAX_DESCRIPTION_LENGTH = 500;
+const DESCRIPTION_FIELDS = [
+  "description",
+  "imageDescription",
+  "partsDescription",
+  "priceDescription",
+  "kycDescription",
+  "paymentDescription",
+];
+
+// Trims the Car Details text fields present in `data` (in place) and returns
+// an error message for a blank required field or a too-long value, else null.
+// Fields that are not in the request are left alone.
+const normalizeCarText = (data) => {
+  if (!data || typeof data !== "object") return null;
+  for (const [field, max] of Object.entries(CAR_TEXT_LIMITS)) {
+    if (data[field] === undefined || data[field] === null) continue;
+    if (typeof data[field] !== "string" && typeof data[field] !== "number") {
+      return `${CAR_TEXT_LABELS[field]} must be text`;
+    }
+    const value = String(data[field]).trim();
+    if (!value && CAR_TEXT_REQUIRED.includes(field)) {
+      return `${CAR_TEXT_LABELS[field]} is required`;
+    }
+    if (value.length > max) {
+      return `${CAR_TEXT_LABELS[field]} must be at most ${max} characters`;
+    }
+    data[field] = value;
+  }
+  const descriptions = [
+    ...DESCRIPTION_FIELDS.map((f) => [f, data[f]]),
+    ["imageDescription", data.carImages?.imageDescription],
+    ["partsDescription", data.partDetails?.partsDescription],
+  ];
+  for (const [field, value] of descriptions) {
+    if (typeof value === "string" && value.trim().length > MAX_DESCRIPTION_LENGTH) {
+      return `Description (${field}) must be at most ${MAX_DESCRIPTION_LENGTH} characters`;
+    }
+  }
+  return null;
+};
+
+// Payment amount (paidAmount) and method: when sent they must be a number
+// greater than 0 and a non-blank method. Returns an error message or null.
+const validatePaymentInput = (data) => {
+  if (!data) return null;
+  const paid = data.paidAmount;
+  if (paid !== undefined) {
+    const n = typeof paid === "string" ? Number(paid.trim() || NaN) : Number(paid);
+    if (paid === null || typeof paid === "boolean" || !Number.isFinite(n) || n <= 0) {
+      return "Final Price (paid amount) must be a number greater than 0";
+    }
+  }
+  if (data.paymentMethod !== undefined && !String(data.paymentMethod ?? "").trim()) {
+    return "Payment Method is required";
+  }
+  return null;
+};
+
 const carScrap = require("../services/carScrap.service");
 const { UPLOAD_DIR } = require("../config/uploads");
 const {
@@ -167,6 +269,12 @@ const createCarIntake = async (req, res) => {
 
     const formData = req.body;
 
+    // Trim Car Details text; blank required / too-long values are rejected.
+    const inputError = normalizeCarText(formData) || validatePaymentInput(formData);
+    if (inputError) {
+      return res.status(400).json({ success: false, error: inputError });
+    }
+
     // added by shiva
     formData.vin = String(formData.vin || "").trim().toUpperCase();
 
@@ -257,29 +365,20 @@ const createCarIntake = async (req, res) => {
           const w = formData.weight;
           if (w === undefined || w === "") return undefined;
 
-          // Check if we have VIN details to validate against
-          const vinDetails = formData.vinDetails || {};
-          const min = vinDetails.weightMin;
-          const max = vinDetails.weightMax;
-
+          // Weight is entered by hand; it may not exceed the GVWR of the
+          // vehicle class (see utils/vehicleWeight.js).
           const numW = parseFloat(w);
 
           if (!Number.isNaN(numW)) {
-            if (min !== undefined && numW < min) {
-              throw new Error(
-                `Weight ${numW} lbs is below the valid range for this vehicle Class (< ${min}).`
-              );
-            }
-            if (max !== undefined && numW > max) {
-              throw new Error(
-                `Weight ${numW} lbs is above the valid range for this vehicle Class (> ${max}).`
-              );
-            }
+            assertVehicleWeight(numW, formData.vinDetails);
             return String(numW); // Store as string as per schema, but normalized
           }
           return String(w);
         })(),
         dimensions: formData.dimensions || undefined,
+        height: toDimension(formData.height),
+        width: toDimension(formData.width),
+        length: toDimension(formData.length),
         description: formData.description || undefined,
         carDetailsUploadedBy: req.user?._id,
       },
@@ -629,6 +728,14 @@ const updateCarIntake = async (req, res) => {
   try {
     const { sellerData, transactionData, ...carIntakeData } = req.body;
 
+    // Trim Car Details text; blank required / too-long values and a blank or
+    // non-positive paid amount are rejected before anything is saved.
+    const inputError =
+      normalizeCarText(carIntakeData) || validatePaymentInput(carIntakeData);
+    if (inputError) {
+      return res.status(400).json({ error: inputError });
+    }
+
     const carIntake = await CarIntake.findById(req.params.id);
     if (!carIntake) {
       return res.status(404).json({ error: "Car intake not found" });
@@ -669,6 +776,7 @@ const updateCarIntake = async (req, res) => {
       "keys",
       "weight",
       "dimensions",
+      ...DIMENSION_FIELDS,
       "description",
     ];
     let anyCd = false;
@@ -680,22 +788,10 @@ const updateCarIntake = async (req, res) => {
           const w = carIntakeData[f];
           if (w !== "") {
             const numW = parseFloat(w);
-            // Check existing vinDetails on the record
-            const vinDetails = carIntake.vinDetails || {};
-            const min = vinDetails.weightMin;
-            const max = vinDetails.weightMax;
 
             if (!Number.isNaN(numW)) {
-              if (min !== undefined && numW < min) {
-                throw new Error(
-                  `Weight ${numW} lbs is below the valid range for this vehicle Class (< ${min}).`
-                );
-              }
-              if (max !== undefined && numW > max) {
-                throw new Error(
-                  `Weight ${numW} lbs is above the valid range for this vehicle Class (> ${max}).`
-                );
-              }
+              // Checked against the GVWR of the record's vehicle class.
+              assertVehicleWeight(numW, carIntake.vinDetails);
               carIntake.carDetails[f] = String(numW);
             } else {
               carIntake.carDetails[f] = w;
@@ -703,6 +799,9 @@ const updateCarIntake = async (req, res) => {
           } else {
             carIntake.carDetails[f] = w;
           }
+        } else if (DIMENSION_FIELDS.includes(f)) {
+          // Blank clears the dimension (dimensions are optional).
+          carIntake.carDetails[f] = toDimension(carIntakeData[f]);
         } else {
           carIntake.carDetails[f] = carIntakeData[f];
         }
@@ -2027,7 +2126,7 @@ const bulkUploadScraped = async (req, res) => {
         // Apply defaults for missing 'what'
         if (statusForRow === "intake") {
           carDetails.scrapYardName =
-            row["Scrap Yard"] || row.scrapYardName || "RTX";
+            row["Scrap Yard"] || row.scrapYardName || "Autohub";
           carDetails.scrapYardLocation =
             row["Scrap Yard Location"] || row.scrapYardLocation || "New Jersey";
         } else {

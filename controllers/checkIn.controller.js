@@ -1,8 +1,51 @@
+const mongoose = require("mongoose");
 const CheckIn = require("../models/CheckIn.model");
 const Transaction = require("../models/Transaction.model");
 const Customer = require("../models/Customer.model");
 const fs = require("fs");
 const path = require("path");
+
+// People entering with the customer, at most.
+const MAX_EXTRA_PERSONS = 20;
+
+// Error message for the persons' details, or null when they are valid.
+// Returns { error } or { persons } (cleaned).
+function checkPersons(numberOfPersons, persons) {
+  const n = numberOfPersons === undefined || numberOfPersons === null || numberOfPersons === ""
+    ? 0
+    : Number(numberOfPersons);
+  if (!Number.isInteger(n) || n < 0 || n > MAX_EXTRA_PERSONS) {
+    return { error: `Number of Persons must be a whole number from 0 to ${MAX_EXTRA_PERSONS}` };
+  }
+  const list = Array.isArray(persons) ? persons : [];
+  if (list.length !== n) {
+    return { error: `Details are needed for all ${n} persons (got ${list.length})` };
+  }
+  const cleaned = [];
+  for (let i = 0; i < n; i++) {
+    const p = list[i] || {};
+    const fullName = typeof p.fullName === "string" ? p.fullName.trim().replace(/\s{2,}/g, " ") : "";
+    const digits = String(p.mobileNo || "").replace(/\D/g, "");
+    const signature = typeof p.signature === "string" ? p.signature.trim() : "";
+    if (!fullName) return { error: `Person ${i + 1}: Full Name is required` };
+    if (fullName.length > 100) return { error: `Person ${i + 1}: Full Name can be at most 100 characters` };
+    if (digits.length !== 10) return { error: `Person ${i + 1}: Mobile No. must be a 10-digit US number` };
+    if (!signature) return { error: `Person ${i + 1}: Signature is required` };
+    cleaned.push({
+      fullName,
+      mobileNo: `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`,
+      signature,
+    });
+  }
+  return { numberOfPersons: n, persons: cleaned };
+}
+
+// U-Pull form: entry amount limits, in dollars.
+const CHECKIN_AMOUNT_MIN = 1;
+const CHECKIN_AMOUNT_MAX = 10;
+
+// Money: at most 2 decimal places.
+const isWholeCents = (n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6;
 
 // Create a new check-in. Expects body: { customer: ObjectId, transaction: { ...transactionData }, employeeSignature: string }
 // checkInTime is automatic, checkedInBy is taken from req.user (assumes auth middleware sets req.user)
@@ -13,36 +56,54 @@ exports.create = async (req, res) => {
       type,
       transaction: transactionData,
       numberOfPersons,
+      persons,
       employeeSignature,
+      employeeName,
     } = req.body;
 
-    if (!customer)
-      return res.status(400).json({ message: "customer is required" });
-    if (!type)
-      return res.status(400).json({ message: "type is required" });
-    if (!transactionData)
-      return res.status(400).json({ message: "transaction data is required" });
+    // Both `message` and `error`: the frontend shows `error`.
+    const bad = (status, text) => res.status(status).json({ message: text, error: text });
+    if (!customer) return bad(400, "Please select a customer");
+    if (!mongoose.isValidObjectId(customer)) return bad(400, "Please select a valid customer");
+    if (!type) return bad(400, "type is required");
+    if (!transactionData || typeof transactionData !== "object")
+      return bad(400, "transaction data is required");
 
     // ensure customer exists
     const cust = await Customer.findById(customer);
-    if (!cust) return res.status(404).json({ message: "Customer not found" });
+    if (!cust) return bad(404, "Customer not found");
 
     // validate transaction data
     const { amount, paymentMethod } = transactionData;
-    if (amount == null) {
-      return res
-        .status(400)
-        .json({ message: "transaction.amount is required" });
+    if (amount == null || amount === "") return bad(400, "Please enter the amount");
+    if (!paymentMethod) return bad(400, "Please select the type of payment");
+
+    // U-Pull form: the entry amount is $1 – $10, in dollars and cents.
+    const numericAmount = typeof amount === "boolean" ? NaN : Number(amount);
+    if (Number.isFinite(numericAmount) && !isWholeCents(numericAmount)) {
+      return bad(400, "Amount can have at most 2 decimal places");
     }
-    if (!paymentMethod) {
-      return res
-        .status(400)
-        .json({ message: "transaction.paymentMethod is required" });
+    if (!Number.isFinite(numericAmount) || numericAmount < CHECKIN_AMOUNT_MIN || numericAmount > CHECKIN_AMOUNT_MAX) {
+      return res.status(400).json({
+        message: `Amount must be between $${CHECKIN_AMOUNT_MIN} and $${CHECKIN_AMOUNT_MAX}`,
+        error: `Amount must be between $${CHECKIN_AMOUNT_MIN} and $${CHECKIN_AMOUNT_MAX}`,
+      });
+    }
+    const personsCheck = checkPersons(numberOfPersons, persons);
+    if (personsCheck.error) {
+      return res.status(400).json({ message: personsCheck.error, error: personsCheck.error });
+    }
+    const cleanEmployeeName = typeof employeeName === "string" ? employeeName.trim() : "";
+    if (!cleanEmployeeName) {
+      return res.status(400).json({ message: "Name of Employee is required", error: "Name of Employee is required" });
+    }
+    if (typeof employeeSignature !== "string" || !employeeSignature.trim()) {
+      return res.status(400).json({ message: "Signature of employee is required", error: "Signature of employee is required" });
     }
 
     // create transaction document with enforced fields
     const trx = new Transaction({
-      amount,
+      amount: numericAmount,
       paymentMethod,
       type: "credit",
       createdBy: req.user && req.user._id ? req.user._id : undefined,
@@ -53,8 +114,12 @@ exports.create = async (req, res) => {
       customer,
       type,
       transaction: trx._id,
-      numberOfPersons,
+      numberOfPersons: personsCheck.numberOfPersons,
+      persons: personsCheck.persons,
       employeeSignature,
+      // Payment is mandatory and taken at check-in (Type of Payment + Amount).
+      paidBeforeEntry: true,
+      employeeName: cleanEmployeeName.slice(0, 100),
       checkedInBy: req.user && req.user._id ? req.user._id : undefined,
     });
 
@@ -146,7 +211,9 @@ exports.checkout = async (req, res) => {
     checkIn.checkOutTime = new Date();
     checkIn.checkedOutBy = req.user && req.user._id ? req.user._id : undefined;
 
-    await checkIn.save();
+    // Validate only what checkout changes, so older check-ins (saved before
+    // the current field rules) can still be checked out.
+    await checkIn.save({ validateModifiedOnly: true });
 
     const populated = await CheckIn.findById(checkIn._id)
       .populate("customer")
@@ -189,6 +256,7 @@ const getLogoDataUri = () => {
 exports.printInvoice = async (req, res) => {
   try {
     const id = req.params.id;
+    if (!mongoose.isValidObjectId(id)) return res.status(404).send("CheckIn not found");
     const checkIn = await CheckIn.findById(id)
       .populate("customer")
       .populate("transaction")
@@ -274,12 +342,25 @@ exports.printInvoice = async (req, res) => {
       logoSrc: logoDataUri || "/assets/logo-sm1.png",
     };
 
-    // Mark invoice as printed
-    checkIn.invoicePrinted = true;
-    await checkIn.save();
+    // Mark invoice as printed. Only this flag is written: a full
+    // checkIn.save() re-validates the whole document and failed (500, no
+    // invoice) for older check-ins, e.g. a negative Number of Persons or a
+    // deleted customer/transaction (populated as null).
+    try {
+      await CheckIn.updateOne({ _id: checkIn._id }, { $set: { invoicePrinted: true } });
+    } catch (e) {
+      console.warn("Could not mark check-in invoice as printed:", e && e.message);
+    }
 
-    // Render using invoice template
-    return res.render("invoice.njk", data);
+    // Render using invoice template. Template errors are answered here
+    // instead of falling through to the JSON error handler.
+    return res.render("invoice.njk", data, (renderErr, html) => {
+      if (renderErr) {
+        console.error("Print invoice render error:", renderErr);
+        return res.status(500).send("Could not create the invoice. Please try again.");
+      }
+      return res.send(html);
+    });
   } catch (err) {
     console.error("Print invoice error:", err);
     return res.status(500).json({ error: "Server error rendering invoice" });

@@ -415,6 +415,23 @@ app.use("/uploads", express.static(UPLOAD_DIR));
 
 app.use("/assets", express.static(path.join(__dirname, "assets")));
 
+// Request body problems from express.json / urlencoded: answer with a clear
+// message instead of the raw "request entity too large" / JSON parse text.
+// The 100 KB body limit stays: every form field has its own length limit, so
+// normal use never gets close to it.
+app.use((err, req, res, next) => {
+  if (err && err.type === "entity.too.large") {
+    const message = "The information entered is too long. Please shorten the longer text fields (notes, descriptions, names) and try again.";
+    console.warn(`[BODY TOO LARGE] ${req.method} ${req.originalUrl} (${err.length || "?"} bytes, limit ${err.limit})`);
+    return res.status(413).json({ success: false, message, error: message });
+  }
+  if (err && err.type === "entity.parse.failed") {
+    const message = "The request could not be read. Please check the entered values and try again.";
+    return res.status(400).json({ success: false, message, error: message });
+  }
+  return next(err);
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   // Log the full error details

@@ -1,5 +1,24 @@
 const EntryFee = require("../models/EntryFee.model");
 
+// Entry fee limits, in dollars (money: at most 2 decimal places).
+const ENTRY_FEE_MIN = 0;
+const ENTRY_FEE_MAX = 10;
+const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
+
+// Returns { value } for a valid entry fee, or { error } (nothing is saved then).
+function parseEntryFee(raw) {
+  const rangeError = `Entry fee must be a number from $${ENTRY_FEE_MIN} to $${ENTRY_FEE_MAX} with at most 2 decimal places`;
+  if (typeof raw !== "number" && typeof raw !== "string") return { error: rangeError };
+  const text = String(raw).trim();
+  // Rejects letters, signs, exponents ("1e40"), several dots and >2 decimals.
+  if (!MONEY_PATTERN.test(text)) return { error: rangeError };
+  const value = Number(text);
+  if (!Number.isFinite(value) || value < ENTRY_FEE_MIN || value > ENTRY_FEE_MAX) {
+    return { error: rangeError };
+  }
+  return { value: Math.round(value * 100) / 100 };
+}
+
 // @desc    Get entry fee setting
 // @route   GET /api/entry-fee
 // @access  Private/Admin
@@ -33,13 +52,16 @@ const getEntryFee = async (req, res) => {
 // @access  Private/Admin
 const updateEntryFee = async (req, res) => {
   try {
-    const { entryFee } = req.body;
-
-    if (entryFee === undefined || isNaN(entryFee)) {
-      return res.status(400).json({ error: "Valid entry fee is required" });
+    // Validate before touching the stored setting: an invalid value is
+    // rejected with 400 and the current entry fee stays as it is.
+    const parsed = parseEntryFee(req.body?.entryFee);
+    if (parsed.error) {
+      return res.status(400).json({ error: parsed.error, message: parsed.error });
     }
+    const entryFee = parsed.value;
 
-    let setting = await EntryFee.findOne();
+    // Same document the GET returns (the most recent one).
+    let setting = await EntryFee.findOne().sort({ createdAt: -1 });
 
     if (setting) {
       setting.entryFee = entryFee;
@@ -74,4 +96,7 @@ const updateEntryFee = async (req, res) => {
 module.exports = {
   getEntryFee,
   updateEntryFee,
+  parseEntryFee,
+  ENTRY_FEE_MIN,
+  ENTRY_FEE_MAX,
 };

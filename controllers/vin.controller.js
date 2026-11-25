@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { parseGVWR } = require("../utils/vehicleWeight");
 const CarIntake = require("../models/CarIntake.model");
 // Normalize DriveType strings to allowed enum values: ["2WD","4WD","AWD","FWD"]
 const normalizeDriveType = (input) => {
@@ -24,7 +25,7 @@ const normalizeDriveType = (input) => {
 // @access  Private
 const getVinDetails = async (req, res) => {
   try {
-    const { vinNumber } = req.params;
+    const vinNumber = String(req.params.vinNumber || "").trim().toUpperCase();
 
     // Validate VIN format (17 characters, alphanumeric except I, O, Q)
     const vinRegex = /^[A-HJ-NPR-Z0-9]{17}$/;
@@ -43,7 +44,15 @@ const getVinDetails = async (req, res) => {
       )
       .populate("createdBy", "first_name last_name email");
 
-    if (existing) {
+    // A stored draft that never decoded (no make from NHTSA and none typed
+    // in) is not treated as a valid VIN: decode it again below instead.
+    const existingHasVehicle = Boolean(
+      existing &&
+        (String(existing.vinDetails?.Make || "").trim() ||
+          String(existing.carDetails?.make || "").trim())
+    );
+
+    if (existing && (existingHasVehicle || existing.status === "payment-done")) {
       // If the existing record has completed payment, treat VIN as processed
       if (existing.status === "payment-done") {
         return res.status(400).json({ error: "VIN already processed" });
@@ -80,54 +89,31 @@ const getVinDetails = async (req, res) => {
     }
 
     // Persist VIN details into CarIntake (create draft or update existing by VIN)
-    const vinDetails = response.data.Results[0];
+    const vinDetails = response.data.Results?.[0];
 
-    // Helper to parse GVWR string into min/max lbs
-    const parseGVWR = (gvwr) => {
-      if (!gvwr) return null;
-      // Expected formats:
-      // "Class 1: 6,000 lb or less (2,722 kg or less)"
-      // "Class 2E: 6,001 - 7,000 lb (2,722 - 3,175 kg)"
-      try {
-        const text = String(gvwr).toLowerCase();
-        // Remove commas 
-        const clean = text.replace(/,/g, "");
+    // NHTSA answers 200 even for VINs it cannot decode: ErrorCode is then
+    // non-zero (e.g. "7"/"8" no data, "6" incomplete, "11" bad model year)
+    // and Make is empty. Without a make the VIN is not a real vehicle, so it
+    // is rejected and no draft is created. A VIN that decodes but only fails
+    // the check digit (ErrorCode "1") is accepted with a warning, because
+    // some genuine (e.g. imported) VINs do not use the check digit.
+    const errorCodes = String(vinDetails?.ErrorCode ?? "")
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean);
+    if (!vinDetails || !String(vinDetails.Make || "").trim()) {
+      return res.status(422).json({
+        error:
+          "Invalid VIN: it could not be decoded to a vehicle. Please check the VIN, or tick \"VIN is less than 17 digits\" to enter the details manually.",
+        details: vinDetails?.ErrorText || undefined,
+      });
+    }
+    const vinWarning =
+      errorCodes.length && !(errorCodes.length === 1 && errorCodes[0] === "0")
+        ? vinDetails.ErrorText || "The VIN was decoded with warnings."
+        : undefined;
 
-        // Extract the lb part (usually before "kg" or at the start)
-        // Regex to finding numbers followed by "lb"
-        // Case 1: "X - Y lb"
-        const rangeMatch = clean.match(/(\d+)\s*-\s*(\d+)\s*lb/);
-        if (rangeMatch) {
-          return {
-            min: parseInt(rangeMatch[1]),
-            max: parseInt(rangeMatch[2]),
-          };
-        }
-
-        // Case 2: "Y lb or less" -> 0 - Y
-        const lessMatch = clean.match(/(\d+)\s*lb\s*or\s*less/);
-        if (lessMatch) {
-          return {
-            min: 0,
-            max: parseInt(lessMatch[1]),
-          };
-        }
-
-        // Case 3: "Greater than Y lb" -> Y - MAX_SAFE_INTEGER
-        const greaterMatch = clean.match(/greater\s*than\s*(\d+)\s*lb/);
-        if (greaterMatch) {
-          return {
-            min: parseInt(greaterMatch[1]),
-            max: Number.MAX_SAFE_INTEGER,
-          };
-        }
-
-        return null;
-      } catch (e) {
-        console.warn("Failed to parse GVWR:", gvwr, e);
-        return null;
-      }
-    };
+    // GVWR class text → { min, max } lbs (utils/vehicleWeight.js)
 
     const gvwrRange = parseGVWR(vinDetails?.GVWR);
 
@@ -227,6 +213,7 @@ const getVinDetails = async (req, res) => {
       vinNumber: vinNumber,
       data: vinDetails,
       carIntake,
+      warning: vinWarning,
       source: "MarketCheck API",
       timestamp: new Date().toISOString(),
     });

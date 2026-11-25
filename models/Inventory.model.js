@@ -28,6 +28,12 @@ const inventorySchema = new mongoose.Schema(
     dimensions: {
       type: String,
     },
+    // Free-text remarks about the part (e.g. details for an "Other" part).
+    remarks: {
+      type: String,
+      trim: true,
+      maxlength: 2000,
+    },
     make: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Make",
@@ -171,6 +177,7 @@ const inventorySchema = new mongoose.Schema(
           buyerUsername: { type: String },
           buyerEmail: { type: String },
           buyerPhone: { type: String },
+          assetTag: { type: String },       // asset tag (barcode) of the part sold
           shippingAddress: {
             name: String,
             line1: String,

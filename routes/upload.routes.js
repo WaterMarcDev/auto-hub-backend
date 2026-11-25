@@ -60,6 +60,45 @@ const upload = multer({
   fileFilter: fileFilter,
 });
 
+// A file named / typed as an image must really be one: its first bytes must be
+// a JPEG, PNG, GIF or WEBP signature. Anything else (a corrupted or renamed
+// file) is deleted and rejected. Excel uploads are not affected.
+const IMAGE_SIGNATURES = [
+  (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff, // JPEG
+  (b) => b.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), // PNG
+  (b) => b.slice(0, 6).toString("ascii") === "GIF87a" || b.slice(0, 6).toString("ascii") === "GIF89a", // GIF
+  (b) => b.slice(0, 4).toString("ascii") === "RIFF" && b.slice(8, 12).toString("ascii") === "WEBP", // WEBP
+];
+const CORRUPT_IMAGE_MESSAGE =
+  "The image could not be read. It may be damaged or not a real image. Please upload a valid JPG, JPEG, PNG, GIF or WEBP image.";
+
+const isImageUpload = (file) =>
+  /^image\//i.test(file.mimetype || "") ||
+  /\.(jpe?g|png|gif|webp)$/i.test(file.originalname || "");
+
+const hasImageSignature = (filePath) => {
+  try {
+    const fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(12);
+    const read = fs.readSync(fd, buf, 0, 12, 0);
+    fs.closeSync(fd);
+    return read >= 4 && IMAGE_SIGNATURES.some((check) => check(buf));
+  } catch {
+    return false;
+  }
+};
+
+// Removes every uploaded file of the request when any image is not real.
+// Returns true when the request was rejected.
+const rejectCorruptImages = (req, res) => {
+  const files = req.file ? [req.file] : req.files || [];
+  const bad = files.find((f) => isImageUpload(f) && !hasImageSignature(f.path));
+  if (!bad) return false;
+  files.forEach((f) => fs.unlink(f.path, () => {}));
+  res.status(400).json({ error: CORRUPT_IMAGE_MESSAGE, message: CORRUPT_IMAGE_MESSAGE });
+  return true;
+};
+
 // @route   POST /api/upload/image
 // @desc    Upload a single image or Excel file
 // @access  Private
@@ -68,6 +107,7 @@ router.post("/image", auth, upload.single("image"), (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
+    if (rejectCorruptImages(req, res)) return;
 
     const imageUrl = `/uploads/${req.file.filename}`;
 
@@ -93,6 +133,7 @@ router.post("/multiple", auth, upload.array("images", 10), (req, res) => {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "No image files uploaded" });
     }
+    if (rejectCorruptImages(req, res)) return;
 
     const uploadedFiles = req.files.map((file) => ({
       imageUrl: `/uploads/${file.filename}`,

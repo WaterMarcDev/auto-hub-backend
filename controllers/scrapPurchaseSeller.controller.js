@@ -27,6 +27,21 @@ const isValidUsPhone = (value) => {
   return /^\d{10}$/.test(cleaned) || /^1\d{10}$/.test(cleaned);
 };
 
+// Length limits (mirrored in src/pages/ScrapPurchase/index.jsx).
+const MAX_SELLER_NAME = 100;
+const MAX_SELLER_PHONE = 25;
+
+// Returns an error message for a bad name/phone length, or null.
+const lengthError = (name, phone) => {
+  if (name !== undefined && name.length > MAX_SELLER_NAME) {
+    return `Seller name can be at most ${MAX_SELLER_NAME} characters.`;
+  }
+  if (phone !== undefined && phone.length > MAX_SELLER_PHONE) {
+    return "Please enter a valid US phone number.";
+  }
+  return null;
+};
+
 // ─── create ─────────────────────────────────────────────────────────────────
 
 // @desc   Create a scrap purchase seller
@@ -39,6 +54,10 @@ const createScrapPurchaseSeller = async (req, res) => {
 
     if (!name) {
       return res.status(400).json({ error: "Seller name is required." });
+    }
+    const tooLong = lengthError(name, phone);
+    if (tooLong) {
+      return res.status(400).json({ error: tooLong, message: tooLong });
     }
     if (!isValidUsPhone(phone)) {
       return res.status(400).json({ error: "Please enter a valid US phone number." });
@@ -134,11 +153,15 @@ const updateScrapPurchaseSeller = async (req, res) => {
       if (!name) {
         return res.status(400).json({ error: "Seller name is required." });
       }
+      const tooLong = lengthError(name, undefined);
+      if (tooLong) {
+        return res.status(400).json({ error: tooLong, message: tooLong });
+      }
       update.name = name;
     }
     if (req.body?.phone !== undefined) {
       const phone = String(req.body.phone || "").trim();
-      if (!isValidUsPhone(phone)) {
+      if (lengthError(undefined, phone) || !isValidUsPhone(phone)) {
         return res.status(400).json({ error: "Please enter a valid US phone number." });
       }
       update.phone = phone;
