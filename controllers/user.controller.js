@@ -1,6 +1,12 @@
 const User = require("../models/User.model");
 const bcrypt = require("bcryptjs");
 const { JUNK_CAR_NAMED_STAFF } = require("../utils/junkCarLeads");
+const { emailError } = require("../utils/email");
+const { cleanName, userNameError, validationMessage } = require("../utils/userName");
+const { passwordError } = require("../utils/password");
+
+const normalizeEmailValue = (email) =>
+  typeof email === "string" ? email.trim().toLowerCase() : email;
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -52,7 +58,19 @@ const getUserById = async (req, res) => {
 // @access  Private/Admin
 const updateUser = async (req, res) => {
   try {
-    const { first_name, last_name, email, role } = req.body;
+    const { first_name, last_name, role } = req.body;
+    const email = normalizeEmailValue(req.body.email);
+
+    // Names are optional on update (omitted = unchanged), but a sent name
+    // must not be blank / only spaces or longer than the limit.
+    if (first_name !== undefined) {
+      const err = userNameError(first_name, "First name");
+      if (err) return res.status(400).json({ error: err });
+    }
+    if (last_name !== undefined) {
+      const err = userNameError(last_name, "Last name");
+      if (err) return res.status(400).json({ error: err });
+    }
 
     const user = await User.findById(req.params.id);
 
@@ -62,6 +80,10 @@ const updateUser = async (req, res) => {
 
     // Check if email is being changed and if it already exists
     if (email && email !== user.email) {
+      const invalidEmail = emailError(email);
+      if (invalidEmail) {
+        return res.status(400).json({ error: invalidEmail });
+      }
       const emailExists = await User.findOne({ email });
       if (emailExists) {
         return res.status(400).json({ error: "Email already in use" });
@@ -69,8 +91,8 @@ const updateUser = async (req, res) => {
     }
 
     // Update fields
-    user.first_name = first_name || user.first_name;
-    user.last_name = last_name || user.last_name;
+    if (first_name !== undefined) user.first_name = cleanName(first_name);
+    if (last_name !== undefined) user.last_name = cleanName(last_name);
     user.email = email || user.email;
     user.role = role || user.role;
 
@@ -85,6 +107,11 @@ const updateUser = async (req, res) => {
     console.error("Update user error:", error);
     if (error.name === "CastError") {
       return res.status(400).json({ error: "Invalid user ID" });
+    }
+    const invalid = validationMessage(error);
+    if (invalid) return res.status(400).json({ error: invalid });
+    if (error.code === 11000) {
+      return res.status(400).json({ error: "Email already in use" });
     }
     res.status(500).json({ error: "Server error" });
   }
@@ -126,7 +153,17 @@ const deleteUser = async (req, res) => {
 // @access  Private/Admin/Manager
 const createUser = async (req, res) => {
   try {
-    const { first_name, last_name, email, password, role } = req.body;
+    const { first_name, last_name, password, role } = req.body;
+    const email = normalizeEmailValue(req.body.email);
+
+    const invalid =
+      userNameError(first_name, "First name") ||
+      userNameError(last_name, "Last name") ||
+      emailError(email) ||
+      passwordError(password);
+    if (invalid) {
+      return res.status(400).json({ error: invalid });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -138,8 +175,8 @@ const createUser = async (req, res) => {
 
     // Create user
     const user = new User({
-      first_name,
-      last_name,
+      first_name: cleanName(first_name),
+      last_name: cleanName(last_name),
       email,
       password,
       role: role || "staff",
@@ -161,6 +198,11 @@ const createUser = async (req, res) => {
     });
   } catch (error) {
     console.error("Create user error:", error);
+    const invalid = validationMessage(error);
+    if (invalid) return res.status(400).json({ error: invalid });
+    if (error.code === 11000) {
+      return res.status(400).json({ error: "User already exists with this email" });
+    }
     res.status(500).json({ error: "Server error during creation" });
   }
 };
@@ -172,10 +214,9 @@ const resetPassword = async (req, res) => {
   try {
     const { password } = req.body;
 
-    if (!password || password.length < 6) {
-      return res
-        .status(400)
-        .json({ error: "Password must be at least 6 characters" });
+    const invalidPassword = passwordError(password);
+    if (invalidPassword) {
+      return res.status(400).json({ error: invalidPassword });
     }
 
     const user = await User.findById(req.params.id);

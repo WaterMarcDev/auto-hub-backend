@@ -1,4 +1,9 @@
 const Customer = require("../models/Customer.model");
+const { idProofError, normalizeIdProofNumber, US_ID_PROOF_PATTERNS } = require("../utils/usIdProof");
+
+const getUsIdPattern = (type) =>
+  Object.prototype.hasOwnProperty.call(US_ID_PROOF_PATTERNS, type) ? US_ID_PROOF_PATTERNS[type] : null;
+const { emailError } = require("../utils/email");
 
 // Validates a US-style phone number. Accepts 10 digits, or 11 digits with a
 // leading country code 1, allowing spaces, dashes, parentheses, dots and a
@@ -15,8 +20,117 @@ const isValidUsPhone = (value) => {
   return /^\d{10}$/.test(cleaned) || /^1\d{10}$/.test(cleaned);
 };
 
+// Longest value accepted for each customer text field. The forms use the
+// same limits (maxLength), so these only stop direct API calls / pasted
+// walls of text (which used to end in "request entity too large").
+const CUSTOMER_FIELD_LIMITS = {
+  firstName: { max: 50, label: "First name" },
+  lastName: { max: 50, label: "Last name" },
+  mobileNo: { max: 20, label: "Phone number" },
+  email: { max: 254, label: "Email" },
+  idProofType: { max: 50, label: "ID proof type" },
+  idProofNumber: { max: 30, label: "ID number" },
+  description: { max: 500, label: "Description" },
+};
+// Uploaded image references (a path / URL). Inline data:image values (the
+// signature fallback when the upload returns no URL) are left to the body limit.
+const MAX_IMAGE_REF_LENGTH = 2048;
+
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Trims every text field that is present. Returns an error message for a
+// value that is not text or is too long, otherwise null.
+const cleanCustomerFields = (body) => {
+  for (const [field, { max, label }] of Object.entries(CUSTOMER_FIELD_LIMITS)) {
+    const value = body[field];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== "string" && typeof value !== "number") {
+      return `${label} must be text.`;
+    }
+    const text = String(value).trim();
+    if (text.length > max) return `${label} can be at most ${max} characters.`;
+    body[field] = text;
+  }
+  for (const field of ["idProofImage", "signatureImage"]) {
+    const value = body[field];
+    if (value === undefined || value === null || value === "") continue;
+    if (typeof value !== "string") return "Invalid image reference.";
+    if (!value.startsWith("data:image/") && value.length > MAX_IMAGE_REF_LENGTH) {
+      return "Invalid image reference.";
+    }
+  }
+  return null;
+};
+
+// The 10 digits of a US phone number ("+1 (555) 000-1234" -> "5550001234"),
+// or null when it is not a 10-digit (or 1 + 10-digit) number.
+const usPhoneDigits = (value) => {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.length === 10) return digits;
+  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
+  return null;
+};
+
+// Matches a stored mobileNo holding these 10 digits in any format:
+// "5550001234", "(555) 000-1234", "+1 555.000.1234" ...
+const phoneMatcher = (digits) => new RegExp(`^\\D*(?:1\\D*)?${digits.split("").join("\\D*")}\\D*$`);
+
+/**
+ * Duplicate rule: one customer per person. A new customer is a duplicate of
+ * an existing (not deleted) customer with
+ *   - the same phone number (compared on its 10 digits, any formatting), or
+ *   - the same ID proof type + ID number.
+ * Returns { customer, field } for the first match, or null.
+ */
+const findDuplicateCustomer = async ({ mobileNo, idProofType, idProofNumber }, excludeId) => {
+  const phone = usPhoneDigits(mobileNo);
+  const idNumber = normalizeIdProofNumber(idProofNumber);
+  const checks = [];
+  if (phone) checks.push({ field: "mobileNo", query: { mobileNo: phoneMatcher(phone) } });
+  if (idProofType && idNumber) {
+    checks.push({
+      field: "idProofNumber",
+      query: { idProofType, idProofNumber: new RegExp(`^${escapeRegex(idNumber)}$`, "i") },
+    });
+  }
+  for (const { field, query } of checks) {
+    const filter = { ...query, isDeleted: { $ne: true } };
+    if (excludeId) filter._id = { $ne: excludeId };
+    const customer = await Customer.findOne(filter).sort({ createdAt: -1 }).lean();
+    if (customer) return { customer, field };
+  }
+  return null;
+};
+
+const duplicateMessage = ({ customer, field }) => {
+  const name = [customer.firstName, customer.lastName].filter(Boolean).join(" ") || "another customer";
+  return field === "mobileNo"
+    ? `A customer with this phone number already exists (${name}, ${customer.mobileNo}).`
+    : `A customer with this ID number already exists (${name}, ${customer.idProofType} ${customer.idProofNumber}).`;
+};
+
+// Keys (phone / ID) of creates that are still being saved. A second request
+// for the same person while the first is in flight (double click on Save)
+// is turned away instead of creating a second record.
+const pendingCreateKeys = new Set();
+
 const createCustomer = async (req, res) => {
+  let lockKeys = [];
   try {
+    req.body = req.body || {};
+    // A last name typed as only spaces is not a last name (it would be
+    // trimmed away and the customer saved without one). Leaving it out is
+    // fine: single-word names (waiver Full Name) have no last name.
+    const rawLastName = req.body.lastName;
+    if (typeof rawLastName === "string" && rawLastName.length > 0 && !rawLastName.trim()) {
+      const msg = "Last name cannot be only spaces.";
+      return res.status(400).json({ error: msg, message: msg });
+    }
+    const fieldError = cleanCustomerFields(req.body);
+    if (fieldError) {
+      return res.status(400).json({ error: fieldError, message: fieldError });
+    }
+
     const {
       firstName,
       lastName,
@@ -27,7 +141,14 @@ const createCustomer = async (req, res) => {
       idProofNumber,
       idProofImage,
       signatureImage,
+      waiverDate,
     } = req.body;
+    // Whitespace-only text was trimmed to "" above: store nothing for it.
+    const description = req.body.description || undefined;
+
+    if (!firstName) {
+      return res.status(400).json({ error: "First name is required.", message: "First name is required." });
+    }
 
     // Optional Seller/Buyer discriminator. When supplied it must be valid;
     // when omitted/blank (legacy callers / generic customers) the record is
@@ -53,6 +174,66 @@ const createCustomer = async (req, res) => {
       });
     }
 
+    // Email is optional, but when given it must be a valid address.
+    const badEmail = email ? emailError(String(email)) : null;
+    if (badEmail) {
+      return res.status(400).json({ error: badEmail });
+    }
+
+    // Waiver customers (the only callers that send `type`): the signature is
+    // required and the ID proof number must match a US ID format.
+    let waiverIdNumber;
+    let waiverDateValue;
+    if (normalizedType) {
+      if (!signatureImage || !String(signatureImage).trim()) {
+        return res.status(400).json({ error: "A signature is required to save the waiver." });
+      }
+      // The U-Pull form requires the ID and the date.
+      if (!idProofType || !String(idProofNumber || "").trim()) {
+        return res.status(400).json({ error: "ID proof type and ID number are required for the waiver." });
+      }
+      waiverDateValue = waiverDate ? new Date(waiverDate) : new Date();
+      if (Number.isNaN(waiverDateValue.getTime())) {
+        return res.status(400).json({ error: "The waiver date is not a valid date." });
+      }
+      const idError = idProofError(idProofType, idProofNumber);
+      if (idError) {
+        return res.status(400).json({ error: idError });
+      }
+      waiverIdNumber = normalizeIdProofNumber(idProofNumber) || undefined;
+    } else if (idProofType && getUsIdPattern(idProofType) && idProofNumber) {
+      // Registration form with a US ID type: the number must match it too.
+      const idError = idProofError(idProofType, idProofNumber);
+      if (idError) {
+        return res.status(400).json({ error: idError, message: idError });
+      }
+    }
+
+    // One record per person (see findDuplicateCustomer). The caller gets the
+    // existing customer back so it can carry on with it (the waiver opens
+    // the check-in for a returning customer instead of creating a copy).
+    const phoneDigits = usPhoneDigits(mobileNo);
+    const idKey = idProofType && idProofNumber ? `id:${idProofType}:${normalizeIdProofNumber(idProofNumber)}` : null;
+    const keys = [phoneDigits && `phone:${phoneDigits}`, idKey].filter(Boolean);
+    if (keys.some((k) => pendingCreateKeys.has(k))) {
+      const msg = "This customer is already being saved. Please wait a moment.";
+      return res.status(409).json({ error: msg, message: msg, code: "DUPLICATE_IN_PROGRESS" });
+    }
+    keys.forEach((k) => pendingCreateKeys.add(k));
+    lockKeys = keys;
+
+    const duplicate = await findDuplicateCustomer({ mobileNo, idProofType, idProofNumber });
+    if (duplicate) {
+      const msg = duplicateMessage(duplicate);
+      return res.status(409).json({
+        error: msg,
+        message: msg,
+        code: "DUPLICATE_CUSTOMER",
+        duplicateField: duplicate.field,
+        existingCustomer: duplicate.customer,
+      });
+    }
+
     const newCustomer = new Customer({
       firstName,
       lastName,
@@ -60,9 +241,11 @@ const createCustomer = async (req, res) => {
       email,
       type: normalizedType,
       idProofType,
-      idProofNumber,
+      idProofNumber: normalizedType ? waiverIdNumber : idProofNumber,
       idProofImage,
       signatureImage,
+      description,
+      ...(waiverDateValue ? { waiverDate: waiverDateValue } : {}),
       createdBy: req.user._id,
     });
 
@@ -70,7 +253,13 @@ const createCustomer = async (req, res) => {
     req.app.get("io")?.emit("cache:invalidate", { scope: "customers", customer: newCustomer });
     res.status(201).json(newCustomer);
   } catch (error) {
+    if (error && error.name === "ValidationError") {
+      const msg = Object.values(error.errors || {})[0]?.message || error.message;
+      return res.status(400).json({ error: msg, message: msg });
+    }
     res.status(500).json({ message: error.message });
+  } finally {
+    lockKeys.forEach((k) => pendingCreateKeys.delete(k));
   }
 };
 
@@ -91,14 +280,30 @@ const getAllCustomers = async (req, res) => {
       filter.type = req.query.type;
     }
 
-    if (req.query.search) {
-      const searchRegex = new RegExp(req.query.search, "i");
-      filter.$or = [
+    // Search: surrounding / repeated spaces are ignored, the text is matched
+    // literally (no regex injection), and a full name "John Smith" matches
+    // firstName "John" + lastName "Smith". Phone digits match any formatting.
+    const search = String(req.query.search || "").trim().replace(/\s+/g, " ").slice(0, 100);
+    if (search) {
+      const searchRegex = new RegExp(escapeRegex(search), "i");
+      const or = [
         { firstName: searchRegex },
         { lastName: searchRegex },
         { email: searchRegex },
         { mobileNo: searchRegex },
       ];
+      const words = search.split(" ");
+      for (let i = 1; i < words.length; i += 1) {
+        or.push({
+          firstName: new RegExp(`${escapeRegex(words.slice(0, i).join(" "))}$`, "i"),
+          lastName: new RegExp(`^${escapeRegex(words.slice(i).join(" "))}`, "i"),
+        });
+      }
+      const digits = search.replace(/\D/g, "");
+      if (digits.length >= 3 && /^[\d\s()+.-]+$/.test(search)) {
+        or.push({ mobileNo: new RegExp(digits.split("").join("\\D*")) });
+      }
+      filter.$or = or;
     }
     const customers = await Customer.find(filter)
       .populate({
@@ -132,6 +337,27 @@ const getCustomerById = async (req, res) => {
 
 const updateCustomerById = async (req, res) => {
   try {
+    req.body = req.body || {};
+    // Same text limits as create; a name cannot be changed to only spaces.
+    const fieldError = cleanCustomerFields(req.body);
+    if (fieldError) return res.status(400).json({ message: fieldError, error: fieldError });
+    if (req.body.firstName === "") {
+      return res.status(400).json({ message: "First name is required.", error: "First name is required." });
+    }
+    // A changed phone number / ID must not belong to another customer.
+    if (req.body.mobileNo || (req.body.idProofType && req.body.idProofNumber)) {
+      const duplicate = await findDuplicateCustomer(req.body, req.params.id);
+      if (duplicate) {
+        const msg = duplicateMessage(duplicate);
+        return res.status(409).json({ message: msg, error: msg, code: "DUPLICATE_CUSTOMER", duplicateField: duplicate.field });
+      }
+    }
+    // A changed email must be a valid address (blank clears it).
+    if (req.body && typeof req.body.email === "string" && req.body.email.trim()) {
+      const badEmail = emailError(req.body.email);
+      if (badEmail) return res.status(400).json({ message: badEmail, error: badEmail });
+      req.body.email = req.body.email.trim();
+    }
     const customer = await Customer.findOneAndUpdate(
       { _id: req.params.id, isDeleted: { $ne: true } },
       req.body,

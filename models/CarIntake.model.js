@@ -62,7 +62,7 @@ const carIntakeSchema = new mongoose.Schema(
       scrapYardName: {
         type: String,
         trim: true,
-        default: "RTX",
+        default: "Autohub",
       },
       scrapYardLocation: {
         type: String,
@@ -81,10 +81,16 @@ const carIntakeSchema = new mongoose.Schema(
         type: String,
         trim: true,
       },
+      // Legacy free-text dimensions. New intakes also store the three
+      // fields below and save a matching "H x W x L in" summary here.
       dimensions: {
         type: String,
         trim: true,
       },
+      // Optional car dimensions, in inches.
+      height: { type: Number, min: 0 },
+      width: { type: Number, min: 0 },
+      length: { type: Number, min: 0 },
       description: {
         type: String,
         trim: true,

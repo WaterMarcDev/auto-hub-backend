@@ -6,6 +6,7 @@ const Part = require("../models/Part.model");
 const CarIntake = require("../models/CarIntake.model");
 const Tag = require("../models/Tag.model");
 const { isWixExcludedPart } = require("../utils/wixExportExclusions");
+const { removedPartsNor, isRemovedPart } = require("../utils/removedParts");
 const { resolvePartPrice } = require("../utils/partPricing");
 const { isGermanVehicle } = require("../utils/vehicleClassification");
 const {
@@ -15,6 +16,17 @@ const {
 
 
 const mongoose = require("mongoose");
+const {
+  TEXT_LIMITS,
+  isBlank,
+  optionalText,
+  parseWeight,
+  parseVin,
+  parseYear,
+  isInputError,
+} = require("../utils/inventoryFieldRules");
+
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * Resolves a Make document by name, case-insensitively (e.g. "toyota",
@@ -28,6 +40,20 @@ const mongoose = require("mongoose");
 async function findMakeByNameCaseInsensitive(rawName) {
   if (!rawName) return null;
   return Make.findOne(buildCaseInsensitiveNameQuery(rawName));
+}
+
+/**
+ * Asset tags link to inventory one way (Tag.inventoryId → Inventory). Returns
+ * a Map of inventory id (string) → tag code (e.g. "AUT000123") for the given
+ * inventory ids, so list endpoints can show each part's asset tag.
+ */
+async function getAssetTagMap(inventoryIds) {
+  const ids = (inventoryIds || []).filter(Boolean);
+  if (!ids.length) return new Map();
+  const tags = await Tag.find({ inventoryId: { $in: ids } })
+    .select("inventoryId barcodeString")
+    .lean();
+  return new Map(tags.map((t) => [String(t.inventoryId), t.barcodeString]));
 }
 
 const generateShortName = (name) => {
@@ -48,23 +74,100 @@ const generateShortName = (name) => {
 
 const createInventory = async (req, res) => {
   try {
+    let { make, model, trim, partName } = req.body;
+    const { unit, cleaned, otherPart, image, price, remarks } = req.body;
     const {
-      partName,
-      unit,
-      cleaned,
-      quality,
-      location,
-      weight,
-      dimensions,
-      make,
-      model,
-      trim,
-      vin,
-      year,
-      color,
-      image,
-      price,
+      location: rawLocation,
+      weight: rawWeight,
+      dimensions: rawDimensions,
+      vin: rawVin,
+      year: rawYear,
+      color: rawColor,
+      quality: rawQuality,
     } = req.body;
+
+    // Parts removed from the CRM (A1, A2, windshields: utils/removedParts.js).
+    if (isRemovedPart(partName)) {
+      return res
+        .status(400)
+        .json({ message: `${partName} has been removed from the CRM and cannot be added to inventory` });
+    }
+
+    // Unit: whole number, digits only.
+    if (!/^\d+$/.test(String(unit ?? "").trim())) {
+      return res.status(400).json({ message: "Unit must contain digits only" });
+    }
+
+    // Optional fields: trimmed, blank / spaces-only stored as empty, length
+    // limits, and weight / VIN / year checked so bad input is a 400, not a 500.
+    // Bulk adds (Add To Inventory page) take VIN and year from the car
+    // intake record, so those two are not re-validated there.
+    const fieldError = (r) => (r.error ? res.status(400).json({ message: r.error }) : null);
+    const partNameR = optionalText(partName, "Part name", TEXT_LIMITS.partName);
+    if (partNameR.error) return fieldError(partNameR);
+    if (!partNameR.value) return res.status(400).json({ message: "Part name is required" });
+    partName = partNameR.value;
+    const locationR = optionalText(rawLocation, "Location", TEXT_LIMITS.location);
+    const dimensionsR = optionalText(rawDimensions, "Dimensions", TEXT_LIMITS.dimensions);
+    const colorR = optionalText(rawColor, "Color", TEXT_LIMITS.color);
+    const qualityR = optionalText(rawQuality, "Quality", TEXT_LIMITS.quality);
+    const weightR = parseWeight(rawWeight);
+    for (const r of [locationR, dimensionsR, colorR, qualityR, weightR]) {
+      if (r.error) return fieldError(r);
+    }
+    let cleanVin = isBlank(rawVin) ? undefined : String(rawVin).trim();
+    let cleanYear = isBlank(rawYear) ? undefined : rawYear;
+    if (!req.fromBulk) {
+      const vinR = parseVin(rawVin);
+      const yearR = parseYear(rawYear);
+      if (vinR.error) return fieldError(vinR);
+      if (yearR.error) return fieldError(yearR);
+      cleanVin = vinR.value;
+      cleanYear = yearR.value;
+    }
+    const location = locationR.value;
+    const dimensions = dimensionsR.value;
+    const color = colorR.value;
+    const quality = qualityR.value;
+    const weight = weightR.value;
+    const vin = cleanVin;
+    const year = cleanYear;
+
+    // "Other" parts are typed in by hand and may not be identifiable: a
+    // blank Make / Model / Trim is stored as "Unknown" instead of being
+    // required (the inventory record still needs all three references).
+    if (otherPart === true || otherPart === "true") {
+      const makeR = optionalText(make, "Make", TEXT_LIMITS.vehicleName);
+      const modelR = optionalText(model, "Model", TEXT_LIMITS.vehicleName);
+      const trimR = optionalText(trim, "Trim", TEXT_LIMITS.vehicleName);
+      for (const r of [makeR, modelR, trimR]) {
+        if (r.error) return fieldError(r);
+      }
+      make = makeR.value || "Unknown";
+      model = modelR.value || "Unknown";
+      trim = trimR.value || "Unknown";
+    }
+
+    // Duplicate VIN rule: one car (VIN) has many parts, so the same VIN is
+    // allowed on different parts; the same part twice for one VIN is not.
+    if (vin) {
+      const duplicate = await Inventory.findOne({
+        vin: { $in: [...new Set([vin, vin.toUpperCase()])] },
+        partName: new RegExp(`^${escapeRegex(partName)}$`, "i"),
+        isDeleted: { $ne: true },
+      })
+        .select("_id")
+        .lean();
+      if (duplicate) {
+        return res
+          .status(409)
+          .json({ message: `${partName} is already in inventory for VIN ${vin}` });
+      }
+    }
+
+    // Optional free-text remarks (used e.g. for "Other" parts).
+    const cleanRemarks =
+      typeof remarks === "string" && remarks.trim() ? remarks.trim().slice(0, 2000) : undefined;
 
     // Optional: reject invalid values, coerce blank/omitted to null.
     let parsedPrice = null;
@@ -167,7 +270,7 @@ const createInventory = async (req, res) => {
 
     try {
       const partDoc = await Part.findOne({
-        name: new RegExp(`^${partName}$`, "i"),
+        name: new RegExp(`^${escapeRegex(partName)}$`, "i"),
       });
 
       console.log("PART LOOKUP:", partName, JSON.stringify(partDoc, null, 2));
@@ -187,7 +290,7 @@ const createInventory = async (req, res) => {
         if (!partDoc) {
           // Try by name (case-insensitive)
           partDoc = await Part.findOne({
-            name: new RegExp(`^${partName}$`, "i"),
+            name: new RegExp(`^${escapeRegex(partName)}$`, "i"),
           });
         }
         if (partDoc && partDoc.shortName) {
@@ -248,12 +351,26 @@ const createInventory = async (req, res) => {
       color,
       image: image || null,
       price: parsedPrice,
+      ...(cleanRemarks ? { remarks: cleanRemarks } : {}),
     });
 
     res
       .status(201)
       .json({ message: "Inventory created successfully", data: inventory });
   } catch (error) {
+    // Unique index { vin, partName }: the same part twice for one VIN (or
+    // twice with no VIN) is a duplicate, not a server error.
+    if (error?.code === 11000) {
+      const label = String(req.body?.partName || "This part").trim();
+      return res.status(409).json({
+        message: isBlank(req.body?.vin)
+          ? `${label} is already in inventory without a VIN. Enter the car's VIN to add it again.`
+          : `${label} is already in inventory for this VIN`,
+      });
+    }
+    if (isInputError(error)) {
+      return res.status(400).json({ message: `Invalid inventory data: ${error.message}` });
+    }
     console.error("Error creating inventory:", error);
     res.status(500).json({ message: "Server error while creating inventory" });
   }
@@ -276,7 +393,8 @@ const createInventoryInternal = async (body) => {
       return this;
     },
   };
-  await createInventory({ body }, res);
+  // fromBulk: VIN and year come from the car intake record (not re-validated).
+  await createInventory({ body, fromBulk: true }, res);
   return { statusCode, payload };
 };
 
@@ -351,6 +469,12 @@ const bulkCreateInventory = async (req, res) => {
         continue;
       }
 
+      // A1, A2, Windshield and Heated Windshield are removed from the CRM.
+      if (isRemovedPart(partName)) {
+        results.push({ partName, status: "skipped", message: "Part removed from the CRM" });
+        continue;
+      }
+
       const { statusCode, payload } = await createInventoryInternal({
         partName,
         unit: part.unit,
@@ -400,7 +524,11 @@ const bulkCreateInventory = async (req, res) => {
     let stillMissing = [];
     if (carIntake) {
       const intakeParts = carIntake.partDetails?.parts || {};
-      const selectedKeys = Object.keys(intakeParts).filter((k) => intakeParts[k]?.selected);
+      // Removed parts (A1, A2, Windshield, Heated Windshield) never go to
+      // inventory, so they don't count as missing.
+      const selectedKeys = Object.keys(intakeParts).filter(
+        (k) => intakeParts[k]?.selected && !isRemovedPart(k)
+      );
       const nowInInventory = new Set(
         (await Inventory.find({ vin: carIntake.vin }).select("partName").lean()).map((i) => i.partName)
       );
@@ -436,9 +564,18 @@ const bulkCreateInventory = async (req, res) => {
 const getInventoryByVIN = async (req, res) => {
   try {
     const { vin } = req.params;
-    const inventoryItems = await Inventory.find({ vin }).populate(
-      "make model trim"
-    );
+    const items = await Inventory.find({
+      vin,
+      $nor: removedPartsNor("partName"),
+    })
+      .populate("make model trim")
+      .lean();
+    // Each part's asset tag (shown in the "Barcode" column of View Parts).
+    const tagByInventory = await getAssetTagMap(items.map((it) => it._id));
+    const inventoryItems = items.map((it) => ({
+      ...it,
+      barcodeString: tagByInventory.get(String(it._id)) || null,
+    }));
     res.status(200).json({ inventoryItems });
   } catch (error) {
     res
@@ -495,7 +632,8 @@ const getAllInventories = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const filter = { isDeleted: { $ne: true } };
+    // A1, A2, Windshield and Heated Windshield are removed from the CRM.
+    const filter = { isDeleted: { $ne: true }, $nor: removedPartsNor("partName") };
     if (req.query.make) filter.make = req.query.make;
     if (req.query.model) filter.model = req.query.model;
     if (req.query.trim) filter.trim = req.query.trim;
@@ -541,15 +679,11 @@ const getPartsMasterList = async (req, res) => {
     const limit = parseInt(req.query.limit) || 25;
     const skip = (page - 1) * limit;
 
-    const filter = { 
+    // A1, A2, Windshield and Heated Windshield are removed from the CRM.
+    const filter = {
       isDeleted: { $ne: true },
-      $nor: [
-        { partName: /^A1$/i },
-        { partName: /^A2$/i },
-        { partName: /^Wind\s*shield$/i },
-        { partName: /^Windshield$/i },
-        { partName: /^Wind[_-]?Shield$/i },
-      ] };
+      $nor: removedPartsNor("partName"),
+    };
     if (req.query.make) filter.make = req.query.make;
     if (req.query.model) filter.model = req.query.model;
     if (req.query.trim) filter.trim = req.query.trim;
@@ -580,16 +714,21 @@ const getPartsMasterList = async (req, res) => {
       .populate("model", "name shortName")
       .populate("trim", "name shortName")
       .select(
-        "partName unit cleaned quality location weight dimensions sku year color saleStatus sale.channel sale.orderNumber sale.soldAt quantityAvailable quantitySold returnInfo.status ebayListingId ebayQuantitySync.status ebayQuantitySync.lastError"
+        "partName unit cleaned quality location weight dimensions remarks sku year color saleStatus sale.channel sale.orderNumber sale.soldAt sale.assetTag quantityAvailable quantitySold returnInfo.status ebayListingId ebayQuantitySync.status ebayQuantitySync.lastError"
       )
       .skip(skip)
       .limit(limit)
       .sort({ updatedAt: -1 })
       .lean();
 
+    // Asset tags point at the inventory item (Tag.inventoryId).
+    const tagByInventory = await getAssetTagMap(items.map((it) => it._id));
+
     const parts = items.map((it) => ({
       _id: it._id,
       partName: it.partName,
+      remarks: it.remarks || "",
+      assetTag: tagByInventory.get(String(it._id)) || it.sale?.assetTag || null,
       unit: it.unit,
       cleaned: it.cleaned,
       quality: it.quality,

@@ -2,6 +2,8 @@ const jwt = require("jsonwebtoken");
 const { validationResult } = require("express-validator");
 const User = require("../models/User.model");
 const logger = require("../utils/authLogger");
+const { cleanName, userNameError, validationMessage } = require("../utils/userName");
+const { passwordError } = require("../utils/password");
 
 // Generate JWT Token
 const generateToken = (userId) => {
@@ -24,7 +26,17 @@ const register = async (req, res) => {
     //   });
     // }
 
-    const { first_name, last_name, email, password, role } = req.body;
+    const { email, password, role } = req.body;
+
+    const nameInvalid =
+      userNameError(req.body.first_name, "First name") ||
+      userNameError(req.body.last_name, "Last name") ||
+      passwordError(password);
+    if (nameInvalid) {
+      return res.status(400).json({ error: nameInvalid });
+    }
+    const first_name = cleanName(req.body.first_name);
+    const last_name = cleanName(req.body.last_name);
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -58,6 +70,8 @@ const register = async (req, res) => {
     });
   } catch (error) {
     console.error("Register error:", error);
+    const invalid = validationMessage(error);
+    if (invalid) return res.status(400).json({ error: invalid });
     res.status(500).json({ error: "Server error during registration" });
   }
 };

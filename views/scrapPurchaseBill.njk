@@ -27,7 +27,7 @@
 
       /* Supplier info */
       .supplier{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:4px}
-      .supplier .left{min-width:260px}
+      .supplier .left{flex:1;min-width:0;overflow-wrap:anywhere;word-break:break-word}
       .section-title{color:#6b7280;font-size:12px;margin-bottom:8px}
 
       /* Items table */
@@ -36,7 +36,7 @@
       table.items thead th.center, table.items tbody td.center { text-align:center }
       table.items thead th.right, table.items tbody td.right { text-align:right }
       table.items tbody td.right { font-variant-numeric: tabular-nums; }
-      table.items tbody td{padding:14px 12px;border-bottom:1px solid #f1f6fb;vertical-align:top}
+      table.items tbody td{padding:14px 12px;border-bottom:1px solid #f1f6fb;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}
       .item-desc{color:#6b7280;font-size:13px}
 
       /* Totals */
@@ -57,7 +57,7 @@
               <img src="{{ logoSrc }}" alt="AutoHub Express" style="max-width:160px;height:auto;border-radius:0;display:block;object-fit:contain"/>
             </div>
             <div>
-              <div class="company">{{ 'RTX Recycling Inc' }}</div>
+              <div class="company">{{ 'Autohub Recycling Inc' }}</div>
               <div class="muted">{{ '242 Monmouth Road' }}</div>
               <div class="muted">{{ 'Wrightstown,' }}</div>
               <div class="muted">{{ 'New Jersey 08562' }}</div>

@@ -70,8 +70,13 @@ const getAllElements = async (req, res) => {
 
     // Exclude soft-deleted elements
     filter.isDeleted = { $ne: true };
-    if (req.query.search) {
-      filter.name = { $regex: req.query.search, $options: "i" };
+    // Trimmed and regex-escaped: " copper" finds "Copper" and "(" no longer errors.
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    if (search) {
+      filter.name = {
+        $regex: search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        $options: "i",
+      };
     }
     const elements = await Element.find(filter)
       .skip(skip)

@@ -38,6 +38,95 @@ const buildSupplierSnapshot = (seller) => {
 // instead of silently coercing bad values (e.g. "abc" -> 0) or failing with 500.
 class ScrapItemValidationError extends Error {}
 
+// Input limits (mirrored in src/pages/ScrapPurchase/index.jsx). Weight and
+// price take at most 2 decimals; totals are rounded to cents.
+const LIMITS = {
+  MAX_WEIGHT_LBS: 200000,
+  MAX_PRICE_PER_LB: 1000,
+  MAX_TOTAL: 10000000,
+  MAX_ITEMS: 50,
+  MAX_MATERIAL_NAME: 100,
+  MAX_DESCRIPTION: 500,
+  MAX_NOTE: 1000,
+  MAX_PAYMENT_METHOD: 50,
+};
+
+const fmtLimit = (n) => Number(n).toLocaleString("en-US");
+
+// True when n has at most 2 digits after the decimal point.
+const hasAtMost2Decimals = (n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6;
+
+const checkWeight = (n) => {
+  if (n > LIMITS.MAX_WEIGHT_LBS) {
+    throw new ScrapItemValidationError(
+      `Weight cannot be more than ${fmtLimit(LIMITS.MAX_WEIGHT_LBS)} lb`
+    );
+  }
+  if (!hasAtMost2Decimals(n)) {
+    throw new ScrapItemValidationError("Weight can have at most 2 decimal places");
+  }
+};
+
+const checkPrice = (n) => {
+  if (n > LIMITS.MAX_PRICE_PER_LB) {
+    throw new ScrapItemValidationError(
+      `Price per lb cannot be more than $${fmtLimit(LIMITS.MAX_PRICE_PER_LB)}`
+    );
+  }
+  if (!hasAtMost2Decimals(n)) {
+    throw new ScrapItemValidationError("Price per lb can have at most 2 decimal places");
+  }
+};
+
+const checkTotal = (n, label = "Total amount") => {
+  if (n > LIMITS.MAX_TOTAL) {
+    throw new ScrapItemValidationError(
+      `${label} cannot be more than $${fmtLimit(LIMITS.MAX_TOTAL)}`
+    );
+  }
+};
+
+// Optional text field: undefined/null pass through; otherwise must be a string
+// no longer than `max` (after trim).
+const checkText = (value, max, label) => {
+  if (value === undefined || value === null) return value;
+  if (typeof value === "object") {
+    throw new ScrapItemValidationError(`${label} must be text`);
+  }
+  const text = String(value).trim();
+  if (text.length > max) {
+    throw new ScrapItemValidationError(`${label} can be at most ${max} characters`);
+  }
+  return text;
+};
+
+// Validate the top-level numeric/text fields of a create/update body. Only
+// fields that are present are checked (partial updates stay possible).
+const validateTopLevel = ({ weightLbs, pricePerLb, totalAmount, taxRate, note, paymentMethod, materialName }) => {
+  if (weightLbs !== undefined) {
+    const n = requireNumber(weightLbs, "Weight (lbs)");
+    if (n < 0) throw new ScrapItemValidationError("Weight cannot be negative");
+    checkWeight(n);
+  }
+  if (pricePerLb !== undefined) {
+    const n = requireNumber(pricePerLb, "Price per lb");
+    if (n < 0) throw new ScrapItemValidationError("Price per lb cannot be negative");
+    checkPrice(n);
+  }
+  if (totalAmount !== undefined) {
+    const n = requireNumber(totalAmount, "Total amount");
+    if (n < 0) throw new ScrapItemValidationError("Total cannot be negative");
+    checkTotal(n);
+  }
+  if (taxRate !== undefined && taxRate !== null) {
+    const n = requireNumber(taxRate, "Tax rate");
+    if (n < 0 || n > 1) throw new ScrapItemValidationError("Tax rate must be between 0 and 1");
+  }
+  checkText(note, LIMITS.MAX_NOTE, "Note");
+  checkText(paymentMethod, LIMITS.MAX_PAYMENT_METHOD, "Payment method");
+  checkText(materialName, LIMITS.MAX_MATERIAL_NAME, "Material name");
+};
+
 const isBlankInput = (v) =>
   v === undefined || v === null || (typeof v === "string" && v.trim() === "");
 
@@ -62,6 +151,11 @@ const requireNumber = (value, field) => {
 // - Duplicate material names are rejected; each material appears at most once.
 const normalizeItems = (items) => {
   if (!Array.isArray(items)) return [];
+  if (items.length > LIMITS.MAX_ITEMS) {
+    throw new ScrapItemValidationError(
+      `A purchase can have at most ${LIMITS.MAX_ITEMS} material lines`
+    );
+  }
 
   const out = [];
   const seen = new Set();
@@ -87,13 +181,17 @@ const normalizeItems = (items) => {
     if (weightLbs < 0) throw new ScrapItemValidationError("Weight cannot be negative");
     if (pricePerLb < 0) throw new ScrapItemValidationError("Price per lb cannot be negative");
     if (providedTotal < 0) throw new ScrapItemValidationError("Line total cannot be negative");
+    checkWeight(weightLbs);
+    checkPrice(pricePerLb);
 
     // Keep the previous rule: a line needs weight or an explicit total.
     if (!(weightLbs > 0 || providedTotal > 0)) return;
 
     const totalAmount = providedTotal > 0 ? providedTotal : weightLbs * pricePerLb;
+    checkTotal(totalAmount, "Line total");
     const materialName =
-      (it.materialName || "Scrap Material").toString().trim() || "Scrap Material";
+      checkText(it.materialName, LIMITS.MAX_MATERIAL_NAME, "Material name") || "Scrap Material";
+    const description = checkText(it.description, LIMITS.MAX_DESCRIPTION, "Item description") || "";
 
     const key = materialName.toLowerCase();
     if (seen.has(key)) {
@@ -103,7 +201,7 @@ const normalizeItems = (items) => {
 
     out.push({
       materialName,
-      description: (it.description || "").toString().trim(),
+      description,
       weightLbs,
       pricePerLb,
       totalAmount: round2(totalAmount),
@@ -133,7 +231,12 @@ const createScrapPurchase = async (req, res) => {
       taxRate,
     } = req.body || {};
 
+    validateTopLevel({ weightLbs, pricePerLb, totalAmount, taxRate, note, paymentMethod, materialName });
     const normalizedItems = normalizeItems(items);
+    checkTotal(
+      normalizedItems.reduce((acc, it) => acc + Number(it.totalAmount || 0), 0),
+      "Grand total"
+    );
 
     // Basic validation: need either a weighted single material or item lines.
     const hasWeight = toNumber(weightLbs, 0) > 0;
@@ -178,6 +281,9 @@ const createScrapPurchase = async (req, res) => {
     return res.status(201).json({ ...created.toObject(), ...hub });
   } catch (error) {
     if (error instanceof ScrapItemValidationError) {
+      return res.status(400).json({ message: error.message });
+    }
+    if (error instanceof mongoose.Error.ValidationError) {
       return res.status(400).json({ message: error.message });
     }
     console.error("Error creating scrap purchase:", error);
@@ -290,6 +396,15 @@ const updateScrapPurchase = async (req, res) => {
       taxRate,
     } = req.body || {};
 
+    validateTopLevel({ weightLbs, pricePerLb, totalAmount, taxRate, note, paymentMethod, materialName });
+    const normalizedItems = items !== undefined ? normalizeItems(items) : undefined;
+    if (normalizedItems) {
+      checkTotal(
+        normalizedItems.reduce((acc, it) => acc + Number(it.totalAmount || 0), 0),
+        "Grand total"
+      );
+    }
+
     // Only overwrite fields that were actually provided, so partial edits
     // (e.g. only the total) never wipe other values.
     if (materialName !== undefined) {
@@ -298,12 +413,12 @@ const updateScrapPurchase = async (req, res) => {
     if (weightLbs !== undefined) record.weightLbs = toNumber(weightLbs, 0);
     if (pricePerLb !== undefined) record.pricePerLb = toNumber(pricePerLb, 0);
     if (totalAmount !== undefined) record.totalAmount = toNumber(totalAmount, 0);
-    if (items !== undefined) record.items = normalizeItems(items);
+    if (normalizedItems !== undefined) record.items = normalizedItems;
     if (paymentMethod !== undefined) record.paymentMethod = paymentMethod;
     if (paymentDate !== undefined) {
       record.paymentDate = paymentDate ? new Date(paymentDate) : record.paymentDate;
     }
-    if (note !== undefined) record.note = note;
+    if (note !== undefined) record.note = note === null ? note : String(note).trim();
     if (taxRate !== undefined) record.taxRate = toNumber(taxRate, 0);
 
     if (supplier !== undefined) {
@@ -337,6 +452,9 @@ const updateScrapPurchase = async (req, res) => {
     return res.json(record);
   } catch (error) {
     if (error instanceof ScrapItemValidationError) {
+      return res.status(400).json({ message: error.message });
+    }
+    if (error instanceof mongoose.Error.ValidationError) {
       return res.status(400).json({ message: error.message });
     }
     if (error instanceof ElementHubStockError) {

@@ -49,8 +49,13 @@ const getAllTrims = async (req, res) => {
     // Exclude soft-deleted trims
     filter.isDeleted = { $ne: true };
 
-    if (req.query.search) {
-      filter.name = { $regex: req.query.search, $options: "i" };
+    // Trimmed and regex-escaped: " sport" finds "Sport" and "(" no longer errors.
+    const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    if (search) {
+      filter.name = {
+        $regex: search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        $options: "i",
+      };
     }
 
     if (req.query.make) {

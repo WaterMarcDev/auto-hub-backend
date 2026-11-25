@@ -45,6 +45,17 @@ const CustomerSchema = new mongoose.Schema(
     signatureImage: {
       type: String,
     },
+    // Free-text note from the registration / waiver form (optional). The
+    // forms sent it before, but it was dropped because the field was missing.
+    description: {
+      type: String,
+      trim: true,
+      maxlength: [500, "Description can be at most 500 characters"],
+    },
+    // Date written on the U-Pull waiver form (waiver customers only).
+    waiverDate: {
+      type: Date,
+    },
     // Additive fields used by services/smartMatch.service.js for cross-platform
     // (eBay/Amazon/social) customer matching. Optional and default-safe so
     // existing Customer documents/queries are unaffected.

@@ -7,6 +7,7 @@
  */
 const mongoose = require("mongoose");
 const Inventory = require("../models/Inventory.model");
+const Tag = require("../models/Tag.model");
 const InventoryTransaction = require("../models/InventoryTransaction.model");
 const MarketplaceEvent = require("../models/MarketplaceEvent.model");
 const ledger = require("../services/inventoryLedger.service");
@@ -14,6 +15,12 @@ const ebayQuantitySync = require("../services/ebayQuantitySync.service");
 const ebayNotification = require("../services/ebayNotification.service");
 const reconciliation = require("../services/inventoryReconciliation.service");
 const realtime = require("../utils/realtime");
+const {
+  TEXT_LIMITS,
+  optionalText,
+  parsePrice,
+  parsePersonName,
+} = require("../utils/inventoryFieldRules");
 
 const REQUEST_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const clean = (v) => (v === undefined || v === null ? undefined : String(v).trim() || undefined);
@@ -47,18 +54,24 @@ exports.sellInStore = async (req, res) => {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) return badId(res);
-    const { quantity = 1, price, buyerName, buyerPhone, note, requestId } = req.body || {};
+    const { quantity = 1, price, buyerName, buyerPhone, note, requestId, assetTag } = req.body || {};
     if (!REQUEST_ID.test(String(requestId || ""))) {
       return res.status(400).json({ success: false, message: "requestId (8–64 letters/digits/-/_) is required" });
     }
-    const qty = Math.floor(Number(quantity));
+    // Whole number only ("1.5" is rejected, not rounded down).
+    const qty = /^\d{1,3}$/.test(String(quantity).trim()) ? Number(quantity) : NaN;
     if (!Number.isFinite(qty) || qty < 1 || qty > 100) {
       return res.status(400).json({ success: false, message: "quantity must be a whole number between 1 and 100" });
     }
-    const amount = price === undefined || price === null || price === "" ? undefined : Number(price);
-    if (amount !== undefined && (!Number.isFinite(amount) || amount < 0)) {
-      return res.status(400).json({ success: false, message: "price must be a positive number" });
-    }
+    // Optional: 0 - 1,000,000 with up to 2 decimals.
+    const priceR = parsePrice(price);
+    if (priceR.error) return res.status(400).json({ success: false, message: priceR.error });
+    const amount = priceR.value;
+    // Optional text: trimmed, spaces-only stored as empty, length limits.
+    const nameR = parsePersonName(buyerName);
+    if (nameR.error) return res.status(400).json({ success: false, message: nameR.error });
+    const noteR = optionalText(note, "Note", TEXT_LIMITS.saleNote);
+    if (noteR.error) return res.status(400).json({ success: false, message: noteR.error });
     const phone = formatUsPhone(buyerPhone);
     if (phone === null) {
       return res.status(400).json({
@@ -67,40 +80,102 @@ exports.sellInStore = async (req, res) => {
       });
     }
 
+    // Asset tag (required). The part keeps its existing tag; when it has
+    // none, a free tag from the Asset Tags module must be given and is
+    // attached to the part.
+    const tagCode = clean(assetTag)?.toUpperCase();
+    const existingTag = await Tag.findOne({ inventoryId: id }).select("barcodeString").lean();
+    if (!tagCode && !existingTag) {
+      return res.status(400).json({ success: false, message: "An asset tag is required to sell this part" });
+    }
+    let tagToAttach = null;
+    if (tagCode && existingTag && existingTag.barcodeString !== tagCode) {
+      return res.status(409).json({
+        success: false,
+        message: `This part already has asset tag ${existingTag.barcodeString}`,
+      });
+    }
+    if (tagCode && !existingTag) {
+      const tag = await Tag.findOne({ barcodeString: tagCode }).select("barcodeString inventoryId").lean();
+      if (!tag) {
+        return res.status(400).json({ success: false, message: `Asset tag ${tagCode} does not exist` });
+      }
+      if (tag.inventoryId) {
+        return res.status(409).json({ success: false, message: `Asset tag ${tagCode} is already used by another part` });
+      }
+      tagToAttach = tag;
+    }
+    const saleTag = existingTag?.barcodeString || tagToAttach?.barcodeString;
+
+    // Attach the new tag before recording the sale, only if it is still free
+    // (another request may have taken it since the check above). It is
+    // released again below if the sale does not go through.
+    if (tagToAttach) {
+      const attached = await Tag.findOneAndUpdate(
+        { _id: tagToAttach._id, inventoryId: null },
+        { inventoryId: id, isUsed: true },
+        { new: true }
+      );
+      if (!attached) {
+        return res.status(409).json({
+          success: false,
+          message: `Asset tag ${tagToAttach.barcodeString} was just taken by another part. Pick another tag.`,
+        });
+      }
+    }
+    const releaseTag = () =>
+      tagToAttach
+        ? Tag.updateOne({ _id: tagToAttach._id, inventoryId: id }, { inventoryId: null, isUsed: false }).catch(
+            (e) => console.error("[INVENTORY SYNC] could not release asset tag:", e)
+          )
+        : null;
+
     const now = new Date();
-    const r = await ledger.deduct({
-      inventoryId: id,
-      quantity: qty,
-      key: `crm-sale:${requestId}`,
-      source: "CRM_SALE",
-      channel: "crm",
-      orderId: requestId,
-      orderLineItemId: requestId,
-      countAsSale: true,
-      createdBy: req.user?._id,
-      reason: clean(note),
-      sale: {
+    let r;
+    try {
+      r = await ledger.deduct({
+        inventoryId: id,
+        quantity: qty,
+        key: `crm-sale:${requestId}`,
+        source: "CRM_SALE",
         channel: "crm",
         orderId: requestId,
-        orderNumber: `IN-STORE-${requestId.slice(0, 8).toUpperCase()}`,
-        lineItemId: requestId,
-        quantity: qty,
-        price: amount,
-        currency: "USD",
-        soldAt: now,
-        orderStatus: "Completed",
-        paymentStatus: "Paid",
-        shippingStatus: "Picked up",
-        buyerName: clean(buyerName),
-        buyerPhone: phone,
-      },
-      details: { price: amount, note: clean(note) },
-    });
+        orderLineItemId: requestId,
+        countAsSale: true,
+        createdBy: req.user?._id,
+        reason: noteR.value,
+        sale: {
+          channel: "crm",
+          orderId: requestId,
+          orderNumber: `IN-STORE-${requestId.slice(0, 8).toUpperCase()}`,
+          lineItemId: requestId,
+          quantity: qty,
+          price: amount,
+          currency: "USD",
+          soldAt: now,
+          orderStatus: "Completed",
+          paymentStatus: "Paid",
+          shippingStatus: "Picked up",
+          buyerName: nameR.value,
+          buyerPhone: phone,
+          assetTag: saleTag,
+        },
+        details: { price: amount, note: noteR.value, assetTag: saleTag },
+      });
+    } catch (err) {
+      await releaseTag();
+      throw err;
+    }
 
     if (r.outcome === "applied" || r.outcome === "duplicate") {
       const part = await Inventory.findById(id).select("quantityAvailable saleStatus ebayQuantitySync").lean();
-      return res.json({ success: true, alreadyProcessed: r.outcome === "duplicate", data: part });
+      return res.json({
+        success: true,
+        alreadyProcessed: r.outcome === "duplicate",
+        data: { ...part, assetTag: saleTag },
+      });
     }
+    await releaseTag();
     const [status, message] = OUTCOME_HTTP[r.outcome] || [500, "Sale failed"];
     return res.status(status).json({ success: false, message });
   } catch (err) {
@@ -121,6 +196,9 @@ exports.adjustStock = async (req, res) => {
     }
     if (!d || Math.abs(d) > 100) return res.status(400).json({ success: false, message: "delta must be a non-zero whole number (max ±100)" });
     if (!clean(reason)) return res.status(400).json({ success: false, message: "A reason is required for a manual adjustment" });
+    if (clean(reason).length > TEXT_LIMITS.adjustReason) {
+      return res.status(400).json({ success: false, message: `Reason must be at most ${TEXT_LIMITS.adjustReason} characters` });
+    }
 
     const r = await ledger.changeStock({
       inventoryId: id,

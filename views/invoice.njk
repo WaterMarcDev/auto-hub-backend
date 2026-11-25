@@ -57,7 +57,7 @@
               <img src="{{ logoSrc }}" alt="AutoHub Express" style="max-width:160px;height:auto;border-radius:0;display:block;object-fit:contain"/>
             </div>
             <div>
-              <div class="company">{{ 'RTX Recycling Inc' }}</div>
+              <div class="company">{{ 'Autohub Recycling Inc' }}</div>
               <div class="muted">{{ '242 Monmouth Road' }}</div>
               <div class="muted">{{ 'Wrightstown,' }}</div>
               <div class="muted">{{ 'New Jersey 08562' }}</div>
@@ -74,7 +74,7 @@
               {% if issueDate.toLocaleDateString %}
                 {% set issueDateStr = issueDate.toLocaleDateString('en-US') %}
               {% else %}
-                {% set issueDateStr = issueDate | date('MMM DD, YYYY') %}
+                {% set issueDateStr = issueDate | usDate('') %}
               {% endif %}
             {% endif %}
             {% if invoicePadded %}
@@ -109,20 +109,19 @@
                 {% if elementSell.createdAt.toLocaleDateString %}
                   {% set sellTimeStr = elementSell.createdAt.toLocaleDateString('en-US') ~ ' ' ~ elementSell.createdAt.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'}) %}
                 {% else %}
-                  {% set sellTimeStr = elementSell.createdAt | date('MMM DD, YYYY HH:mm') %}
+                  {% set sellTimeStr = elementSell.createdAt | usDate('') %}
                 {% endif %}
                 <div class="muted">Date: {{ sellTimeStr }}</div>
               {% endif %}
             {% elif checkIn %}
               <div class="section-title">Check-In Details:</div>
               <div class="muted">Token: {{ checkIn.checkInToken or '—' }}</div>
-              <div class="muted">Persons: 1 + {{ checkIn.numberOfPersons or 0 }}</div>
               {% if checkIn.checkInTime %}
                 {% set checkInTimeStr = '' %}
                 {% if checkIn.checkInTime.toLocaleDateString %}
                   {% set checkInTimeStr = checkIn.checkInTime.toLocaleDateString('en-US') ~ ' ' ~ checkIn.checkInTime.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'}) %}
                 {% else %}
-                  {% set checkInTimeStr = checkIn.checkInTime | date('MMM DD, YYYY HH:mm') %}
+                  {% set checkInTimeStr = checkIn.checkInTime | usDate('') %}
                 {% endif %}
                 <div class="muted">Time: {{ checkInTimeStr }}</div>
               {% endif %}

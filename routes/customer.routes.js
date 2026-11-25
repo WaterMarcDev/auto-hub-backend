@@ -60,7 +60,12 @@ const {
  *       201:
  *         description: Customer created successfully
  *       400:
- *         description: Validation error
+ *         description: Validation error (missing / too long / badly formatted field)
+ *       409:
+ *         description: >
+ *           Duplicate customer: a customer with the same phone number (10 digits,
+ *           any formatting) or the same ID proof type + number already exists.
+ *           The body carries `code: "DUPLICATE_CUSTOMER"` and `existingCustomer`.
  */
 router.post("/", auth, createCustomer);
 
