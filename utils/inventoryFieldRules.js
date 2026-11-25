@@ -3,12 +3,12 @@
 // inventorySync.controller.js so the server always answers 400 (never 500)
 // for bad input. The frontend applies the same limits.
 
-const MAX_PART_WEIGHT = 10000; // lb, for one part
+const MAX_PART_WEIGHT = 15000; // lb, for one part
 // "12", "12.5", "12.", ".5" (what a number box can send); max 2 decimals.
 const WEIGHT_PATTERN = /^(\d{1,5}(\.\d{0,2})?|\.\d{1,2})$/;
 // 17 characters, letters and digits, never I, O or Q.
 const VIN_PATTERN = /^[A-HJ-NPR-Z0-9]{17}$/;
-const MAX_SALE_PRICE = 1000000;
+const MAX_SALE_PRICE = 2000;
 const PRICE_PATTERN = /^(\d{1,7}(\.\d{0,2})?|\.\d{1,2})$/;
 // Letters (any language), spaces and . ' - , &
 const PERSON_NAME_PATTERN = /^[\p{L}][\p{L} .'\-,&]*$/u;
@@ -40,7 +40,7 @@ function optionalText(value, label, max) {
   return { value: text };
 }
 
-// Optional weight: 0 - 10,000 with up to 2 decimals. Blank -> undefined.
+// Optional weight: 0 - 15,000 with up to 2 decimals. Blank -> undefined.
 function parseWeight(value, label = "Weight") {
   if (isBlank(value)) return { value: undefined };
   const text = String(value).trim();
@@ -77,7 +77,7 @@ function parseYear(value) {
   return { value: Number(text) };
 }
 
-// Optional sale price: 0 - 1,000,000 with up to 2 decimals.
+// Optional sale price: 0 - 2,000 with up to 2 decimals.
 function parsePrice(value) {
   if (isBlank(value)) return { value: undefined };
   const text = String(value).trim();

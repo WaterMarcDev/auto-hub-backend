@@ -27,7 +27,7 @@ const findDuplicatePart = (name, excludeId) => {
 const isValidUnit = (unit) =>
   unit === undefined || unit === null || unit === "" || /^\d+$/.test(String(unit).trim());
 
-// Weight (0 - 10,000, max 2 decimals, no units) and dimensions (trimmed,
+// Weight (0 - 15,000, max 2 decimals, no units) and dimensions (trimmed,
 // max 100 chars). Blank clears the value. Returns { error } or { values }.
 const checkWeightAndDimensions = (weight, dimensions) => {
   const w = parseWeight(weight, "Part weight");

@@ -63,7 +63,7 @@ exports.sellInStore = async (req, res) => {
     if (!Number.isFinite(qty) || qty < 1 || qty > 100) {
       return res.status(400).json({ success: false, message: "quantity must be a whole number between 1 and 100" });
     }
-    // Optional: 0 - 1,000,000 with up to 2 decimals.
+    // Optional: 0 - 2,000 with up to 2 decimals.
     const priceR = parsePrice(price);
     if (priceR.error) return res.status(400).json({ success: false, message: priceR.error });
     const amount = priceR.value;

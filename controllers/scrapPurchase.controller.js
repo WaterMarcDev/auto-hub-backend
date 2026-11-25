@@ -42,7 +42,7 @@ class ScrapItemValidationError extends Error {}
 // price take at most 2 decimals; totals are rounded to cents.
 const LIMITS = {
   MAX_WEIGHT_LBS: 200000,
-  MAX_PRICE_PER_LB: 1000,
+  MAX_PRICE_PER_LB: 2000,
   MAX_TOTAL: 10000000,
   MAX_ITEMS: 50,
   MAX_MATERIAL_NAME: 100,

@@ -18,13 +18,13 @@ const {
   registerValidation,
   loginValidation,
 } = require("../middleware/validation");
-const { auth } = require("../middleware/auth");
+const { auth, permit } = require("../middleware/auth");
 
 const router = express.Router();
 
 // @route   POST /api/auth/register
 // @desc    Register a new user
-// @access  Public
+// @access  Private (admin, manager)
 
 // by shiva
 /**
@@ -54,7 +54,9 @@ const router = express.Router();
  *         description: User registered successfully
  */
 //end here
-router.post("/register", registerValidation, register);
+// Only a logged-in admin or manager can create accounts (and pick their
+// role); it used to be public, so anyone could create an admin account.
+router.post("/register", auth, permit("admin", "manager"), registerValidation, register);
 
 // @route   POST /api/auth/login
 // @desc    Login user

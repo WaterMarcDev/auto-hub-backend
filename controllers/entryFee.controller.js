@@ -2,7 +2,7 @@ const EntryFee = require("../models/EntryFee.model");
 
 // Entry fee limits, in dollars (money: at most 2 decimal places).
 const ENTRY_FEE_MIN = 0;
-const ENTRY_FEE_MAX = 1000;
+const ENTRY_FEE_MAX = 10;
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
 
 // Returns { value } for a valid entry fee, or { error } (nothing is saved then).

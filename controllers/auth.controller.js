@@ -13,8 +13,8 @@ const generateToken = (userId) => {
 };
 
 // @desc    Register user
-// @route   POST /api/auth/register
-// @access  Public
+// @route   POST /api/auth/register (admin / manager only, see routes/auth.routes.js)
+// @access  Private (admin, manager)
 const register = async (req, res) => {
   try {
     // Check for validation errors
