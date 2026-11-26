@@ -92,6 +92,19 @@ const normalizers = {
         return parseInt(yearStr, 10);
     },
 
+    // US phone: empty / "none" -> "none"; otherwise a 10-digit US number,
+    // stored as "(XXX) XXX-XXXX". With { lenient: true } (website / bot
+    // leads) a number that isn't a US number is kept as sent instead of
+    // rejected, so no lead is lost.
+    usPhone: (message, { lenient = false } = {}) => (field, value) => {
+        const text = toText(field, value);
+        if (!text || text.toLowerCase() === "none") return "none";
+        const formatted = formatUsPhone(text);
+        if (formatted) return formatted;
+        if (lenient) return text;
+        throw new LeadValidationError(message);
+    },
+
     // Contact fields: empty / "none" -> "none"; otherwise must match pattern.
     contact: (pattern, message) => (field, value) => {
         const text = toText(field, value);
@@ -126,6 +139,19 @@ const normalizers = {
 
 const EMAIL_PATTERN = /^\S+@\S+\.\S+$/;
 const PHONE_10_DIGITS = /^[0-9]{10}$/;
+
+// US phone number in any common format ("5551234567", "(555) 123-4567",
+// "+1 555-123-4567") -> "(555) 123-4567"; null when it is not a 10-digit US
+// number (an 11-digit number may start with the country code 1).
+const formatUsPhone = (value) => {
+    if (value === undefined || value === null) return null;
+    const text = String(value).trim();
+    if (!text || /[a-z]/i.test(text)) return null;
+    let digits = text.replace(/\D/g, "");
+    if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
+    if (digits.length !== 10) return null;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+};
 
 // Builds a whitelisted update object from `body`.
 //  - rules:  { field: normalizer } — only these fields can ever be written
@@ -204,6 +230,7 @@ const sendLeadError = (res, error, logLabel) => {
 };
 
 module.exports = {
+    formatUsPhone,
     LEAD_ID_HEADER,
     LEAD_CAPTURE_UPDATE_WINDOW_MS,
     LeadValidationError,

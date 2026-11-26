@@ -1,4 +1,5 @@
 const Buyer = require("../models/Buyer.model");
+const { personSearchClauses } = require("../utils/searchRegex");
 
 // @desc    Create new buyer
 // @route   POST /api/buyers
@@ -42,15 +43,9 @@ const getBuyers = async (req, res) => {
 
     // Exclude soft-deleted buyers explicitly
     filter.isDeleted = { $ne: true };
-    if (req.query.search) {
-      const searchRegex = new RegExp(req.query.search, "i");
-      filter.$or = [
-        { firstName: searchRegex },
-        { lastName: searchRegex },
-        { email: searchRegex },
-        { mobileNo: searchRegex },
-      ];
-    }
+    // Trimmed + regex-escaped; "first last" full names and phone digits match.
+    const searchClauses = personSearchClauses(req.query.search);
+    if (searchClauses) filter.$or = searchClauses;
 
     const buyers = await Buyer.find(filter)
       .populate("createdBy", "first_name last_name email")

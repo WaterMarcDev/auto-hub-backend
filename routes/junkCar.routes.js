@@ -148,7 +148,9 @@ router.post("/automation-bot", automationBotAuth, saveAutomationBotJunkCarReques
  *         description: List fetched successfully
  */
 //end here
-router.get("/", getAllJunkCars);
+// Staff only: the list holds customers' names, phones and emails (and the
+// "staff" role filter in getAllJunkCars needs req.user).
+router.get("/", auth, getAllJunkCars);
 
 // by shiva
 /**
@@ -239,7 +241,7 @@ router.patch("/:id/remark", auth, updateJunkCarRemark);
 router.patch("/:id/status", auth, updateJunkCarStatus);
 
 // Source route by shiva
-router.patch("/:id/source", updateJunkCarSource);
+router.patch("/:id/source", auth, updateJunkCarSource);
 
 // AssignJunkCarStaff route by shiva
 // auth: the logged-in user is recorded as "Lead Assigned By".

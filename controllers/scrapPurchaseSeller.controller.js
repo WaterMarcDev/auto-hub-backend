@@ -13,6 +13,7 @@
 
 const mongoose = require("mongoose");
 const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller.model");
+const { containsRegex, phoneDigitsRegex } = require("../utils/searchRegex");
 
 // US phone validation (mirrors the frontend helper). Accepts 10 digits, or 11
 // digits with a leading country code 1, allowing spaces, dashes, parentheses
@@ -28,7 +29,7 @@ const isValidUsPhone = (value) => {
 };
 
 // Length limits (mirrored in src/pages/ScrapPurchase/index.jsx).
-const MAX_SELLER_NAME = 100;
+const MAX_SELLER_NAME = 30;
 const MAX_SELLER_PHONE = 25;
 
 // Returns an error message for a bad name/phone length, or null.
@@ -81,14 +82,15 @@ const getScrapPurchaseSellers = async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const skip = (page - 1) * limit;
-    const search = (req.query.search || "").toString().trim();
+    // Trimmed, regex-escaped search; whitespace matches any whitespace so a
+    // full name ("John  Smith") is found; digits match any phone format.
+    const searchRegex = containsRegex(req.query.search);
 
     const query = {};
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { phone: { $regex: search, $options: "i" } },
-      ];
+    if (searchRegex) {
+      query.$or = [{ name: searchRegex }, { phone: searchRegex }];
+      const phoneRegex = phoneDigitsRegex(req.query.search);
+      if (phoneRegex) query.$or.push({ phone: phoneRegex });
     }
 
     const [sellers, total] = await Promise.all([

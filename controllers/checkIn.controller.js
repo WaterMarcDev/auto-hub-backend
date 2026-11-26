@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const CheckIn = require("../models/CheckIn.model");
 const Transaction = require("../models/Transaction.model");
 const Customer = require("../models/Customer.model");
+const { containsRegex, personSearchClauses } = require("../utils/searchRegex");
 const fs = require("fs");
 const path = require("path");
 
@@ -66,6 +67,9 @@ exports.create = async (req, res) => {
     if (!customer) return bad(400, "Please select a customer");
     if (!mongoose.isValidObjectId(customer)) return bad(400, "Please select a valid customer");
     if (!type) return bad(400, "type is required");
+    // Checked before anything is saved (an unknown type used to fail only
+    // after the payment record was created, leaving it behind).
+    if (!["seller", "buyer", "both"].includes(type)) return bad(400, "type must be seller, buyer or both");
     if (!transactionData || typeof transactionData !== "object")
       return bad(400, "transaction data is required");
 
@@ -150,28 +154,25 @@ exports.getAll = async (req, res) => {
   try {
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 20;
-    const search = req.query.search ? req.query.search.trim() : null;
+    // Trimmed, space-collapsed and regex-escaped (a "(" no longer causes a 500).
+    const searchRegex = containsRegex(req.query.search);
     const status = req.query.status;
 
     const filter = {};
     if (status) filter.status = status;
 
-    if (search) {
+    if (searchRegex) {
       // We'll search checkInToken and customer.name / customer.email via aggregation or $or with populate lookup.
       // Simpler approach: find customer IDs matching search, then filter.
-      const custRegex = new RegExp(search, "i");
+      // A full name "John Smith" matches firstName "John" + lastName "Smith";
+      // phone digits match any stored formatting.
       const matchingCustomers = await Customer.find({
-        $or: [
-          { firstName: custRegex },
-          { lastName: custRegex },
-          { email: custRegex },
-          { mobileNo: custRegex },
-        ],
+        $or: personSearchClauses(req.query.search),
       }).select("_id");
       const custIds = matchingCustomers.map((c) => c._id);
 
       filter.$or = [
-        { checkInToken: { $regex: search, $options: "i" } },
+        { checkInToken: searchRegex },
         { customer: { $in: custIds } },
       ];
     }

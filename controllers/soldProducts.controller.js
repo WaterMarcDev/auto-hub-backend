@@ -11,6 +11,7 @@ const mongoose = require("mongoose");
 const Inventory = require("../models/Inventory.model");
 const MarketplaceSaleSync = require("../models/MarketplaceSaleSync.model");
 const startMarketplaceSalesSyncJob = require("../jobs/marketplaceSalesSyncJob");
+const { normalizeSearch } = require("../utils/searchRegex");
 
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const LISTED_ON_EBAY = ["PUBLISHED", "UPDATED"];
@@ -75,9 +76,11 @@ function buildFilter(query) {
   }
   if (Object.keys(range).length) filter["sale.soldAt"] = range;
 
-  const search = String(query.search || "").trim();
+  // Trimmed, regex-escaped; whitespace matches any whitespace so a full buyer
+  // name typed with extra spaces still matches.
+  const search = normalizeSearch(query.search);
   if (search) {
-    const rx = { $regex: escapeRegex(search), $options: "i" };
+    const rx = { $regex: search.split(" ").map(escapeRegex).join("\\s+"), $options: "i" };
     filter.$or = [
       { partName: rx },
       { vin: rx },

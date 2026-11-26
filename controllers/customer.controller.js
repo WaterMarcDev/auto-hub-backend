@@ -10,6 +10,9 @@ const { emailError } = require("../utils/email");
 // leading "+". Any value containing letters is rejected. Kept as a local
 // helper (NOT a schema validator) so the shared Customer schema and all
 // unrelated customer/vehicle workflows remain fully backward compatible.
+const { formatUsPhone } = require("../utils/leadCapture");
+const US_PHONE_ERROR = "Enter a 10-digit US phone number: (XXX) XXX-XXXX";
+
 const isValidUsPhone = (value) => {
   if (value === undefined || value === null) return false;
   const raw = String(value).trim();
@@ -76,13 +79,23 @@ const usPhoneDigits = (value) => {
 const phoneMatcher = (digits) => new RegExp(`^\\D*(?:1\\D*)?${digits.split("").join("\\D*")}\\D*$`);
 
 /**
- * Duplicate rule: one customer per person. A new customer is a duplicate of
- * an existing (not deleted) customer with
+ * Duplicate rule: one customer per person. A new customer is the same person
+ * as an existing (not deleted) customer with
  *   - the same phone number (compared on its 10 digits, any formatting), or
  *   - the same ID proof type + ID number.
  * Returns { customer, field } for the first match, or null.
+ *
+ * The same NAME alone is not proof (two people can share a name): see
+ * findSameNameCustomers — staff compare the profiles (phone, ID, signature)
+ * and choose "use existing" or "create new".
  */
-const findDuplicateCustomer = async ({ mobileNo, idProofType, idProofNumber }, excludeId) => {
+// Exact text match ignoring letter case and extra spaces ("  ravi   KUMAR").
+const sameTextRegex = (value) => {
+  const words = String(value || "").trim().split(/\s+/).filter(Boolean);
+  return new RegExp(`^\\s*${words.map(escapeRegex).join("\\s+")}\\s*$`, "i");
+};
+
+const findDuplicateCustomer = async ({ firstName, lastName, mobileNo, idProofType, idProofNumber }, excludeId) => {
   const phone = usPhoneDigits(mobileNo);
   const idNumber = normalizeIdProofNumber(idProofNumber);
   const checks = [];
@@ -102,8 +115,31 @@ const findDuplicateCustomer = async ({ mobileNo, idProofType, idProofNumber }, e
   return null;
 };
 
+// Existing customers with the same full name (first + last; letter case and
+// extra spaces ignored), newest first, with what staff need to compare the
+// profiles: phone, ID and signature.
+const SAME_NAME_PROFILE_FIELDS =
+  "firstName lastName mobileNo email idProofType idProofNumber idProofImage signatureImage createdAt";
+const findSameNameCustomers = async ({ firstName, lastName }, excludeId) => {
+  const first = String(firstName || "").trim();
+  if (!first) return [];
+  const last = String(lastName || "").trim();
+  const filter = {
+    firstName: sameTextRegex(first),
+    ...(last
+      ? { lastName: sameTextRegex(last) }
+      : { $or: [{ lastName: { $exists: false } }, { lastName: null }, { lastName: /^\s*$/ }] }),
+    isDeleted: { $ne: true },
+  };
+  if (excludeId) filter._id = { $ne: excludeId };
+  return Customer.find(filter).select(SAME_NAME_PROFILE_FIELDS).sort({ createdAt: -1 }).limit(5).lean();
+};
+
 const duplicateMessage = ({ customer, field }) => {
   const name = [customer.firstName, customer.lastName].filter(Boolean).join(" ") || "another customer";
+  if (field === "name") {
+    return `A customer named ${name} already exists${customer.mobileNo ? ` (${customer.mobileNo})` : ""}.`;
+  }
   return field === "mobileNo"
     ? `A customer with this phone number already exists (${name}, ${customer.mobileNo}).`
     : `A customer with this ID number already exists (${name}, ${customer.idProofType} ${customer.idProofNumber}).`;
@@ -173,6 +209,12 @@ const createCustomer = async (req, res) => {
         error: "Please enter a valid US phone number.",
       });
     }
+    // Every customer: a mobile number, when given, must be a 10-digit US
+    // number; it is stored as "(XXX) XXX-XXXX".
+    const hasMobile = mobileNo !== undefined && mobileNo !== null && String(mobileNo).trim() !== "";
+    if (hasMobile && !formatUsPhone(mobileNo)) {
+      return res.status(400).json({ error: US_PHONE_ERROR });
+    }
 
     // Email is optional, but when given it must be a valid address.
     const badEmail = email ? emailError(String(email)) : null;
@@ -214,7 +256,10 @@ const createCustomer = async (req, res) => {
     // the check-in for a returning customer instead of creating a copy).
     const phoneDigits = usPhoneDigits(mobileNo);
     const idKey = idProofType && idProofNumber ? `id:${idProofType}:${normalizeIdProofNumber(idProofNumber)}` : null;
-    const keys = [phoneDigits && `phone:${phoneDigits}`, idKey].filter(Boolean);
+    const nameKey = String(firstName || "").trim()
+      ? `name:${[firstName, lastName].map((v) => String(v || "").trim().toLowerCase().replace(/\s+/g, " ")).join("|")}`
+      : null;
+    const keys = [nameKey, phoneDigits && `phone:${phoneDigits}`, idKey].filter(Boolean);
     if (keys.some((k) => pendingCreateKeys.has(k))) {
       const msg = "This customer is already being saved. Please wait a moment.";
       return res.status(409).json({ error: msg, message: msg, code: "DUPLICATE_IN_PROGRESS" });
@@ -222,7 +267,7 @@ const createCustomer = async (req, res) => {
     keys.forEach((k) => pendingCreateKeys.add(k));
     lockKeys = keys;
 
-    const duplicate = await findDuplicateCustomer({ mobileNo, idProofType, idProofNumber });
+    const duplicate = await findDuplicateCustomer({ firstName, lastName, mobileNo, idProofType, idProofNumber });
     if (duplicate) {
       const msg = duplicateMessage(duplicate);
       return res.status(409).json({
@@ -234,10 +279,27 @@ const createCustomer = async (req, res) => {
       });
     }
 
+    // Same name as an existing customer: staff compare the profiles (the
+    // CRM shows them side by side) and either use the existing customer or
+    // confirm this is a different person by sending confirmNewCustomer: true.
+    if (req.body.confirmNewCustomer !== true) {
+      const sameName = await findSameNameCustomers({ firstName, lastName });
+      if (sameName.length) {
+        const name = [firstName, lastName].map((v) => String(v || "").trim()).filter(Boolean).join(" ");
+        const msg = `A customer named ${name} already exists. Compare the profiles: use the existing customer, or confirm this is a different person.`;
+        return res.status(409).json({
+          error: msg,
+          message: msg,
+          code: "SAME_NAME_CUSTOMER",
+          sameNameCustomers: sameName,
+        });
+      }
+    }
+
     const newCustomer = new Customer({
       firstName,
       lastName,
-      mobileNo,
+      mobileNo: hasMobile ? formatUsPhone(mobileNo) : mobileNo,
       email,
       type: normalizedType,
       idProofType,
@@ -338,13 +400,24 @@ const getCustomerById = async (req, res) => {
 const updateCustomerById = async (req, res) => {
   try {
     req.body = req.body || {};
+    // Fields the API must never change through an edit.
+    for (const key of ["_id", "isDeleted", "deletedAt", "createdBy", "createdAt", "updatedAt", "__v"]) {
+      delete req.body[key];
+    }
     // Same text limits as create; a name cannot be changed to only spaces.
+    delete req.body.confirmNewCustomer;
     const fieldError = cleanCustomerFields(req.body);
     if (fieldError) return res.status(400).json({ message: fieldError, error: fieldError });
     if (req.body.firstName === "") {
       return res.status(400).json({ message: "First name is required.", error: "First name is required." });
     }
     // A changed phone number / ID must not belong to another customer.
+    if (typeof req.body.mobileNo === "string" && req.body.mobileNo.trim()) {
+      const formatted = formatUsPhone(req.body.mobileNo);
+      if (!formatted) return res.status(400).json({ error: US_PHONE_ERROR, message: US_PHONE_ERROR });
+      req.body.mobileNo = formatted;
+    }
+    // (The same name is allowed: two people can share a name.)
     if (req.body.mobileNo || (req.body.idProofType && req.body.idProofNumber)) {
       const duplicate = await findDuplicateCustomer(req.body, req.params.id);
       if (duplicate) {

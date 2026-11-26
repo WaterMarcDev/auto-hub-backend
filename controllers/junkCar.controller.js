@@ -6,6 +6,7 @@ const {
     LEAD_CAPTURE_UPDATE_WINDOW_MS,
     LeadValidationError,
     EMAIL_PATTERN,
+    formatUsPhone,
     normalizers,
     pickLeadFields,
     resolveLeadId,
@@ -34,19 +35,84 @@ const {
 
 // Field rules shared by the lead-capture route (POST /) and the staff PATCH
 // route, so both validate a value the same way.
+const US_PHONE_ERROR = "Enter a 10-digit US phone number: (XXX) XXX-XXXX";
+const MAX_JUNK_NAME_LENGTH = 100;
+// Limits for every source (website / bot / CRM). The CRM "Add Junk Car" form
+// is stricter (JUNK_CAR_CRM_LIMITS) — website leads are not rejected over a
+// long name.
+const JUNK_CAR_TEXT_LIMITS = { email: 100, make: 50, model: 50, engineOrVin: 50, condition: 100, message: 1000 };
+const JUNK_CAR_CRM_LIMITS = { name: 15, engineOrVin: 17, condition: 50 };
+const MIN_JUNK_YEAR = 1900;
+// Trimmed text (inner spaces collapsed) of at most `max` characters.
+const junkText = (max, label, base = normalizers.text()) => (field, value) => {
+    const raw = base(field, value);
+    const text = typeof raw === "string" ? raw.replace(/\s+/g, " ") : raw;
+    if (typeof text === "string" && text !== "none" && text.length > max) {
+        throw new LeadValidationError(`${label} can be at most ${max} characters`);
+    }
+    return text;
+};
+// A 4-digit year from 1900 to the current year (no future years).
+const junkYear = (field, value) => {
+    const year = normalizers.year()(field, value);
+    if (year === null || year === undefined) return year;
+    const maxYear = new Date().getFullYear();
+    if (year < MIN_JUNK_YEAR || year > maxYear) {
+        throw new LeadValidationError(`Year must be from ${MIN_JUNK_YEAR} to ${maxYear}`);
+    }
+    return year;
+};
+const MAX_JUNK_REMARK_LENGTH = 500;
+// Location sent by the website or the Automation Bot: plain text, trimmed,
+// at most this many characters.
+const MAX_LOCATION_LENGTH = 200;
+const cleanLocation = (value) => {
+    if (value === undefined || value === null) return { value: "" };
+    if (typeof value !== "string" && typeof value !== "number") {
+        return { error: "location must be text" };
+    }
+    const text = String(value).trim().replace(/\s+/g, " ");
+    if (text.length > MAX_LOCATION_LENGTH) {
+        return { error: `location can be at most ${MAX_LOCATION_LENGTH} characters` };
+    }
+    return { value: text };
+};
+
 const JUNK_CAR_FIELD_RULES = {
     // Schema-required — clearing one falls back to the same "none"
     // placeholder the create path stores.
-    name: normalizers.requiredText(),
-    email: normalizers.contact(EMAIL_PATTERN, "Invalid email format"),
-    phone: normalizers.requiredText(),
-    make: normalizers.requiredText(),
-    model: normalizers.requiredText(),
-    year: normalizers.year(),
-    engineOrVin: normalizers.text(),
-    condition: normalizers.text(),
-    message: normalizers.text(),
-    location: normalizers.text(),
+    // At most 100 characters; spaces only counts as no name.
+    name: (field, value) => {
+        const raw = normalizers.requiredText()(field, value);
+        const text = typeof raw === "string" ? raw.replace(/\s+/g, " ") : raw;
+        if (typeof text === "string" && text.length > MAX_JUNK_NAME_LENGTH) {
+            throw new LeadValidationError(`Name can be at most ${MAX_JUNK_NAME_LENGTH} characters`);
+        }
+        return text;
+    },
+    email: (field, value) => {
+        const text = normalizers.contact(EMAIL_PATTERN, "Invalid email format")(field, value);
+        if (text !== "none" && text.length > JUNK_CAR_TEXT_LIMITS.email) {
+            throw new LeadValidationError(`Email can be at most ${JUNK_CAR_TEXT_LIMITS.email} characters`);
+        }
+        return text;
+    },
+    // US numbers are stored as "(XXX) XXX-XXXX". Lenient: a website / bot
+    // lead with another number is kept as sent (not lost). The CRM form is
+    // checked strictly in saveJunkCarLead.
+    phone: normalizers.usPhone(US_PHONE_ERROR, { lenient: true }),
+    make: junkText(JUNK_CAR_TEXT_LIMITS.make, "Make", normalizers.requiredText()),
+    model: junkText(JUNK_CAR_TEXT_LIMITS.model, "Model", normalizers.requiredText()),
+    year: junkYear,
+    engineOrVin: junkText(JUNK_CAR_TEXT_LIMITS.engineOrVin, "Engine / VIN number"),
+    condition: junkText(JUNK_CAR_TEXT_LIMITS.condition, "Condition"),
+    message: junkText(JUNK_CAR_TEXT_LIMITS.message, "Message"),
+    // Plain text, trimmed, at most MAX_LOCATION_LENGTH characters.
+    location: (field, value) => {
+        const r = cleanLocation(value);
+        if (r.error) throw new LeadValidationError(r.error);
+        return r.value;
+    },
     remark: normalizers.text(),
     status: normalizers.oneOf(JUNK_CAR_STATUSES),
     source: normalizers.oneOf(Object.keys(JUNK_CAR_SOURCE_MAP), { map: JUNK_CAR_SOURCE_MAP }),
@@ -210,10 +276,34 @@ exports.saveJunkCarLead = async (req, res) => {
         });
 
         if (!leadId) {
+            const fromCrm = req.body?.source?.toString().trim().toLowerCase() === "offline";
+            // The CRM "Add Junk Car" form: Name optional (at most 15
+            // characters); Engine / VIN letters and digits only (at most 17);
+            // a name, phone or email is still needed (checked below).
+            if (fromCrm) {
+                const bad = (text) => res.status(400).json({ success: false, message: text });
+                if (hasValue(values.name) && values.name.length > JUNK_CAR_CRM_LIMITS.name) {
+                    return bad(`Name can be at most ${JUNK_CAR_CRM_LIMITS.name} characters`);
+                }
+                if (hasValue(values.engineOrVin)) {
+                    if (!/^[A-Za-z0-9]+$/.test(values.engineOrVin)) {
+                        return bad("Engine / VIN number can have letters and digits only");
+                    }
+                    if (values.engineOrVin.length > JUNK_CAR_CRM_LIMITS.engineOrVin) {
+                        return bad(`Engine / VIN number can be at most ${JUNK_CAR_CRM_LIMITS.engineOrVin} characters`);
+                    }
+                }
+                if (hasValue(values.condition) && values.condition.length > JUNK_CAR_CRM_LIMITS.condition) {
+                    return bad(`Condition can be at most ${JUNK_CAR_CRM_LIMITS.condition} characters`);
+                }
+            }
+            if (fromCrm && hasValue(values.phone) && values.phone !== "none" && !formatUsPhone(values.phone)) {
+                return res.status(400).json({ success: false, message: US_PHONE_ERROR });
+            }
             if (!JUNK_CAR_CONTACT_FIELDS.some((field) => hasValue(values[field]))) {
                 return res.status(400).json({
                     success: false,
-                    message: "Name, phone or email is required",
+                    message: fromCrm ? "Enter a name, phone or email" : "Name, phone or email is required",
                 });
             }
 
@@ -342,19 +432,20 @@ exports.saveAutomationBotJunkCarRequest = async (req, res) => {
             });
         }
 
+        const loc = cleanLocation(location);
+        if (loc.error) {
+            return res.status(400).json({ success: false, message: loc.error });
+        }
+
+        // 4 digits, from 1900 to the current year (no future years).
         let parsedYear = null;
 
         if (year) {
-            const yearStr = year.toString().trim();
-
-            if (!/^\d{4}$/.test(yearStr)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Year must be exactly 4 digits",
-                });
+            try {
+                parsedYear = junkYear("year", typeof year === "number" ? year : String(year));
+            } catch (error) {
+                return res.status(400).json({ success: false, message: error.message });
             }
-
-            parsedYear = parseInt(yearStr, 10);
         }
 
         const rawSource = source?.toString().trim().toLowerCase();
@@ -364,14 +455,14 @@ exports.saveAutomationBotJunkCarRequest = async (req, res) => {
         const newRequest = await JunkCar.create({
             name: name || "none",
             email: email || "none",
-            phone: phone || "none",
+            phone: phone ? formatUsPhone(phone) || String(phone).trim() : "none",
             year: parsedYear,
             make: make || "none",
             model: model || "none",
             engineOrVin: engineOrVin || "none",
             condition: condition || "none",
             message: message || "",
-            location: location || "",
+            location: loc.value,
 
             //  Added for Automation Bot
             source: resolvedSource,
@@ -445,14 +536,32 @@ exports.updateJunkCarRemark = async (req, res) => {
 
     try {
 
-        const { remark } = req.body;
+        const { remark } = req.body ?? {};
+
+        // Remark: text of at most 500 characters (blank clears it).
+        if (remark !== undefined && remark !== null && typeof remark !== "string") {
+            return res.status(400).json({ success: false, message: "Remark must be text" });
+        }
+        const cleanRemark = typeof remark === "string" ? remark.trim() : "";
+        if (cleanRemark.length > MAX_JUNK_REMARK_LENGTH) {
+            return res.status(400).json({
+                success: false,
+                message: `Remark can be at most ${MAX_JUNK_REMARK_LENGTH} characters`,
+            });
+        }
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(404).json({ success: false, message: "Junk car request not found" });
+        }
 
         const junkCar =
             await JunkCar.findByIdAndUpdate(
                 req.params.id,
-                { remark },
+                { remark: cleanRemark },
                 { new: true }
             );
+        if (!junkCar) {
+            return res.status(404).json({ success: false, message: "Junk car request not found" });
+        }
 
         res.status(200).json({
             success: true,

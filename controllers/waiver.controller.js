@@ -1,6 +1,7 @@
 const Waiver = require("../models/Waiver.model");
 const Seller = require("../models/Seller.model");
 const Buyer = require("../models/Buyer.model");
+const { containsRegex, personSearchClauses } = require("../utils/searchRegex");
 const Transaction = require("../models/Transaction.model");
 const { validationResult } = require("express-validator");
 
@@ -262,36 +263,21 @@ const getWaivers = async (req, res) => {
 
     // Search functionality
     if (req.query.search) {
-      const searchTerm = String(req.query.search).trim();
-      if (searchTerm.length) {
-        const re = new RegExp(
-          searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-          "i"
-        );
+      // Trimmed, space-collapsed and regex-escaped; "first last" full names
+      // and phone digits in any format also match.
+      const re = containsRegex(req.query.search);
+      if (re) {
+        const personOr = personSearchClauses(req.query.search);
 
         // Find sellers and buyers that match search
         let sellerIds = [];
         let buyerIds = [];
 
         try {
-          const sellers = await Seller.find({
-            $or: [
-              { email: re },
-              { firstName: re },
-              { lastName: re },
-              { mobileNo: re },
-            ],
-          }).select("_id");
+          const sellers = await Seller.find({ $or: personOr }).select("_id");
           sellerIds = sellers.map((s) => s._id);
 
-          const buyers = await Buyer.find({
-            $or: [
-              { email: re },
-              { firstName: re },
-              { lastName: re },
-              { mobileNo: re },
-            ],
-          }).select("_id");
+          const buyers = await Buyer.find({ $or: personOr }).select("_id");
           buyerIds = buyers.map((b) => b._id);
         } catch (e) {
           // Ignore lookup errors

@@ -23,6 +23,7 @@ const {
   parseWeight,
   parseVin,
   parseYear,
+  parseColor,
   isInputError,
 } = require("../utils/inventoryFieldRules");
 
@@ -109,7 +110,12 @@ const createInventory = async (req, res) => {
     partName = partNameR.value;
     const locationR = optionalText(rawLocation, "Location", TEXT_LIMITS.location);
     const dimensionsR = optionalText(rawDimensions, "Dimensions", TEXT_LIMITS.dimensions);
-    const colorR = optionalText(rawColor, "Color", TEXT_LIMITS.color);
+    // Manual add: letters, spaces and hyphens only. Bulk add takes the color
+    // from the car intake record (e.g. "N/A", "Silver/Grey"), so only the
+    // length is checked there.
+    const colorR = req.fromBulk
+      ? optionalText(rawColor, "Color", TEXT_LIMITS.color)
+      : parseColor(rawColor);
     const qualityR = optionalText(rawQuality, "Quality", TEXT_LIMITS.quality);
     const weightR = parseWeight(rawWeight);
     for (const r of [locationR, dimensionsR, colorR, qualityR, weightR]) {
@@ -152,7 +158,8 @@ const createInventory = async (req, res) => {
     // allowed on different parts; the same part twice for one VIN is not.
     if (vin) {
       const duplicate = await Inventory.findOne({
-        vin: { $in: [...new Set([vin, vin.toUpperCase()])] },
+        // Same VIN in any letter case.
+        vin: new RegExp(`^${escapeRegex(vin)}$`, "i"),
         partName: new RegExp(`^${escapeRegex(partName)}$`, "i"),
         isDeleted: { $ne: true },
       })
@@ -400,6 +407,58 @@ const createInventoryInternal = async (body) => {
 
 const BULK_INVENTORY_MAX_PARTS = 200;
 
+// Key of a catalog part in an intake's partDetails.parts ("Front Bumper" ->
+// "frontBumper"), as the Car Intake Step 3 table (CarDiagnosis.jsx) saves it.
+const intakePartKey = (name) => {
+  const words = String(name || "")
+    .replace(/[^a-zA-Z0-9 ]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "";
+  return (
+    words[0].toLowerCase() +
+    words
+      .slice(1)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join("")
+  );
+};
+
+// Highest unit Add To Inventory may use for each part of a car intake: the
+// unit recorded for that part at Car Intake (Step 3 already caps it at the
+// catalog unit). A part with no recorded unit (blank / 0) is capped at the
+// catalog part's unit; with neither there is no cap.
+// Returns Map(partName -> max).
+const intakeUnitCaps = async (carIntake, partNames) => {
+  const caps = new Map();
+  if (!carIntake) return caps;
+  const intakeParts = carIntake.partDetails?.parts || {};
+  let catalog = null;
+  for (const name of partNames) {
+    const recorded = Number(intakeParts[name]?.unit);
+    if (Number.isFinite(recorded) && recorded > 0) {
+      caps.set(name, recorded);
+      continue;
+    }
+    if (!catalog) {
+      catalog = new Map();
+      try {
+        const list = await Part.find({}).select("name unit").lean();
+        for (const p of list || []) {
+          const k = intakePartKey(p.name);
+          const u = Number(p.unit);
+          if (k && !catalog.has(k) && Number.isFinite(u) && u > 0) catalog.set(k, u);
+        }
+      } catch (e) {
+        // no catalog: no cap for parts without a recorded unit
+      }
+    }
+    if (catalog.has(name)) caps.set(name, catalog.get(name));
+  }
+  return caps;
+};
+
 // @desc    Add several parts of one car to inventory in a single request
 // @route   POST /api/inventory/bulk
 // @access  Private
@@ -458,6 +517,12 @@ const bulkCreateInventory = async (req, res) => {
       (await Inventory.find({ vin }).select("partName").lean()).map((i) => i.partName)
     );
 
+    // Unit may not go above what was recorded at Car Intake (QA 077).
+    const unitCaps = await intakeUnitCaps(
+      carIntake,
+      parts.map((p) => p.partName)
+    );
+
     const results = [];
     // One part at a time: createInventory may create a missing Make/Model/
     // Trim, and doing that concurrently could create duplicates.
@@ -472,6 +537,20 @@ const bulkCreateInventory = async (req, res) => {
       // A1, A2, Windshield and Heated Windshield are removed from the CRM.
       if (isRemovedPart(partName)) {
         results.push({ partName, status: "skipped", message: "Part removed from the CRM" });
+        continue;
+      }
+
+      const maxUnit = unitCaps.get(partName);
+      if (
+        maxUnit !== undefined &&
+        /^\d+$/.test(String(part.unit ?? "").trim()) &&
+        Number(String(part.unit).trim()) > maxUnit
+      ) {
+        results.push({
+          partName,
+          status: "failed",
+          message: `Unit cannot be more than ${maxUnit} (recorded at Car Intake)`,
+        });
         continue;
       }
 

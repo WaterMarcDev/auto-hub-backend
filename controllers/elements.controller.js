@@ -3,6 +3,7 @@ const Element = require("../models/Element.model");
 const ElementHub = require("../models/ElementHub.model");
 const ElementHubHistory = require("../models/ElementHubHistory.model");
 const ScrapElement = require("../models/ScrapElement.model");
+const { TEXT_LIMITS, optionalText, parseWeight } = require("../utils/inventoryFieldRules");
 
 // Element Hub stock, its history and saved scrap elements reference elements
 // by NAME, so a rename must move them too — merging into an existing hub of
@@ -23,27 +24,117 @@ const renameElementEverywhere = async (oldName, newName) => {
   await ScrapElement.updateMany({ elementName: oldName }, { $set: { elementName: newName } });
 };
 
+// Field limits (mirrored on the Add / Edit Element form, ElementForm.jsx).
+// Name / short name / description match Car Make / Model; weight uses the
+// shared weight rule (0 - 15,000, up to 2 decimals, never negative).
+const MAX_ELEMENT_NAME_LENGTH = 50;
+const MAX_ELEMENT_SHORT_NAME_LENGTH = 10;
+const MAX_ELEMENT_DIMENSIONS_LENGTH = TEXT_LIMITS.dimensions; // 100
+const MAX_ELEMENT_DESCRIPTION_LENGTH = 500;
+
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const clean = (v) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ") : v);
+
+const requiredTextError = (value, label, max) => {
+  if (typeof value !== "string" || !value.trim()) {
+    return `${label} is required and cannot be only spaces.`;
+  }
+  if (clean(value).length > max) {
+    return `${label} can be at most ${max} characters.`;
+  }
+  return null;
+};
+
+// Validates the sent fields. `partial` (update): omitted fields are skipped.
+// Returns { error } or { values } with cleaned values to save.
+const validateElementInput = (body, partial) => {
+  const values = {};
+  const { name, shortName, weight, dimensions, description } = body || {};
+  const has = (v) => !partial || v !== undefined;
+
+  if (has(name)) {
+    const err = requiredTextError(name, "Element name", MAX_ELEMENT_NAME_LENGTH);
+    if (err) return { error: err };
+    values.name = clean(name);
+  }
+  if (has(shortName)) {
+    const err = requiredTextError(shortName, "Short name", MAX_ELEMENT_SHORT_NAME_LENGTH);
+    if (err) return { error: err };
+    values.shortName = clean(shortName);
+  }
+  if (weight !== undefined) {
+    const w = parseWeight(weight, "Element weight");
+    if (w.error) return { error: w.error };
+    values.weight = w.value === undefined ? null : w.value;
+  }
+  if (dimensions !== undefined) {
+    const d = optionalText(dimensions, "Dimensions", MAX_ELEMENT_DIMENSIONS_LENGTH);
+    if (d.error) return { error: d.error };
+    // Free text such as "10 x 20 x 5 in"; a "-" sign would mean a negative size.
+    if (d.value !== undefined && d.value.includes("-")) {
+      return { error: "Dimensions cannot be negative (the - sign is not allowed)." };
+    }
+    values.dimensions = d.value === undefined ? "" : d.value;
+  }
+  if (description !== undefined && description !== null) {
+    if (typeof description !== "string") return { error: "Description must be text." };
+    if (description.trim().length > MAX_ELEMENT_DESCRIPTION_LENGTH) {
+      return { error: `Description can be at most ${MAX_ELEMENT_DESCRIPTION_LENGTH} characters.` };
+    }
+    values.description = description.trim();
+  }
+  return { values };
+};
+
+// Another (not deleted) element with the same name, ignoring case and extra
+// spaces ("copper" / " COPPER " / "Copper").
+const findDuplicateElement = (name, excludeId) => {
+  const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const filter = {
+    name: {
+      $regex: `^\\s*${words.map(escapeRegex).join("\\s+")}\\s*$`,
+      $options: "i",
+    },
+    isDeleted: { $ne: true },
+  };
+  if (excludeId) filter._id = { $ne: excludeId };
+  return Element.findOne(filter);
+};
+
+// Mongoose validation / cast problems are bad input (400), not server errors.
+const saveErrorMessage = (error) => {
+  if (error && error.name === "ValidationError" && error.errors) {
+    return Object.values(error.errors)
+      .map((e) => e.message)
+      .join(" ");
+  }
+  if (error && error.name === "CastError") return "Invalid value for " + error.path;
+  if (error && error.code === 11000) return "Element with this name already exists";
+  return null;
+};
+
 // @desc    Create a new element
 // @route   POST /api/elements
 const createElement = async (req, res) => {
   try {
-    const { name, shortName, weight, dimensions, description } = req.body;
+    const checked = validateElementInput(req.body, false);
+    if (checked.error) {
+      return res.status(400).json({ message: checked.error });
+    }
+    const values = checked.values;
 
-    // Check if element with the same name already exists
-    const existingElement = await Element.findOne({ name });
+    // Check if element with the same name already exists (case-insensitive)
+    const existingElement = await findDuplicateElement(values.name);
     if (existingElement) {
       return res.status(400).json({
-        message: "Element with this name already exists",
+        message: `Element with this name already exists ("${existingElement.name}")`,
       });
     }
 
-    const element = await Element.create({
-      name,
-      shortName,
-      weight,
-      dimensions,
-      description,
-    });
+    if (values.weight === null) delete values.weight;
+    if (values.dimensions === "") delete values.dimensions;
+    const element = await Element.create(values);
 
     res.status(201).json({
       message: "Element created successfully",
@@ -51,6 +142,8 @@ const createElement = async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating element:", error);
+    const known = saveErrorMessage(error);
+    if (known) return res.status(400).json({ message: known });
     res.status(500).json({
       message: "Server error while creating element",
     });
@@ -124,8 +217,6 @@ const getElementById = async (req, res) => {
 // @route   PUT /api/elements/:id
 const updateElement = async (req, res) => {
   try {
-    const { name, shortName, weight, dimensions, description } = req.body;
-
     if (!mongoose.isValidObjectId(req.params.id)) {
       return res.status(404).json({ message: "Element not found" });
     }
@@ -134,19 +225,19 @@ const updateElement = async (req, res) => {
       return res.status(404).json({ message: "Element not found" });
     }
 
-    const newName = typeof name === "string" ? name.trim() : existing.name;
-    if (!newName) {
-      return res.status(400).json({ message: "Element name is required" });
+    // Omitted fields stay unchanged; sent fields must be valid.
+    const checked = validateElementInput(req.body, true);
+    if (checked.error) {
+      return res.status(400).json({ message: checked.error });
     }
+    const values = checked.values;
+    const newName = values.name !== undefined ? values.name : existing.name;
 
-    // Renaming: refuse a name another active element already uses, then move
-    // stock/history/saved elements to the new name so stock is never split.
+    // Renaming: refuse a name another active element already uses (any
+    // letter case), then move stock/history/saved elements to the new name so
+    // stock is never split.
     if (newName !== existing.name) {
-      const duplicate = await Element.findOne({
-        _id: { $ne: existing._id },
-        isDeleted: { $ne: true },
-        name: { $regex: `^${newName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
-      });
+      const duplicate = await findDuplicateElement(newName, existing._id);
       if (duplicate) {
         return res.status(409).json({ message: `An element named "${duplicate.name}" already exists` });
       }
@@ -155,14 +246,8 @@ const updateElement = async (req, res) => {
 
     const element = await Element.findByIdAndUpdate(
       existing._id,
-      {
-        name: newName,
-        shortName,
-        weight,
-        dimensions,
-        description,
-      },
-      { new: true }
+      { $set: { ...values, name: newName } },
+      { new: true, runValidators: true }
     );
 
     res.status(200).json({
@@ -171,6 +256,8 @@ const updateElement = async (req, res) => {
     });
   } catch (error) {
     console.error("Error updating element:", error);
+    const known = saveErrorMessage(error);
+    if (known) return res.status(400).json({ message: known });
     res.status(500).json({
       message: "Server error while updating element",
     });

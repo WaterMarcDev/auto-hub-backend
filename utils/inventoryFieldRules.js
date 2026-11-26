@@ -66,15 +66,28 @@ function parseVin(value) {
   return { value: vin };
 }
 
-// Optional model year: whole number from 1900 to next year.
+// Optional model year: whole number from 1900 to the current year (no
+// future years).
 function parseYear(value) {
   if (isBlank(value)) return { value: undefined };
-  const max = new Date().getFullYear() + 1;
+  const max = new Date().getFullYear();
   const text = String(value).trim();
   if (!/^\d{4}$/.test(text) || Number(text) < 1900 || Number(text) > max) {
     return { error: `Year must be a 4-digit year between 1900 and ${max}` };
   }
   return { value: Number(text) };
+}
+
+// Optional color: max 50, letters (any language), spaces and hyphens,
+// starting with a letter. Blank / spaces only -> undefined.
+const COLOR_PATTERN = /^\p{L}[\p{L} -]*$/u;
+function parseColor(value, label = "Color", max = TEXT_LIMITS.color) {
+  const r = optionalText(value, label, max);
+  if (r.error || r.value === undefined) return r;
+  if (!COLOR_PATTERN.test(r.value)) {
+    return { error: `${label} can contain only letters, spaces and hyphens (-)` };
+  }
+  return r;
 }
 
 // Optional sale price: 0 - 2,000 with up to 2 decimals.
@@ -114,6 +127,7 @@ module.exports = {
   parseWeight,
   parseVin,
   parseYear,
+  parseColor,
   parsePrice,
   parsePersonName,
   isInputError,
