@@ -325,6 +325,11 @@ const createCustomer = async (req, res) => {
   }
 };
 
+// Car fields shown in the customer's "Cars" popup (VIN, make, year, model,
+// trim, status) — not the whole intake record (images, documents...).
+const CUSTOMER_CAR_FIELDS =
+  "vin carDetails.make carDetails.model carDetails.year carDetails.trim status createdAt kyc.seller";
+
 const getAllCustomers = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -370,6 +375,7 @@ const getAllCustomers = async (req, res) => {
     const customers = await Customer.find(filter)
       .populate({
         path: "carIntakes",
+        select: CUSTOMER_CAR_FIELDS,
         options: { sort: { createdAt: -1 } },
       })
       .skip(skip)
@@ -384,9 +390,15 @@ const getAllCustomers = async (req, res) => {
 
 const getCustomerById = async (req, res) => {
   try {
+    // carIntakes = the customer's cars (Customers / Sellers list "Cars"
+    // popup), newest first.
     const customer = await Customer.findOne({
       _id: req.params.id,
       isDeleted: { $ne: true },
+    }).populate({
+      path: "carIntakes",
+      select: CUSTOMER_CAR_FIELDS,
+      options: { sort: { createdAt: -1 } },
     });
     if (!customer) {
       return res.status(404).json({ message: "Customer not found" });

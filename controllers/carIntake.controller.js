@@ -127,8 +127,33 @@ const validatePaymentInput = (data) => {
 // Car Price weight and Final Price, when sent: a number, never negative,
 // never text or only spaces. 0 stays allowed because the final submit sends
 // 0 for a value that was never entered (the screens require > 0 themselves).
+// Car Price step: Our Price and Customer Price are numbers from 0 to
+// MAX_CAR_PRICE with at most 2 decimal places (same as the form).
+const MAX_CAR_PRICE = 999999.99;
+const carPriceError = (value, label) => {
+  if (value === undefined || value === null || value === "") return null;
+  const text = typeof value === "string" ? value.trim() : value;
+  const n = typeof text === "string" ? Number(text) : text;
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) {
+    return `${label} must be a number of 0 or more`;
+  }
+  if (n > MAX_CAR_PRICE) {
+    return `${label} can be at most $${MAX_CAR_PRICE.toLocaleString("en-US")}`;
+  }
+  if (Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) {
+    return `${label} can have at most 2 decimal places`;
+  }
+  return null;
+};
+
 const validatePriceNumbers = (data) => {
   if (!data) return null;
+  const quoteError =
+    carPriceError(data.ourPrice, "Our Price") ||
+    carPriceError(data.customerPrice, "Customer Price") ||
+    carPriceError(data.price?.ourPrice, "Our Price") ||
+    carPriceError(data.price?.customerPrice, "Customer Price");
+  if (quoteError) return quoteError;
   for (const [field, label] of [["actualWeight", "Weight"], ["finalPrice", "Final Price"]]) {
     const v = data[field];
     if (v === undefined || v === null) continue;
