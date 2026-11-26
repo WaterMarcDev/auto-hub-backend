@@ -107,11 +107,16 @@ CustomerSchema.index({ email: 1 });
 CustomerSchema.index({ firstName: 1, lastName: 1 });
 CustomerSchema.index({ isDeleted: 1, createdAt: -1 });
 
+// The customer's cars: car intakes where this customer is the seller. Car
+// Intake stores the seller in kyc.seller (step 5, "User Identification");
+// CarIntake has no top-level "seller" field, so matching on "seller" never
+// found any car. Deleted intakes are left out.
 CustomerSchema.virtual("carIntakes", {
   ref: "CarIntake",
   localField: "_id",
-  foreignField: "seller",
+  foreignField: "kyc.seller",
   justOne: false,
+  match: { isDeleted: { $ne: true } },
 });
 
 CustomerSchema.set("toObject", { virtuals: true });
