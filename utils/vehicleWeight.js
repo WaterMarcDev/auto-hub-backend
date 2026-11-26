@@ -60,4 +60,24 @@ function parseGVWR(gvwr) {
   }
 }
 
-module.exports = { vehicleWeightMax, assertVehicleWeight, parseGVWR };
+// Every weight in the CRM allows at most 2 decimal places. Returns an error
+// message when `value` has more, otherwise null (blank / non-numeric values
+// are left to the other checks).
+const MAX_WEIGHT_DECIMALS = 2;
+function weightDecimalsError(value, label = "Weight") {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  const match = text.match(/^\d*\.(\d+)$/);
+  if (match && match[1].length > MAX_WEIGHT_DECIMALS) {
+    return `${label} can have at most ${MAX_WEIGHT_DECIMALS} decimal places`;
+  }
+  return null;
+}
+
+module.exports = {
+  vehicleWeightMax,
+  assertVehicleWeight,
+  parseGVWR,
+  MAX_WEIGHT_DECIMALS,
+  weightDecimalsError,
+};

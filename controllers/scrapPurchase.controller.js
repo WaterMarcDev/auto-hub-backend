@@ -12,6 +12,7 @@ const ScrapPurchaseSeller = require("../models/ScrapPurchaseSeller.model");
 // Purchased scrap material is added to Element Hub stock (see that service).
 const scrapPurchaseElementHub = require("../services/scrapPurchaseElementHub.service");
 const { ElementHubStockError } = scrapPurchaseElementHub;
+const { containsRegex, phoneDigitsRegex } = require("../utils/searchRegex");
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -47,7 +48,7 @@ const LIMITS = {
   MAX_ITEMS: 50,
   MAX_MATERIAL_NAME: 100,
   MAX_DESCRIPTION: 500,
-  MAX_NOTE: 1000,
+  MAX_NOTE: 50,
   MAX_PAYMENT_METHOD: 50,
 };
 
@@ -126,6 +127,41 @@ const validateTopLevel = ({ weightLbs, pricePerLb, totalAmount, taxRate, note, p
   checkText(paymentMethod, LIMITS.MAX_PAYMENT_METHOD, "Payment method");
   checkText(materialName, LIMITS.MAX_MATERIAL_NAME, "Material name");
 };
+
+// Payment date must be a valid date and not in the future: its calendar day in
+// New Jersey time may be today or earlier (the date picker itself also blocks
+// every future day).
+const parsePaymentDate = (value) => {
+  if (isBlankInput(value)) return null;
+  if (typeof value === "boolean" || (typeof value === "object" && !(value instanceof Date))) {
+    throw new ScrapItemValidationError("Payment date must be a valid date");
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new ScrapItemValidationError("Payment date must be a valid date");
+  }
+  // Compared as calendar days in the yard's time zone (New Jersey), so
+  // "today" is accepted at any hour and tomorrow is always refused.
+  if (paymentDay(d) > paymentDay(new Date())) {
+    throw new ScrapItemValidationError("Payment date cannot be in the future");
+  }
+  return d;
+};
+
+// YYYY-MM-DD of a date in America/New_York.
+function paymentDay(date) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+  } catch (e) {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
 
 const isBlankInput = (v) =>
   v === undefined || v === null || (typeof v === "string" && v.trim() === "");
@@ -232,6 +268,7 @@ const createScrapPurchase = async (req, res) => {
     } = req.body || {};
 
     validateTopLevel({ weightLbs, pricePerLb, totalAmount, taxRate, note, paymentMethod, materialName });
+    const parsedPaymentDate = parsePaymentDate(paymentDate);
     const normalizedItems = normalizeItems(items);
     checkTotal(
       normalizedItems.reduce((acc, it) => acc + Number(it.totalAmount || 0), 0),
@@ -264,7 +301,7 @@ const createScrapPurchase = async (req, res) => {
       supplier: supplier && mongoose.Types.ObjectId.isValid(supplier) ? supplier : undefined,
       supplierSnapshot,
       paymentMethod: paymentMethod || undefined,
-      paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
+      paymentDate: parsedPaymentDate || new Date(),
       note: note || undefined,
       taxRate: taxRate != null ? toNumber(taxRate, 0) : 0,
       createdBy: req.user ? req.user._id : undefined,
@@ -301,16 +338,21 @@ const getScrapPurchases = async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
     const skip = (page - 1) * limit;
-    const search = (req.query.search || "").toString().trim();
+    // Trimmed, regex-escaped search; whitespace matches any whitespace so a
+    // full seller name ("John  Smith") is found; digits match any phone format.
+    const searchRegex = containsRegex(req.query.search);
 
     const query = { isDeleted: { $ne: true } };
-    if (search) {
+    if (searchRegex) {
       query.$or = [
-        { materialName: { $regex: search, $options: "i" } },
-        { note: { $regex: search, $options: "i" } },
-        { "supplierSnapshot.name": { $regex: search, $options: "i" } },
-        { "supplierSnapshot.phone": { $regex: search, $options: "i" } },
+        { materialName: searchRegex },
+        { "items.materialName": searchRegex },
+        { note: searchRegex },
+        { "supplierSnapshot.name": searchRegex },
+        { "supplierSnapshot.phone": searchRegex },
       ];
+      const phoneRegex = phoneDigitsRegex(req.query.search);
+      if (phoneRegex) query.$or.push({ "supplierSnapshot.phone": phoneRegex });
     }
 
     const [records, total] = await Promise.all([
@@ -416,7 +458,16 @@ const updateScrapPurchase = async (req, res) => {
     if (normalizedItems !== undefined) record.items = normalizedItems;
     if (paymentMethod !== undefined) record.paymentMethod = paymentMethod;
     if (paymentDate !== undefined) {
-      record.paymentDate = paymentDate ? new Date(paymentDate) : record.paymentDate;
+      // A legacy record that already carries a future date can still be
+      // edited as long as that date is sent back unchanged.
+      const unchanged =
+        record.paymentDate &&
+        !isBlankInput(paymentDate) &&
+        new Date(paymentDate).getTime() === new Date(record.paymentDate).getTime();
+      if (!unchanged) {
+        const parsed = parsePaymentDate(paymentDate);
+        record.paymentDate = parsed || record.paymentDate;
+      }
     }
     if (note !== undefined) record.note = note === null ? note : String(note).trim();
     if (taxRate !== undefined) record.taxRate = toNumber(taxRate, 0);

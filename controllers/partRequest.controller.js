@@ -16,6 +16,8 @@ const {
     LEAD_CAPTURE_UPDATE_WINDOW_MS,
     EMAIL_PATTERN,
     PHONE_10_DIGITS,
+    formatUsPhone,
+    LeadValidationError,
     normalizers,
     pickLeadFields,
     resolveLeadId,
@@ -26,16 +28,68 @@ const {
 
 // Field rules shared by the lead-capture route (POST /) and the staff PATCH
 // route, so both validate a value the same way.
+const MAX_REMARK_LENGTH = 500;
+
+// Text limits and the Condition choices (same as the CRM form).
+// Every source (website / bot / CRM); the CRM Name box is shorter (CRM_NAME_LENGTH).
+const PART_REQUEST_LIMITS = { name: 100, email: 100, make: 30, model: 30, partName: 200, message: 500, condition: 50 };
+const PART_REQUEST_CONDITIONS = ["New", "Used", "Damaged"];
+const MIN_PART_REQUEST_YEAR = 1900;
+// The CRM form's Name box is shorter than what website / bot leads may send
+// (so no website lead is lost over a long name).
+const CRM_NAME_LENGTH = 15;
+// CRM form Email box (website / bot leads keep PART_REQUEST_LIMITS.email).
+const CRM_EMAIL_LENGTH = 30;
+
+// Trimmed text (inner spaces collapsed) of at most `max` characters.
+const limitedText = (max, label) => (field, value) => {
+    const text = normalizers.text()(field, value);
+    const clean = typeof text === "string" ? text.replace(/\s+/g, " ") : text;
+    if (clean && clean.length > max) {
+        throw new LeadValidationError(`${label} can be at most ${max} characters`);
+    }
+    return clean;
+};
+
+// A 4-digit year from 1900 to the current year (no future years).
+const partRequestYear = (field, value) => {
+    const year = normalizers.year()(field, value);
+    if (year === null || year === undefined) return year;
+    const maxYear = new Date().getFullYear();
+    if (year < MIN_PART_REQUEST_YEAR || year > maxYear) {
+        throw new LeadValidationError(`Year must be from ${MIN_PART_REQUEST_YEAR} to ${maxYear}`);
+    }
+    return year;
+};
+
+// Condition: one of the choices is stored in its standard spelling ("used"
+// -> "Used"); other text (website leads) is kept, within the length limit.
+const partRequestCondition = (field, value) => {
+    const text = limitedText(PART_REQUEST_LIMITS.condition, "Condition")(field, value);
+    if (!text) return text;
+    return PART_REQUEST_CONDITIONS.find((c) => c.toLowerCase() === text.toLowerCase()) || text;
+};
+
+// Email: valid format, at most PART_REQUEST_LIMITS.email characters.
+const partRequestEmail = (field, value) => {
+    const text = normalizers.contact(EMAIL_PATTERN, "Invalid email format")(field, value);
+    if (text !== "none" && text.length > PART_REQUEST_LIMITS.email) {
+        throw new LeadValidationError(`Email can be at most ${PART_REQUEST_LIMITS.email} characters`);
+    }
+    return text;
+};
+
 const PART_REQUEST_FIELD_RULES = {
-    name: normalizers.text(),
-    phone: normalizers.contact(PHONE_10_DIGITS, "Phone number must be 10 digits"),
-    email: normalizers.contact(EMAIL_PATTERN, "Invalid email format"),
-    make: normalizers.text(),
-    model: normalizers.text(),
-    year: normalizers.year(),
-    partName: normalizers.text(),
-    condition: normalizers.text(),
-    message: normalizers.text(),
+    name: limitedText(PART_REQUEST_LIMITS.name, "Name"),
+    // Any common US format; stored as "(XXX) XXX-XXXX".
+    phone: normalizers.usPhone("Enter a 10-digit US phone number: (XXX) XXX-XXXX"),
+    email: partRequestEmail,
+    make: limitedText(PART_REQUEST_LIMITS.make, "Make"),
+    model: limitedText(PART_REQUEST_LIMITS.model, "Model"),
+    year: partRequestYear,
+    partName: limitedText(PART_REQUEST_LIMITS.partName, "Part name"),
+    condition: partRequestCondition,
+    message: limitedText(PART_REQUEST_LIMITS.message, "Message"),
     remark: normalizers.text(),
     source: normalizers.oneOf(PART_REQUEST_SOURCES),
     // Only the settable statuses (utils/partRequestLeads.js).
@@ -152,8 +206,28 @@ exports.savePartRequestLead = async (req, res) => {
         });
 
         if (!leadId) {
-            // Same minimum as before: a lead needs a way to reach the customer.
-            if (!hasValue(values.phone) && !hasValue(values.email)) {
+            // Staff using the CRM "Add Part Request" form (logged in, source
+            // "Offline"): Part Name is required; Name, phone and email are each
+            // optional but at least one is needed to reach the customer; Name
+            // at most 15 characters; Condition is one of the form's choices.
+            const fromCrm = Boolean(req.user) && values.source === "Offline";
+            if (fromCrm) {
+                const bad = (text) => res.status(400).json({ success: false, message: text });
+                if (!hasValue(values.partName)) return bad("Part name is required");
+                if (hasValue(values.name) && values.name.length > CRM_NAME_LENGTH) {
+                    return bad(`Name can be at most ${CRM_NAME_LENGTH} characters`);
+                }
+                if (hasValue(values.email) && values.email.length > CRM_EMAIL_LENGTH) {
+                    return bad(`Email can be at most ${CRM_EMAIL_LENGTH} characters`);
+                }
+                if (!hasValue(values.name) && !hasValue(values.phone) && !hasValue(values.email)) {
+                    return bad("Enter a name, phone or email");
+                }
+                if (hasValue(values.condition) && !PART_REQUEST_CONDITIONS.includes(values.condition)) {
+                    return bad(`Condition must be one of: ${PART_REQUEST_CONDITIONS.join(", ")}`);
+                }
+            } else if (!hasValue(values.phone) && !hasValue(values.email)) {
+                // Website leads: a lead needs a way to reach the customer.
                 return res.status(400).json({
                     success: false,
                     message: "Either phone or email is required",
@@ -204,7 +278,10 @@ const PART_REQUEST_BOT_CREATE_FIELDS = PART_REQUEST_BOT_FIELDS.filter((field) =>
 
 const PART_REQUEST_BOT_RULES = {
     ...PART_REQUEST_FIELD_RULES,
-    name: normalizers.requiredText(),
+    name: (field, value) => {
+        const text = normalizers.requiredText()(field, value);
+        return text === "none" ? text : limitedText(PART_REQUEST_LIMITS.name, "Name")(field, text);
+    },
     source: (field, value) => normalizeRequestSource(value, "Other"),
 };
 
@@ -257,10 +334,10 @@ exports.saveAutomationBotRequest = async (req, res) => {
         }
 
         // Phone / email are optional, but must be valid when sent
-        if (phone && !/^[0-9]{10}$/.test(phone)) {
+        if (phone && !formatUsPhone(phone)) {
             return res.status(400).json({
                 success: false,
-                message: "Phone number must be 10 digits",
+                message: "Phone number must be a 10-digit US number",
             });
         }
 
@@ -271,26 +348,25 @@ exports.saveAutomationBotRequest = async (req, res) => {
             });
         }
 
+        // Same length limits as every other source; year 1900..current year.
+        // (A LeadValidationError answers 400 with its message.)
+        for (const field of ["name", "email", "make", "model", "partName"]) {
+            if (req.body[field] !== undefined && req.body[field] !== null) {
+                PART_REQUEST_BOT_RULES[field](field, req.body[field]);
+            }
+        }
+
         let parsedYear = null;
 
         if (year) {
-            const yearStr = year.toString().trim();
-
-            if (!/^\d{4}$/.test(yearStr)) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Year must be exactly 4 digits",
-                });
-            }
-
-            parsedYear = parseInt(yearStr, 10);
+            parsedYear = partRequestYear("year", typeof year === "number" ? year : String(year));
         }
 
         const resolvedSource = normalizeRequestSource(source, "Other");
 
         const request = await PartRequest.create({
             name: name || "none",
-            phone: phone || "none",
+            phone: phone ? formatUsPhone(phone) : "none",
             email: email || "none",
             make,
             model,
@@ -390,17 +466,33 @@ exports.updatePartRequestRemark = async (req, res) => {
 
     try {
 
-        console.log("REMARK BODY:", req.body);
-        console.log("PARAM ID:", req.params.id);
 
-        const { remark } = req.body;
+        const { remark } = req.body ?? {};
+
+        // Remark: text of at most 500 characters (blank clears it).
+        if (remark !== undefined && remark !== null && typeof remark !== "string") {
+            return res.status(400).json({ success: false, message: "Remark must be text" });
+        }
+        const cleanRemark = typeof remark === "string" ? remark.trim() : "";
+        if (cleanRemark.length > MAX_REMARK_LENGTH) {
+            return res.status(400).json({
+                success: false,
+                message: `Remark can be at most ${MAX_REMARK_LENGTH} characters`,
+            });
+        }
+        if (!mongoose.isValidObjectId(req.params.id)) {
+            return res.status(404).json({ success: false, message: "Request not found" });
+        }
 
         const updated =
             await PartRequest.findByIdAndUpdate(
                 req.params.id,
-                { remark },
+                { remark: cleanRemark },
                 { new: true }
             );
+        if (!updated) {
+            return res.status(404).json({ success: false, message: "Request not found" });
+        }
 
         res.status(200).json({
             success: true,

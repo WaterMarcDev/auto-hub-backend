@@ -31,6 +31,23 @@ const auth = async (req, res, next) => {
   }
 };
 
+// For public routes that staff also use (e.g. Part Request, which the website
+// posts to): when a valid CRM login comes with the request, req.user is set;
+// otherwise the request continues as an anonymous one. Never rejects.
+const optionalAuth = async (req, res, next) => {
+  try {
+    const token = req.cookies?.token || req.header("Authorization")?.replace("Bearer ", "");
+    if (token) {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "fallback_secret");
+      const user = await User.findById(decoded.userId).select("-password");
+      if (user) req.user = user;
+    }
+  } catch (error) {
+    // invalid / expired token: treat as anonymous
+  }
+  next();
+};
+
 const requireAdmin = (req, res, next) => {
   if (req.user && req.user.role === "admin") {
     next();
@@ -49,4 +66,4 @@ const permit = (...roles) => {
   };
 };
 
-module.exports = { auth, requireAdmin, permit };
+module.exports = { auth, requireAdmin, permit, optionalAuth };

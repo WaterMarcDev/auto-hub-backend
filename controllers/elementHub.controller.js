@@ -5,6 +5,10 @@ const Transaction = require("../models/Transaction.model");
 const Invoice = require("../models/Invoice.model");
 const fs = require("fs");
 const path = require("path");
+const { weightDecimalsError } = require("../utils/vehicleWeight");
+
+// Sale note limit (mirrored on the sell form, Element/Hub.jsx).
+const MAX_SALE_NOTE_LENGTH = 500;
 
 // Get all hub items (simple list)
 const getAllHubItems = async (req, res) => {
@@ -62,12 +66,36 @@ const sellElement = async (req, res) => {
         .json({ message: "customerId (buyer) is required for sells" });
     }
 
+    // Optional note, printed on the sale invoice: at most 500 characters.
+    let cleanNote;
+    if (note !== undefined && note !== null && note !== "") {
+      if (typeof note !== "string") {
+        return res.status(400).json({ message: "Note must be text" });
+      }
+      cleanNote = note.trim() || undefined;
+      if (cleanNote && cleanNote.length > MAX_SALE_NOTE_LENGTH) {
+        return res.status(400).json({
+          message: `Note can be at most ${MAX_SALE_NOTE_LENGTH} characters`,
+        });
+      }
+    }
+
     const name = String(elementName).trim();
     const amt = Number(amount);
     if (isNaN(amt) || amt <= 0) {
       return res
         .status(400)
         .json({ message: "amount must be a positive number" });
+    }
+    // Weight sold (lb): a plain number ("12.5" — not "1e-3" or "0x10") with at
+    // most 2 decimal places, like every weight.
+    const amountText = typeof amount === "number" ? String(amount) : String(amount).trim();
+    if (!/^\d+(\.\d+)?$/.test(amountText)) {
+      return res.status(400).json({ message: "Amount to sell must be a plain number, e.g. 12.5" });
+    }
+    const amountDecimals = weightDecimalsError(amount, "Amount to sell");
+    if (amountDecimals) {
+      return res.status(400).json({ message: amountDecimals });
     }
 
     // Atomically decrement hub total if sufficient quantity exists
@@ -90,7 +118,7 @@ const sellElement = async (req, res) => {
       amount: amt,
       unit: unit || updatedHub.unit,
       customerId,
-      note,
+      note: cleanNote,
       createdBy: req.user ? req.user._id : createdBy,
     });
 
@@ -117,7 +145,7 @@ const sellElement = async (req, res) => {
         netAmount: totalAmount,
         paymentMethod,
         description:
-          note ||
+          cleanNote ||
           `Sale of ${amt} ${unit || updatedHub.unit} ${updatedHub.elementName}`,
         status: "completed",
         createdBy: req.user ? req.user._id : createdBy,

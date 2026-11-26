@@ -12,7 +12,7 @@ console.log("Part Request Routes Loaded");
 const express = require("express");
 const router = express.Router();
 const { automationBotAuth } = require("../middleware/automationBotAuth");
-const { auth } = require("../middleware/auth");
+const { auth, optionalAuth } = require("../middleware/auth");
 
 const { deleteRequest } = require("../controllers/partRequest.controller");
 
@@ -93,7 +93,9 @@ router.get("/test", (req, res) => {
  *       409:
  *         description: Lead can no longer be updated through this route
  */
-router.post("/", savePartRequestLead);
+// Public (website) and CRM: optionalAuth tells the controller when a logged-in
+// staff member submitted the CRM "Add Part Request" form.
+router.post("/", optionalAuth, savePartRequestLead);
 
 // by shiva
 /**
@@ -107,7 +109,8 @@ router.post("/", savePartRequestLead);
  *         description: Requests fetched successfully
  */
 // end here
-router.get("/", getAllRequests);
+// Staff only: the list holds customers' names, phones and emails.
+router.get("/", auth, getAllRequests);
 
 // by shiva
 /**
@@ -136,7 +139,7 @@ router.get("/", getAllRequests);
  *         description: Status updated successfully
  */
 // end here
-router.put("/:id", updateStatus);
+router.put("/:id", auth, updateStatus);
 
 // by shiva
 /**
@@ -156,7 +159,7 @@ router.put("/:id", updateStatus);
  *         description: Request deleted successfully
  */
 //end here
-router.delete("/:id", deleteRequest);
+router.delete("/:id", auth, deleteRequest);
 
 /**
  * @swagger
@@ -207,10 +210,10 @@ router.delete("/:id", deleteRequest);
 router.patch("/:id", auth, patchPartRequest);
 
 // Source route by shiva
-router.patch("/:id/source", updatePartRequestSource);
+router.patch("/:id/source", auth, updatePartRequestSource);
 
 // Remark route by shiva
-router.patch("/:id/remark", (req, res, next) => {
+router.patch("/:id/remark", auth, (req, res, next) => {
 
     console.log("REMARK ROUTE HIT");
 

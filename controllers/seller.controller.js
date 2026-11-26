@@ -1,4 +1,5 @@
 const Seller = require("../models/Seller.model");
+const { normalizeSearch, personSearchClauses } = require("../utils/searchRegex");
 const { validationResult } = require("express-validator");
 
 // @desc    Create new seller
@@ -58,15 +59,9 @@ const getSellers = async (req, res) => {
 
     // Build filter object
     const filter = { isActive: true };
-    if (req.query.search) {
-      const searchRegex = new RegExp(req.query.search, "i");
-      filter.$or = [
-        { firstName: searchRegex },
-        { lastName: searchRegex },
-        { email: searchRegex },
-        { mobileNo: searchRegex },
-      ];
-    }
+    // Trimmed + regex-escaped; "first last" full names and phone digits match.
+    const searchClauses = personSearchClauses(req.query.search);
+    if (searchClauses) filter.$or = searchClauses;
 
     const sellers = await Seller.find(filter)
       .populate("createdBy", "first_name last_name email")
@@ -260,7 +255,7 @@ const getSellerCarIntakes = async (req, res) => {
 // @access  Private
 const searchSellers = async (req, res) => {
   try {
-    const { q } = req.query;
+    const q = normalizeSearch(req.query.q);
 
     if (!q || q.length < 2) {
       return res
@@ -268,15 +263,10 @@ const searchSellers = async (req, res) => {
         .json({ error: "Search query must be at least 2 characters" });
     }
 
-    const searchRegex = new RegExp(q, "i");
+    // Trimmed + regex-escaped; "first last" full names and phone digits match.
     const sellers = await Seller.find({
       isActive: true,
-      $or: [
-        { firstName: searchRegex },
-        { lastName: searchRegex },
-        { email: searchRegex },
-        { mobileNo: searchRegex },
-      ],
+      $or: personSearchClauses(q),
     })
       .select("firstName lastName email mobileNo")
       .limit(10);

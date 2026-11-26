@@ -1,12 +1,19 @@
 const CarIntake = require("../models/CarIntake.model");
 const Seller = require("../models/Seller.model");
+const Customer = require("../models/Customer.model");
+const { containsRegex, personSearchClauses, normalizeSearch, escapeRegex } = require("../utils/searchRegex");
 const Transaction = require("../models/Transaction.model");
 const xlsx = require("xlsx");
 const fs = require("fs");
 const path = require("path");
 const EntryFee = require("../models/EntryFee.model");
 const { applyIntakePartExclusions } = require("../utils/intakePartExclusions");
-const { assertVehicleWeight } = require("../utils/vehicleWeight");
+const { assertVehicleWeight, weightDecimalsError } = require("../utils/vehicleWeight");
+const {
+  parseWeight,
+  isBlank,
+  TEXT_LIMITS: INVENTORY_TEXT_LIMITS,
+} = require("../utils/inventoryFieldRules");
 
 // Car dimensions (inches): optional, blank → not set, otherwise a number ≥ 0.
 const DIMENSION_FIELDS = ["height", "width", "length"];
@@ -69,7 +76,13 @@ const normalizeCarText = (data) => {
     if (typeof data[field] !== "string" && typeof data[field] !== "number") {
       return `${CAR_TEXT_LABELS[field]} must be text`;
     }
-    const value = String(data[field]).trim();
+    const raw = String(data[field]);
+    const value = raw.trim();
+    // Text of only spaces is never accepted (empty is allowed for the
+    // optional fields).
+    if (!value && raw.length > 0) {
+      return `${CAR_TEXT_LABELS[field]} cannot be only spaces`;
+    }
     if (!value && CAR_TEXT_REQUIRED.includes(field)) {
       return `${CAR_TEXT_LABELS[field]} is required`;
     }
@@ -84,6 +97,9 @@ const normalizeCarText = (data) => {
     ["partsDescription", data.partDetails?.partsDescription],
   ];
   for (const [field, value] of descriptions) {
+    if (typeof value === "string" && value.length > 0 && !value.trim()) {
+      return `Description (${field}) cannot be only spaces`;
+    }
     if (typeof value === "string" && value.trim().length > MAX_DESCRIPTION_LENGTH) {
       return `Description (${field}) must be at most ${MAX_DESCRIPTION_LENGTH} characters`;
     }
@@ -104,6 +120,147 @@ const validatePaymentInput = (data) => {
   }
   if (data.paymentMethod !== undefined && !String(data.paymentMethod ?? "").trim()) {
     return "Payment Method is required";
+  }
+  return null;
+};
+
+// Car Price weight and Final Price, when sent: a number, never negative,
+// never text or only spaces. 0 stays allowed because the final submit sends
+// 0 for a value that was never entered (the screens require > 0 themselves).
+const validatePriceNumbers = (data) => {
+  if (!data) return null;
+  for (const [field, label] of [["actualWeight", "Weight"], ["finalPrice", "Final Price"]]) {
+    const v = data[field];
+    if (v === undefined || v === null) continue;
+    const text = typeof v === "string" ? v.trim() : v;
+    const n = typeof text === "string" ? (text === "" ? NaN : Number(text)) : Number(text);
+    if (typeof v === "boolean" || typeof v === "object" || !Number.isFinite(n) || n < 0) {
+      return `${label} must be a number of 0 or more`;
+    }
+  }
+  return null;
+};
+
+// Step 3 (Car Diagnosis) part Weight / Dimensions. These parts later go to
+// inventory (Add To Inventory -> bulkCreateInventory), so a selected part may
+// only hold values the inventory accepts (utils/inventoryFieldRules.js):
+//  - weight: blank, or a number 0 - 15,000 with up to 2 decimals (parseWeight);
+//  - dimensions: blank, or text of at most 100 characters (the inventory
+//    limit) in which every number has at most 5 digits, one decimal point and
+//    2 decimals ("12.345", "1.2.3" and "1..2" are rejected).
+// Valid values are stored trimmed; weight as a plain number string ("12.50" ->
+// "12.5"). Parts that are not selected are left as they are (they never go
+// to inventory and their boxes are disabled in the UI).
+// Keep in sync with partDimensionsError / findDiagnosisPartError in the
+// frontend (src/components/CarIntake/intakeConstants.js).
+const MAX_PART_DIMENSIONS_LENGTH = INVENTORY_TEXT_LIMITS.dimensions;
+const DIMENSION_NUMBER = /^(\d{1,5}(\.\d{0,2})?|\.\d{0,2})$/;
+const partLabel = (key) =>
+  String(key)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+const partDimensionsError = (value, label) => {
+  if (typeof value !== "string" && typeof value !== "number") {
+    return `${label} dimensions must be text`;
+  }
+  const text = String(value).trim().replace(/\s+/g, " ");
+  if (text.length > MAX_PART_DIMENSIONS_LENGTH) {
+    return `${label} dimensions must be at most ${MAX_PART_DIMENSIONS_LENGTH} characters`;
+  }
+  const numbers = text.split(/[^\d.]+/).filter(Boolean);
+  if (numbers.some((n) => !DIMENSION_NUMBER.test(n))) {
+    return `${label} dimensions: each number can have only one decimal point and up to 2 decimals (e.g. 24 x 12.5 x 6 in)`;
+  }
+  return null;
+};
+
+// Checks (and normalises in place) one parts object. Returns an error
+// message for the first bad selected part, else null.
+const MIN_PART_UNIT = 1;
+const MAX_PART_UNIT = 10;
+const validateIntakeParts = (parts) => {
+  if (!parts || typeof parts !== "object" || Array.isArray(parts)) return null;
+  for (const [key, part] of Object.entries(parts)) {
+    if (!part || typeof part !== "object" || part.selected !== true) continue;
+    const label = partLabel(key);
+    // Unit of a selected part: a whole number from 1 to 10 (Car Diagnostic).
+    if (part.unit !== undefined && part.unit !== null && part.unit !== "") {
+      const unitText = String(part.unit).trim();
+      const unit = Number(unitText);
+      if (!/^\d+$/.test(unitText) || unit < MIN_PART_UNIT || unit > MAX_PART_UNIT) {
+        return `${label} unit must be a whole number from ${MIN_PART_UNIT} to ${MAX_PART_UNIT}`;
+      }
+      part.unit = unit;
+    }
+    if (part.weight !== undefined && part.weight !== null) {
+      if (isBlank(part.weight)) {
+        part.weight = "";
+      } else {
+        const r = parseWeight(part.weight, `${label} weight`);
+        if (r.error) return r.error;
+        part.weight = String(r.value);
+      }
+    }
+    if (part.dimensions !== undefined && part.dimensions !== null) {
+      if (isBlank(part.dimensions)) {
+        part.dimensions = "";
+      } else {
+        const err = partDimensionsError(part.dimensions, label);
+        if (err) return err;
+        part.dimensions = String(part.dimensions).trim().replace(/\s+/g, " ");
+      }
+    }
+  }
+  return null;
+};
+
+// Every parts object a create / update request can carry.
+const validateRequestParts = (data) => {
+  if (!data || typeof data !== "object") return null;
+  for (const parts of [data.parts, data.partDetails?.parts, data.diagnosis]) {
+    const err = validateIntakeParts(parts);
+    if (err) return err;
+  }
+  return null;
+};
+
+// Step 5 Date of Selling: today or earlier. "Today" is the date in New
+// Jersey (the yard's time zone), because the frontend sends the date picked
+// on the yard's computers as "YYYY-MM-DD". Blank is left to the existing
+// rules. Returns an error message or null.
+const SELLING_DATE_TIME_ZONE = "America/New_York";
+const dateInZone = (date) => {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: SELLING_DATE_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+  } catch (e) {
+    return date.toISOString().slice(0, 10);
+  }
+};
+const validateSellingDate = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  let day;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    day = value.trim();
+    if (Number.isNaN(new Date(`${day}T00:00:00Z`).getTime())) {
+      return "Date of Selling is not a valid date";
+    }
+  } else {
+    const d = new Date(value);
+    const badType =
+      typeof value === "boolean" || (typeof value === "object" && !(value instanceof Date));
+    if (badType || Number.isNaN(d.getTime())) {
+      return "Date of Selling is not a valid date";
+    }
+    day = dateInZone(d);
+  }
+  if (day > dateInZone(new Date())) {
+    return "Date of Selling cannot be a future date";
   }
   return null;
 };
@@ -270,7 +427,16 @@ const createCarIntake = async (req, res) => {
     const formData = req.body;
 
     // Trim Car Details text; blank required / too-long values are rejected.
-    const inputError = normalizeCarText(formData) || validatePaymentInput(formData);
+    // Also: part weight / dimensions inventory can accept, and no future
+    // Date of Selling.
+    const inputError =
+      normalizeCarText(formData) ||
+      weightDecimalsError(formData.weight, "Weight") ||
+      weightDecimalsError(formData.actualWeight, "Weight") ||
+      validatePriceNumbers(formData) ||
+      validatePaymentInput(formData) ||
+      validateRequestParts(formData) ||
+      validateSellingDate(formData.sellingDate);
     if (inputError) {
       return res.status(400).json({ success: false, error: inputError });
     }
@@ -606,7 +772,9 @@ const getCarIntakes = async (req, res) => {
       if (excludes.length) filter.status = { $nin: excludes };
     }
     if (req.query.make) {
-      filter.make = new RegExp(req.query.make, "i");
+      // Escaped: a "(" in the make filter used to cause a 500.
+      const makeRx = containsRegex(req.query.make);
+      if (makeRx) filter.make = makeRx;
     }
     if (req.query.year) {
       filter.year = req.query.year;
@@ -620,18 +788,19 @@ const getCarIntakes = async (req, res) => {
           "i"
         );
 
-        // find sellers that match search (email/name/phone)
+        // Sellers matching the search (name, "first last", email, phone in
+        // any format). Intakes reference the Customer collection
+        // (kyc.seller); the legacy Seller collection is kept as a fallback.
         let sellerIds = [];
         try {
-          const sellers = await Seller.find({
-            $or: [
-              { email: re },
-              { firstName: re },
-              { lastName: re },
-              { mobileNo: re },
-            ],
-          }).select("_id");
-          sellerIds = (sellers || []).map((s) => s._id);
+          const clauses = personSearchClauses(searchTerm);
+          if (clauses) {
+            const [customers, legacySellers] = await Promise.all([
+              Customer.find({ isDeleted: { $ne: true }, $or: clauses }).select("_id").limit(500),
+              Seller.find({ $or: clauses }).select("_id").limit(500),
+            ]);
+            sellerIds = [...(customers || []), ...(legacySellers || [])].map((c) => c._id);
+          }
         } catch (e) {
           // ignore seller lookup errors and continue with other fields
           sellerIds = [];
@@ -643,7 +812,31 @@ const getCarIntakes = async (req, res) => {
           { "carDetails.model": re },
           { "carDetails.trim": re },
         ];
-        if (sellerIds.length) orArray.push({ seller: { $in: sellerIds } });
+        // Car fields searched word by word, so "Toyota Corolla 2017" finds a
+        // 2017 Toyota Corolla: every word must match the VIN, make, model,
+        // trim or color, or (a 4-digit word) the year.
+        const carWordClause = (word) => {
+          const wordRe = new RegExp(escapeRegex(word), "i");
+          const alternatives = [
+            { vin: wordRe },
+            { "carDetails.make": wordRe },
+            { "carDetails.model": wordRe },
+            { "carDetails.trim": wordRe },
+            { "carDetails.color": wordRe },
+          ];
+          if (/^\d{4}$/.test(word)) alternatives.push({ "carDetails.year": Number(word) });
+          return { $or: alternatives };
+        };
+        const words = normalizeSearch(searchTerm).split(" ").filter(Boolean);
+        if (words.length > 1) {
+          orArray.push({ $and: words.map(carWordClause) });
+        } else if (/^\d{4}$/.test(searchTerm)) {
+          orArray.push({ "carDetails.year": Number(searchTerm) });
+        }
+        if (sellerIds.length) {
+          orArray.push({ "kyc.seller": { $in: sellerIds } });
+          orArray.push({ seller: { $in: sellerIds } });
+        }
 
         filter.$or = orArray;
       }
@@ -730,8 +923,16 @@ const updateCarIntake = async (req, res) => {
 
     // Trim Car Details text; blank required / too-long values and a blank or
     // non-positive paid amount are rejected before anything is saved.
+    // Also: part weight / dimensions inventory can accept (Step 3), and no
+    // future Date of Selling (Step 5).
     const inputError =
-      normalizeCarText(carIntakeData) || validatePaymentInput(carIntakeData);
+      normalizeCarText(carIntakeData) ||
+      weightDecimalsError(carIntakeData.weight, "Weight") ||
+      weightDecimalsError(carIntakeData.actualWeight, "Weight") ||
+      validatePriceNumbers(carIntakeData) ||
+      validatePaymentInput(carIntakeData) ||
+      validateRequestParts(carIntakeData) ||
+      validateSellingDate(carIntakeData.sellingDate);
     if (inputError) {
       return res.status(400).json({ error: inputError });
     }

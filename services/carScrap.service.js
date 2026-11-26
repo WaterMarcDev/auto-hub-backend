@@ -21,6 +21,17 @@ const { addToHubInternal } = require("../controllers/elementHub.controller");
 const READY_TO_SCRAP_FROM = ["payment-done", "part-added-to-inventory"];
 const PART_REMOVED_REASON = "car-scrapped";
 const MAX_ELEMENTS = 100;
+// Field rules for the Extract Elements popup (mirrored in
+// auto-hub-frontend/src/components/Scrap/ExtractElementsModal.jsx).
+const ELEMENT_QUALITIES = ["Good", "Average", "OK", "Broken", "Scratches"];
+const MAX_ELEMENT_WEIGHT = 15000; // lb, same cap as inventory part weight
+const MAX_ELEMENT_UNIT = 10000;
+const MAX_DIMENSIONS_LENGTH = 100;
+const MAX_SCRAP_REMARKS_LENGTH = 1000;
+// Weight: up to 2 decimals. Dimensions: letters, digits, spaces and . , x * / " ' ( )
+// — no minus sign, so negative numbers cannot be entered.
+const WEIGHT_PATTERN = /^(\d+(\.\d{1,2})?|\.\d{1,2})$/;
+const DIMENSIONS_PATTERN = /^[A-Za-z0-9 .,*/"'()×]+$/;
 
 class ScrapFlowError extends Error {
   constructor(statusCode, message) {
@@ -49,19 +60,57 @@ function parseElements(raw) {
 
   return raw.map((el, i) => {
     const elementName = String(el?.elementName ?? "").trim();
-    const weight = Number(el?.weight);
+    const weightText = el?.weight === undefined || el?.weight === null ? "" : String(el.weight).trim();
+    const weight = Number(weightText);
     const unit = el?.unit === undefined || el?.unit === null || el?.unit === "" ? 1 : Number(el.unit);
     if (!elementName || elementName.length > 100) throw new ScrapFlowError(400, `Element #${i + 1}: name is required.`);
-    if (!Number.isFinite(weight) || weight <= 0) throw new ScrapFlowError(400, `Element "${elementName}": weight must be greater than 0.`);
-    if (!Number.isInteger(unit) || unit < 1) throw new ScrapFlowError(400, `Element "${elementName}": unit must be a whole number of at least 1.`);
+    const label = `Element "${elementName}"`;
+    if (!WEIGHT_PATTERN.test(weightText) || !Number.isFinite(weight) || weight <= 0) {
+      throw new ScrapFlowError(400, `${label}: weight must be a number greater than 0 with up to 2 decimals.`);
+    }
+    if (weight > MAX_ELEMENT_WEIGHT) {
+      throw new ScrapFlowError(400, `${label}: weight cannot be more than ${MAX_ELEMENT_WEIGHT.toLocaleString("en-US")}.`);
+    }
+    if (!Number.isInteger(unit) || unit < 1 || unit > MAX_ELEMENT_UNIT) {
+      throw new ScrapFlowError(400, `${label}: unit must be a whole number from 1 to ${MAX_ELEMENT_UNIT.toLocaleString("en-US")}.`);
+    }
+
+    const qualityRaw = el?.quality === undefined || el?.quality === null ? "" : String(el.quality).trim();
+    let quality;
+    if (qualityRaw) {
+      quality = ELEMENT_QUALITIES.find((q) => q.toLowerCase() === qualityRaw.toLowerCase());
+      if (!quality) throw new ScrapFlowError(400, `${label}: quality must be one of ${ELEMENT_QUALITIES.join(", ")}.`);
+    }
+
+    const dimRaw = el?.dimensions === undefined || el?.dimensions === null ? "" : String(el.dimensions);
+    const dimensions = dimRaw.trim().replace(/\s+/g, " ");
+    if (dimRaw.length > 0 && !dimensions) throw new ScrapFlowError(400, `${label}: dimensions cannot be only spaces.`);
+    if (dimensions.length > MAX_DIMENSIONS_LENGTH) {
+      throw new ScrapFlowError(400, `${label}: dimensions must be at most ${MAX_DIMENSIONS_LENGTH} characters.`);
+    }
+    if (dimensions && !DIMENSIONS_PATTERN.test(dimensions)) {
+      throw new ScrapFlowError(400, `${label}: dimensions can contain only letters, numbers, spaces and . , x * / " ' ( ) (no negative numbers).`);
+    }
+
     return {
       elementName,
       unit,
       weight,
-      quality: el?.quality ? String(el.quality).trim().slice(0, 100) : undefined,
-      dimensions: el?.dimensions ? String(el.dimensions).trim().slice(0, 100) : undefined,
+      quality,
+      dimensions: dimensions || undefined,
     };
   });
+}
+
+/** Optional scrap remarks: trimmed, max MAX_SCRAP_REMARKS_LENGTH characters. */
+function parseScrapRemarks(raw) {
+  if (raw === undefined || raw === null) return "";
+  if (typeof raw !== "string") throw new ScrapFlowError(400, "Remarks must be text.");
+  const text = raw.trim();
+  if (text.length > MAX_SCRAP_REMARKS_LENGTH) {
+    throw new ScrapFlowError(400, `Remarks must be at most ${MAX_SCRAP_REMARKS_LENGTH} characters.`);
+  }
+  return text;
 }
 
 /** Inventory ids (of this car, still active) that went to the crusher. */
@@ -133,6 +182,7 @@ async function sendToReadyToScrap(carId) {
  */
 async function moveToScrapped(carId, { elements: rawElements, scrapRemarks, removePartIds }, userId) {
   const elements = parseElements(rawElements);
+  const remarks = parseScrapRemarks(scrapRemarks);
   const car = await loadCar(carId);
   if (car.status !== "ready-to-scrap") {
     throw new ScrapFlowError(409, `Only Ready To Scrap cars can be moved to Scrapped (current: ${car.status || "intake"}).`);
@@ -146,7 +196,7 @@ async function moveToScrapped(carId, { elements: rawElements, scrapRemarks, remo
         status: "scraped",
         scrapedBy: userId,
         scrapDate: new Date(),
-        scrapRemarks: typeof scrapRemarks === "string" ? scrapRemarks.trim().slice(0, 2000) : "",
+        scrapRemarks: remarks,
       },
     },
     { new: true }
@@ -237,4 +287,9 @@ module.exports = {
   addElementsToScrappedCar,
   getScrapDetails,
   parseElements,
+  parseScrapRemarks,
+  ELEMENT_QUALITIES,
+  MAX_ELEMENT_WEIGHT,
+  MAX_DIMENSIONS_LENGTH,
+  MAX_SCRAP_REMARKS_LENGTH,
 };
