@@ -40,10 +40,11 @@ const buildSupplierSnapshot = (seller) => {
 class ScrapItemValidationError extends Error {}
 
 // Input limits (mirrored in src/pages/ScrapPurchase/index.jsx). Weight and
-// price take at most 2 decimals; totals are rounded to cents.
+// price take at most 2 decimals; totals are rounded to cents. Weight is at
+// most 15,000 lb like every weight in the CRM; price per lb has no maximum
+// (only the overall total keeps its $10M safety cap).
 const LIMITS = {
-  MAX_WEIGHT_LBS: 200000,
-  MAX_PRICE_PER_LB: 2000,
+  MAX_WEIGHT_LBS: 15000,
   MAX_TOTAL: 10000000,
   MAX_ITEMS: 50,
   MAX_MATERIAL_NAME: 100,
@@ -69,11 +70,6 @@ const checkWeight = (n) => {
 };
 
 const checkPrice = (n) => {
-  if (n > LIMITS.MAX_PRICE_PER_LB) {
-    throw new ScrapItemValidationError(
-      `Price per lb cannot be more than $${fmtLimit(LIMITS.MAX_PRICE_PER_LB)}`
-    );
-  }
   if (!hasAtMost2Decimals(n)) {
     throw new ScrapItemValidationError("Price per lb can have at most 2 decimal places");
   }

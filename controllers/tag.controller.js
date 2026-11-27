@@ -1,5 +1,11 @@
 const Tag = require("../models/Tag.model");
-const { formatBarcode } = require("../utils/barcode");
+const {
+  TAG_DIGITS,
+  MAX_TAG_NUMBER,
+  MAX_TAGS_PER_BATCH,
+  formatBarcode,
+  parseBarcode,
+} = require("../utils/barcode");
 const toTagDTO = (tag) => ({
   id: tag._id,
   barcodeNumber: tag.barcodeNumber,
@@ -11,59 +17,115 @@ const toTagDTO = (tag) => ({
   updatedAt: tag.updatedAt,
 });
 
+// Accepts a whole number given as a number or a digits-only string; NaN otherwise.
+const toWholeNumber = (value) => {
+  if (typeof value === "number") return Number.isInteger(value) ? value : NaN;
+  if (typeof value === "string" && /^\s*\d+\s*$/.test(value)) return Number(value);
+  return NaN;
+};
+
+// Sorted tag numbers -> readable ranges, e.g. [1,2,3,7] -> "1–3 (AUT000001–AUT000003), 7 (AUT000007)".
+const describeTagNumbers = (numbers, maxRanges = 5) => {
+  const ranges = [];
+  for (const n of numbers) {
+    const last = ranges[ranges.length - 1];
+    if (last && n === last[1] + 1) last[1] = n;
+    else ranges.push([n, n]);
+  }
+  const shown = ranges.slice(0, maxRanges).map(([a, b]) =>
+    a === b
+      ? `${a} (${formatBarcode(a)})`
+      : `${a}–${b} (${formatBarcode(a)}–${formatBarcode(b)})`
+  );
+  const more = ranges.length - shown.length;
+  return shown.join(", ") + (more > 0 ? ` and ${more} more range(s)` : "");
+};
+
+const isDuplicateKeyError = (err) =>
+  err?.code === 11000 ||
+  (err?.writeErrors || []).some((e) => (e?.code ?? e?.err?.code) === 11000) ||
+  /E11000/.test(err?.message || "");
+
 const generateTags = async (req, res) => {
-  const { start, end, digits } = req.body;
+  // The tag format is fixed on the server (see utils/barcode.js); any
+  // "digits" sent by the client is ignored so every tag looks the same.
+  const start = toWholeNumber(req.body?.start);
+  const end = toWholeNumber(req.body?.end);
 
-  if (start == null || end == null || digits == null) {
+  if (Number.isNaN(start) || Number.isNaN(end)) {
+    return res.status(400).json({ message: "Start and end must be whole numbers" });
+  }
+  if (start < 1 || end > MAX_TAG_NUMBER) {
     return res.status(400).json({
-      message: "start, end and digits are required",
+      message: `Tag numbers must be between 1 and ${MAX_TAG_NUMBER}`,
     });
   }
-  if (digits < 2) {
-    return res.status(400).json({
-      message: "digits must be at least 2",
-    });
-  }
-
   if (start > end) {
-    return res.status(400).json({ message: "Invalid range" });
+    return res.status(400).json({ message: "Start must be less than or equal to end" });
   }
-
-  const docs = [];
-  for (let i = start; i <= end; i++) {
-    docs.push({
-      barcodeNumber: i,
-      digits,
-      barcodeString: formatBarcode(i, digits),
+  const count = end - start + 1;
+  if (count > MAX_TAGS_PER_BATCH) {
+    return res.status(400).json({
+      message: `You can generate at most ${MAX_TAGS_PER_BATCH} tags at a time (this range has ${count})`,
     });
   }
 
   try {
-    const result = await Tag.insertMany(docs, { ordered: false });
+    // Refuse the whole range if any number in it already has a tag, instead
+    // of silently skipping the duplicates and reporting success.
+    const existing = await Tag.find({ barcodeNumber: { $gte: start, $lte: end } })
+      .select("barcodeNumber")
+      .sort({ barcodeNumber: 1 })
+      .lean();
+    if (existing.length) {
+      const numbers = existing.map((t) => t.barcodeNumber);
+      return res.status(409).json({
+        message: `Asset tags ${describeTagNumbers(numbers)} already exist. Choose a range that does not include them.`,
+        existing: numbers,
+      });
+    }
+
+    // One timestamp for the whole batch, saved as createdAt (the date the
+    // tag was generated, shown in the Asset Tags list).
+    const generatedAt = new Date();
+    const docs = [];
+    for (let i = start; i <= end; i++) {
+      docs.push({
+        barcodeNumber: i,
+        digits: TAG_DIGITS,
+        barcodeString: formatBarcode(i),
+        createdAt: generatedAt,
+        updatedAt: generatedAt,
+      });
+    }
+
+    await Tag.insertMany(docs, { ordered: true });
     return res.status(201).json({
       start,
       end,
-      digits,
-      inserted: result.length,
-      skipped: 0,
+      digits: TAG_DIGITS,
+      inserted: docs.length,
+      from: formatBarcode(start),
+      to: formatBarcode(end),
+      generatedAt,
     });
   } catch (err) {
-    const duplicateCount = err.writeErrors?.length || 0;
-    const total = docs.length;
-
-    return res.status(201).json({
-      start,
-      end,
-      digits,
-      inserted: total - duplicateCount,
-      skipped: duplicateCount,
-    });
+    // Two requests for the same numbers at once (e.g. a double-click) can
+    // both pass the check above; the unique index stops the second one here.
+    if (isDuplicateKeyError(err)) {
+      return res.status(409).json({
+        message: `Asset tags in ${start}–${end} were just created by another request. Refresh the list before generating again.`,
+      });
+    }
+    console.error("Failed to generate asset tags:", err);
+    return res.status(500).json({ message: "Failed to generate asset tags" });
   }
 };
 
 const getTag = async (req, res) => {
   const { barcode } = req.params;
-  const barcodeNumber = Number(barcode);
+  // Accept the printed code (AUT000123) as well as the bare number.
+  const barcodeNumber = parseBarcode(barcode);
 
   if (Number.isNaN(barcodeNumber)) {
     return res.status(400).json({ message: "Invalid barcode" });
@@ -150,7 +212,7 @@ const getAvailableTags = async (req, res) => {
 };
 
 const toggleTag = async (req, res) => {
-  const barcodeNumber = Number(req.params.barcode);
+  const barcodeNumber = parseBarcode(req.params.barcode);
 
   if (Number.isNaN(barcodeNumber)) {
     return res.status(400).json({ message: "Invalid barcode" });

@@ -5,7 +5,7 @@ const Transaction = require("../models/Transaction.model");
 const Invoice = require("../models/Invoice.model");
 const fs = require("fs");
 const path = require("path");
-const { weightDecimalsError } = require("../utils/vehicleWeight");
+const { weightDecimalsError, weightLimitError } = require("../utils/vehicleWeight");
 
 // Sale note limit (mirrored on the sell form, Element/Hub.jsx).
 const MAX_SALE_NOTE_LENGTH = 500;
@@ -93,9 +93,36 @@ const sellElement = async (req, res) => {
     if (!/^\d+(\.\d+)?$/.test(amountText)) {
       return res.status(400).json({ message: "Amount to sell must be a plain number, e.g. 12.5" });
     }
-    const amountDecimals = weightDecimalsError(amount, "Amount to sell");
+    const amountDecimals = weightDecimalsError(amount, "Amount to sell") || weightLimitError(amount, "Amount to sell");
     if (amountDecimals) {
       return res.status(400).json({ message: amountDecimals });
+    }
+
+    // Price: the CRM sends pricePerLb and the total is amount x pricePerLb
+    // (worked out here, rounded to cents). Older clients that send only
+    // saleValue (the total) keep working. Checked before the hub stock is
+    // reduced, so a bad price never takes stock away.
+    let pricePerLb;
+    let saleTotal;
+    const rawPrice = req.body.pricePerLb;
+    if (rawPrice !== undefined && rawPrice !== null && rawPrice !== "") {
+      const priceText = typeof rawPrice === "number" ? String(rawPrice) : String(rawPrice).trim();
+      const price = Number(priceText);
+      if (!/^\d+(\.\d+)?$/.test(priceText) || !Number.isFinite(price) || price <= 0) {
+        return res.status(400).json({ message: "Sale value per lb must be a number greater than 0" });
+      }
+      if (Math.abs(price * 100 - Math.round(price * 100)) > 1e-6) {
+        return res.status(400).json({ message: "Sale value per lb can have at most 2 decimal places" });
+      }
+      pricePerLb = price;
+      // In whole cents (2.5 lb x $3.33 = $8.33, not $8.32 from float error).
+      saleTotal = Math.round((Math.round(amt * 100) * Math.round(price * 100)) / 100) / 100;
+    } else {
+      const legacy = req.body.saleValue != null ? Number(req.body.saleValue) : 0;
+      if (!Number.isFinite(legacy) || legacy < 0) {
+        return res.status(400).json({ message: "Sale value must be a number of 0 or more" });
+      }
+      saleTotal = legacy;
     }
 
     // Atomically decrement hub total if sufficient quantity exists
@@ -119,13 +146,13 @@ const sellElement = async (req, res) => {
       unit: unit || updatedHub.unit,
       customerId,
       note: cleanNote,
+      ...(pricePerLb !== undefined ? { pricePerLb } : {}),
       createdBy: req.user ? req.user._id : createdBy,
     });
 
     // Optionally create a Transaction and persist an Invoice for this sell
     // Accept monetary sale value and payment details in the request body
-    const saleValue =
-      req.body.saleValue != null ? Number(req.body.saleValue) : 0;
+    const saleValue = saleTotal;
     // Element Hub sales: NO sales tax. Any taxRate / taxAmount / totalAmount
     // sent by a client is ignored, so the total is always the sale value.
     // (Previously 6.625% was added on top of the sale value.)

@@ -56,6 +56,22 @@ const fullNameClauses = (raw, firstField = "firstName", lastField = "lastName") 
   return clauses;
 };
 
+// A multi-word name searched word by word: every word must be found in the
+// first or the last name, in any order. So "John Smith" finds John Michael
+// Smith (middle name), "Mary Lee" finds Mary Ann Lee and "Kumar Ravi" finds
+// Ravi Kumar. Null for a single word (the contains-match covers it).
+const nameWordsClause = (raw, firstField = "firstName", lastField = "lastName") => {
+  const term = normalizeSearch(raw);
+  const words = term ? term.split(" ") : [];
+  if (words.length < 2) return null;
+  return {
+    $and: words.map((word) => {
+      const wordRe = new RegExp(escapeRegex(word), "i");
+      return { $or: [{ [firstField]: wordRe }, { [lastField]: wordRe }] };
+    }),
+  };
+};
+
 // $or clauses for a person record with firstName / lastName / email / mobileNo
 // (Customer, Seller, Buyer): contains-match on each field, "first last"
 // across the two name fields, and phone digits in any format. Returns null
@@ -70,6 +86,8 @@ const personSearchClauses = (raw) => {
     { mobileNo: rx },
     ...fullNameClauses(raw),
   ];
+  const words = nameWordsClause(raw);
+  if (words) clauses.push(words);
   const phone = phoneDigitsRegex(raw);
   if (phone) clauses.push({ mobileNo: phone });
   return clauses;
@@ -82,5 +100,6 @@ module.exports = {
   containsRegex,
   phoneDigitsRegex,
   fullNameClauses,
+  nameWordsClause,
   personSearchClauses,
 };

@@ -8,7 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const EntryFee = require("../models/EntryFee.model");
 const { applyIntakePartExclusions } = require("../utils/intakePartExclusions");
-const { assertVehicleWeight, weightDecimalsError } = require("../utils/vehicleWeight");
+const { assertVehicleWeight, weightDecimalsError, weightLimitError } = require("../utils/vehicleWeight");
 const {
   parseWeight,
   isBlank,
@@ -17,6 +17,23 @@ const {
 
 // Car dimensions (inches): optional, blank → not set, otherwise a number ≥ 0.
 const DIMENSION_FIELDS = ["height", "width", "length"];
+// Height / Width / Length (optional, inches): a number from 0 to
+// MAX_DIMENSION_IN with at most 2 decimal places. Checked up front (an error
+// thrown from toDimension inside the update loop would be a 500).
+const MAX_DIMENSION_IN = 1000;
+const carDimensionsError = (data) => {
+  if (!data) return null;
+  for (const [field, label] of [["height", "Height"], ["width", "Width"], ["length", "Length"]]) {
+    const v = data[field];
+    if (v === undefined || v === null || v === "") continue;
+    const text = typeof v === "number" ? String(v) : typeof v === "string" ? v.trim() : null;
+    if (text === null || !/^\d+(\.\d+)?$/.test(text)) return `${label} must be a number of 0 or more`;
+    const n = Number(text);
+    if (n > MAX_DIMENSION_IN) return `${label} can be at most ${MAX_DIMENSION_IN.toLocaleString("en-US")} in`;
+    if (Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) return `${label} can have at most 2 decimal places`;
+  }
+  return null;
+};
 const toDimension = (v) => {
   if (v === undefined || v === null || v === "") return undefined;
   const n = Number(v);
@@ -109,6 +126,17 @@ const normalizeCarText = (data) => {
 
 // Payment amount (paidAmount) and method: when sent they must be a number
 // greater than 0 and a non-blank method. Returns an error message or null.
+// Payment step: the amount paid is the Final Price agreed in the Car Price
+// step and cannot differ from it. Returns an error message, or null when
+// they match or either one is not known yet.
+const paidAmountMismatchError = (paidRaw, finalRaw) => {
+  const paid = toFiniteAmount(paidRaw);
+  const final = toFiniteAmount(finalRaw);
+  if (paid === undefined || final === undefined || final <= 0) return null;
+  if (Math.abs(paid - final) < 0.005) return null;
+  return `The amount paid must be the Final Price from the Car Price step ($${final.toFixed(2)}). To change it, go back to the Car Price step.`;
+};
+
 const validatePaymentInput = (data) => {
   if (!data) return null;
   const paid = data.paidAmount;
@@ -341,6 +369,7 @@ const hasPaymentIn = (data) => {
 
 // Strict parser for the optional Towing Fee.
 // Returns undefined ONLY for intentionally omitted input; throws on invalid supplied input.
+const MAX_TOWING_FEE = 1000;
 const parseOptionalTowingFee = (value) => {
   // Only intentionally empty/missing input may resolve to undefined.
   if (value === undefined || value === null) return undefined;
@@ -355,7 +384,24 @@ const parseOptionalTowingFee = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) throw new Error("Towing fee must be a valid number");
   if (n < 0) throw new Error("Towing fee cannot be negative");
+  // At most $1,000 with at most 2 decimal places (same as the form).
+  if (n > MAX_TOWING_FEE) {
+    throw new Error(`Towing fee can be at most $${MAX_TOWING_FEE.toLocaleString("en-US")}`);
+  }
+  if (Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) {
+    throw new Error("Towing fee can have at most 2 decimal places");
+  }
   return Math.round((n + Number.EPSILON) * 100) / 100;
+};
+// Error message for a bad towing fee, or null (used before anything is
+// created, so a bad value is a clear 400 instead of "creation failed").
+const towingFeeError = (value) => {
+  try {
+    parseOptionalTowingFee(value);
+    return null;
+  } catch (e) {
+    return e.message;
+  }
 };
 
 // Non-throwing reader for render/snapshot paths. Reads already-validated stored
@@ -458,8 +504,13 @@ const createCarIntake = async (req, res) => {
       normalizeCarText(formData) ||
       weightDecimalsError(formData.weight, "Weight") ||
       weightDecimalsError(formData.actualWeight, "Weight") ||
+      weightLimitError(formData.weight, "Weight") ||
+      weightLimitError(formData.actualWeight, "Weight") ||
+      carDimensionsError(formData) ||
       validatePriceNumbers(formData) ||
       validatePaymentInput(formData) ||
+      paidAmountMismatchError(formData.paidAmount, formData.finalPrice) ||
+      towingFeeError(formData.towingFee) ||
       validateRequestParts(formData) ||
       validateSellingDate(formData.sellingDate);
     if (inputError) {
@@ -954,6 +1005,9 @@ const updateCarIntake = async (req, res) => {
       normalizeCarText(carIntakeData) ||
       weightDecimalsError(carIntakeData.weight, "Weight") ||
       weightDecimalsError(carIntakeData.actualWeight, "Weight") ||
+      weightLimitError(carIntakeData.weight, "Weight") ||
+      weightLimitError(carIntakeData.actualWeight, "Weight") ||
+      carDimensionsError(carIntakeData) ||
       validatePriceNumbers(carIntakeData) ||
       validatePaymentInput(carIntakeData) ||
       validateRequestParts(carIntakeData) ||
@@ -965,6 +1019,17 @@ const updateCarIntake = async (req, res) => {
     const carIntake = await CarIntake.findById(req.params.id);
     if (!carIntake) {
       return res.status(404).json({ error: "Car intake not found" });
+    }
+
+    // The Payment step cannot change the price: the amount paid must be the
+    // Final Price agreed in the Car Price step (sent in this request, or
+    // already saved). Checked before anything is changed or saved.
+    const paymentMismatch = paidAmountMismatchError(
+      carIntakeData.paidAmount,
+      carIntakeData.finalPrice !== undefined ? carIntakeData.finalPrice : carIntake.price?.finalPrice
+    );
+    if (paymentMismatch) {
+      return res.status(400).json({ error: paymentMismatch });
     }
 
     // Seller is now ObjectId from Customer

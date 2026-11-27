@@ -102,11 +102,13 @@ function parseElements(raw) {
   });
 }
 
-/** Optional scrap remarks: trimmed, max MAX_SCRAP_REMARKS_LENGTH characters. */
+/** Optional scrap remarks: trimmed, max MAX_SCRAP_REMARKS_LENGTH characters,
+ *  never only spaces. */
 function parseScrapRemarks(raw) {
   if (raw === undefined || raw === null) return "";
   if (typeof raw !== "string") throw new ScrapFlowError(400, "Remarks must be text.");
   const text = raw.trim();
+  if (raw.length > 0 && !text) throw new ScrapFlowError(400, "Remarks cannot be only spaces.");
   if (text.length > MAX_SCRAP_REMARKS_LENGTH) {
     throw new ScrapFlowError(400, `Remarks must be at most ${MAX_SCRAP_REMARKS_LENGTH} characters.`);
   }

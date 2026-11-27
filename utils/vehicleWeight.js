@@ -74,10 +74,25 @@ function weightDecimalsError(value, label = "Weight") {
   return null;
 }
 
+// Every weight in the CRM is at most this many lbs (same as the inventory
+// weight limit, utils/inventoryFieldRules.js). Returns an error message for a
+// bigger number, otherwise null (blank / non-numeric left to other checks).
+const MAX_CRM_WEIGHT_LBS = 15000;
+function weightLimitError(value, label = "Weight") {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const n = Number(String(value).trim());
+  if (Number.isFinite(n) && n > MAX_CRM_WEIGHT_LBS) {
+    return `${label} can be at most ${MAX_CRM_WEIGHT_LBS.toLocaleString("en-US")} lbs`;
+  }
+  return null;
+}
+
 module.exports = {
   vehicleWeightMax,
   assertVehicleWeight,
   parseGVWR,
   MAX_WEIGHT_DECIMALS,
   weightDecimalsError,
+  MAX_CRM_WEIGHT_LBS,
+  weightLimitError,
 };

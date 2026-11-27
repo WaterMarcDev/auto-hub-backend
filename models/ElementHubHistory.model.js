@@ -68,6 +68,12 @@ const elementHubHistorySchema = new mongoose.Schema(
     note: {
       type: String,
     },
+    // Sells: price per lb the buyer paid (total = amount x pricePerLb).
+    // Missing on sells recorded before it existed (only the total was kept).
+    pricePerLb: {
+      type: Number,
+      min: 0,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
