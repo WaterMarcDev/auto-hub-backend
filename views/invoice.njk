@@ -151,7 +151,11 @@
                   {% endif %}
                 </td>
                 <td class="center">{{ elementSell.amount or 0 }} lb</td>
+                {% if elementSell.pricePerLb %}
+                <td class="right">${{ elementSell.pricePerLb | round(2) }} / lb</td>
+                {% else %}
                 <td class="right">${{ (transaction and transaction.amount) or 0 | round(2) }}</td>
+                {% endif %}
                 <td class="right">${{ (transaction and transaction.amount) or 0 | round(2) }}</td>
               </tr>
             {% elif items and items | length %}

@@ -1,4 +1,5 @@
 const Customer = require("../models/Customer.model");
+const { nameWordsClause } = require("../utils/searchRegex");
 const { idProofError, normalizeIdProofNumber, US_ID_PROOF_PATTERNS } = require("../utils/usIdProof");
 
 const getUsIdPattern = (type) =>
@@ -366,6 +367,10 @@ const getAllCustomers = async (req, res) => {
           lastName: new RegExp(`^${escapeRegex(words.slice(i).join(" "))}`, "i"),
         });
       }
+      // Word by word too: "John Smith" finds John Michael Smith, and the
+      // words can be in any order (same as the other person searches).
+      const nameWords = nameWordsClause(search);
+      if (nameWords) or.push(nameWords);
       const digits = search.replace(/\D/g, "");
       if (digits.length >= 3 && /^[\d\s()+.-]+$/.test(search)) {
         or.push({ mobileNo: new RegExp(digits.split("").join("\\D*")) });

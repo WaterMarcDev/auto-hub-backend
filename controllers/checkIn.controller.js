@@ -50,7 +50,42 @@ const isWholeCents = (n) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6;
 
 // Create a new check-in. Expects body: { customer: ObjectId, transaction: { ...transactionData }, employeeSignature: string }
 // checkInTime is automatic, checkedInBy is taken from req.user (assumes auth middleware sets req.user)
+// Bug 098 — one visit at a time: a customer who is already checked in TODAY
+// (status "checked-in", checked in since midnight New Jersey time) cannot be
+// checked in again until that visit is checked out. Open check-ins from
+// earlier days (a check-out someone forgot) do not block a returning customer.
+const CHECKIN_TIME_ZONE = "America/New_York";
+const zonedParts = (date) =>
+  Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: CHECKIN_TIME_ZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(date)
+      .filter((p) => p.type !== "literal")
+      .map((p) => [p.type, Number(p.value)])
+  );
+// The moment today's date began in New Jersey (midnight there), as a Date.
+const startOfCheckInDay = (now = new Date()) => {
+  const today = zonedParts(now);
+  const utcMidnight = Date.UTC(today.year, today.month - 1, today.day);
+  const wall = zonedParts(new Date(utcMidnight));
+  const offsetMs =
+    Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second) - utcMidnight;
+  return new Date(utcMidnight - offsetMs);
+};
+// Customers whose check-in is being saved right now (two quick clicks /
+// two staff at once): the second request is turned away.
+const pendingCheckInCustomers = new Set();
+
 exports.create = async (req, res) => {
+  let lockKey = null;
   try {
     const {
       customer,
@@ -105,6 +140,38 @@ exports.create = async (req, res) => {
       return res.status(400).json({ message: "Signature of employee is required", error: "Signature of employee is required" });
     }
 
+    // Already checked in today? Checked before the payment is recorded, so a
+    // refused check-in never leaves a charge behind.
+    lockKey = String(customer);
+    if (pendingCheckInCustomers.has(lockKey)) {
+      lockKey = null; // the other request owns the lock
+      return bad(409, "This customer's check-in is already being saved. Please wait a moment.");
+    }
+    pendingCheckInCustomers.add(lockKey);
+    const openToday = await CheckIn.findOne({
+      customer,
+      status: "checked-in",
+      checkInTime: { $gte: startOfCheckInDay() },
+    })
+      .sort({ checkInTime: -1 })
+      .select("checkInToken checkInTime")
+      .lean();
+    if (openToday) {
+      const name = [cust.firstName, cust.lastName].filter(Boolean).join(" ").trim() || "This customer";
+      const since = new Date(openToday.checkInTime).toLocaleTimeString("en-US", {
+        timeZone: CHECKIN_TIME_ZONE,
+        hour: "numeric",
+        minute: "2-digit",
+      });
+      const text = `${name} is already checked in today (token ${openToday.checkInToken}, since ${since}). Check them out first.`;
+      return res.status(409).json({
+        message: text,
+        error: text,
+        code: "ALREADY_CHECKED_IN",
+        checkIn: openToday,
+      });
+    }
+
     // create transaction document with enforced fields
     const trx = new Transaction({
       amount: numericAmount,
@@ -145,8 +212,13 @@ exports.create = async (req, res) => {
     return res
       .status(500)
       .json({ message: "Internal server error", error: err.message });
+  } finally {
+    if (lockKey) pendingCheckInCustomers.delete(lockKey);
   }
 };
+
+// Exposed for tests.
+exports._startOfCheckInDay = startOfCheckInDay;
 
 // Get all check-ins with pagination, search on customer data and checkInToken, filter by status
 // Query params: page, limit, search, status
